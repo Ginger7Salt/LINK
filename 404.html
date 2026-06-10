@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="theme-color" content="#06c755" />
+    <meta name="format-detection" content="telephone=no, date=no, email=no, address=no" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Link" />
+    <link rel="icon" href="/LINK/link-icon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/LINK/link-icon.png" />
+    <style>
+      :root {
+        color: #1b1714;
+        background: #f5f0ea;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+      }
+
+      body {
+        background:
+          radial-gradient(circle at top, #fffaf6 0%, #f8f2ec 38%, #f2ebe3 100%);
+      }
+
+      #boot-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: grid;
+        place-items: center;
+        background: inherit;
+        transition: opacity 280ms ease, visibility 280ms ease;
+      }
+
+      #boot-loader.is-hidden {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      .boot-loader__inner {
+        display: grid;
+        width: min(248px, calc(100vw - 64px));
+      }
+
+      .boot-loader__wave {
+        display: grid;
+        place-items: center;
+      }
+
+      .boot-loader__wave svg {
+        width: 100%;
+        height: auto;
+        overflow: visible;
+      }
+
+      .boot-loader__wave-track {
+        stroke: rgba(141, 123, 109, 0.2);
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        fill: none;
+      }
+
+      .boot-loader__wave-line {
+        stroke: #9f8571;
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        fill: none;
+        stroke-dasharray: 320;
+        stroke-dashoffset: 320;
+        filter: drop-shadow(0 4px 12px rgba(159, 133, 113, 0.24));
+        animation: boot-wave 1.8s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+      }
+
+      @keyframes boot-wave {
+        0% {
+          stroke-dashoffset: 320;
+          opacity: 0.4;
+        }
+
+        22% {
+          opacity: 1;
+        }
+
+        55% {
+          stroke-dashoffset: 0;
+          opacity: 1;
+        }
+
+        100% {
+          stroke-dashoffset: -320;
+          opacity: 0.25;
+        }
+      }
+    </style>
+    <title>Link</title>
+    <script type="module" crossorigin src="/LINK/assets/index-BWgFkS3V.js"></script>
+    <link rel="stylesheet" crossorigin href="/LINK/assets/index-B_8Cb72t.css">
+  <link rel="manifest" href="/LINK/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/LINK/registerSW.js"></script></head>
+  <body>
+    <div id="boot-loader" aria-hidden="true">
+      <div class="boot-loader__inner">
+        <div class="boot-loader__wave">
+          <svg viewBox="0 0 240 72" role="presentation" aria-hidden="true">
+            <path
+              class="boot-loader__wave-track"
+              d="M8 36H58L74 36L88 18L101 54L114 26L126 36H232"
+            />
+            <path
+              class="boot-loader__wave-line"
+              d="M8 36H58L74 36L88 18L101 54L114 26L126 36H232"
+            />
+          </svg>
+        </div>
+      </div>
+    </div>
+    <div id="app"></div>
+  </body>
+</html>

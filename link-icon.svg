@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Link icon">
+  <rect width="512" height="512" rx="112" fill="#06c755"/>
+  <path d="M97 236c0-79 72-143 161-143s161 64 161 143-72 143-161 143c-16 0-32-2-46-6l-78 46c-14 8-30-6-24-21l26-61c-25-26-39-61-39-101Z" fill="#fff"/>
+  <text x="256" y="270" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="92" font-weight="800" fill="#06c755">link</text>
+</svg>
