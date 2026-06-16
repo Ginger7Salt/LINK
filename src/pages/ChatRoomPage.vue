@@ -69,6 +69,10 @@
           <UserMinus :size="20" />
           <span>删除好友</span>
         </button>
+        <button class="danger-menu-action" type="button" @click="openClearHistoryConfirm">
+          <ArchiveX :size="20" />
+          <span>清空记忆</span>
+        </button>
         <button type="button" @click="openModelSwitch">
           <SlidersHorizontal :size="20" />
           <span>模型切换</span>
@@ -149,6 +153,17 @@
       </section>
     </AppModal>
 
+    <AppModal v-model="showClearHistoryConfirm" title="确认清空" :show-header="false" variant="ins">
+      <section class="delete-confirm-sheet">
+        <h3>清空 {{ characterDisplayName }} 的记忆？</h3>
+        <p>会删除该角色的线上聊天、线下 RP、VOOM 关联、记忆手册、主页展示资料、心境状态和当前绑定的局部世界书，好友会保留并回到刚添加时的初始状态。</p>
+        <div class="delete-confirm-actions">
+          <button class="secondary-action" type="button" :disabled="clearingHistory" @click="showClearHistoryConfirm = false">取消</button>
+          <button class="danger-action" type="button" :disabled="clearingHistory" @click="confirmClearHistory">{{ clearingHistory ? '清空中' : '确认清空' }}</button>
+        </div>
+      </section>
+    </AppModal>
+
     <AppModal v-model="showOfflineConfirm" title="进入线下模式" :show-header="false" variant="ins">
       <section class="offline-confirm">
         <h3>进入线下模式？</h3>
@@ -176,7 +191,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { CheckSquare, ContactRound, Copy, Grid3X3, Pencil, Quote, RefreshCw, RotateCcw, SlidersHorizontal, Sparkles, Trash2, UserMinus, UserRound, X } from 'lucide-vue-next';
+import { ArchiveX, CheckSquare, ContactRound, Copy, Grid3X3, Pencil, Quote, RefreshCw, RotateCcw, SlidersHorizontal, Sparkles, Trash2, UserMinus, UserRound, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import ChatHeader from '@/components/chat/ChatHeader.vue';
 import ChatModelSwitchPanel from '@/components/chat/ChatModelSwitchPanel.vue';
@@ -206,8 +221,10 @@ const showMessageMenu = ref(false);
 const showEditModal = ref(false);
 const showDeleteConfirm = ref(false);
 const showDeleteFriendConfirm = ref(false);
+const showClearHistoryConfirm = ref(false);
 const generatingVoom = ref(false);
 const deletingFriend = ref(false);
+const clearingHistory = ref(false);
 const messageListRef = ref<HTMLElement | null>(null);
 const activeMessage = ref<ChatMessage | null>(null);
 const selectionMode = ref(false);
@@ -452,6 +469,11 @@ function openDeleteFriendConfirm() {
   showDeleteFriendConfirm.value = true;
 }
 
+function openClearHistoryConfirm() {
+  showActionMenu.value = false;
+  showClearHistoryConfirm.value = true;
+}
+
 async function confirmDeleteFriend() {
   const currentCharacter = character.value;
   if (!currentCharacter || deletingFriend.value) return;
@@ -463,6 +485,26 @@ async function confirmDeleteFriend() {
     await router.replace({ name: 'chats' });
   } finally {
     deletingFriend.value = false;
+  }
+}
+
+async function confirmClearHistory() {
+  const currentCharacter = character.value;
+  if (!currentCharacter || clearingHistory.value) return;
+  clearingHistory.value = true;
+  try {
+    const cleared = await store.clearCharacterHistory(currentCharacter.id);
+    showClearHistoryConfirm.value = false;
+    if (cleared) {
+      quoteTarget.value = null;
+      cancelSelection();
+      store.showConfigAlert('已清空该角色记忆，好友状态已回到初始。', '清空完成');
+      await store.updateConversationMode(props.id, 'online');
+      await router.replace({ name: 'chat-room', params: { id: props.id } });
+      await scrollMessagesToBottom();
+    }
+  } finally {
+    clearingHistory.value = false;
   }
 }
 

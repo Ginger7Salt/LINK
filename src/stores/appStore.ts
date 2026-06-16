@@ -830,6 +830,135 @@ export const useAppStore = defineStore('app', () => {
     ]);
   }
 
+  async function clearCharacterHistory(characterId: string) {
+    const character = characterById(characterId);
+    if (!character) return false;
+
+    const conversation = conversations.value.find((entry) => entry.charId === characterId);
+    const conversationId = conversation?.id ?? '';
+    const now = Date.now();
+    const relatedMessages = conversationId ? messages.value.filter((message) => message.conversationId === conversationId) : [];
+    const relatedMemories = conversationId ? conversationMemories.value.filter((memory) => memory.conversationId === conversationId) : [];
+    const relatedSettings = conversationId ? conversationSettings.value.find((entry) => entry.conversationId === conversationId) : undefined;
+    const relatedLocalWorldBooks = worldBooks.value.filter((book) => book.scope === 'local' && character.localWorldBookIds.includes(book.id));
+    const relatedLocalWorldBookIds = new Set(relatedLocalWorldBooks.map((book) => book.id));
+    const characterNameKeys = new Set([character.id, character.nickname, character.name, character.userNote, getCharacterVoomAuthorName(character)]
+      .map((name) => name.trim().toLocaleLowerCase())
+      .filter(Boolean));
+    const postsToDelete: VoomPost[] = [];
+    const postsToUpdate: VoomPost[] = [];
+
+    for (const post of voomPosts.value) {
+      const postConversationIds = post.conversationIds?.map((id) => id.trim()).filter(Boolean) ?? [];
+      const isCharacterPost = post.charId === characterId || (post.authorType !== 'user' && (post.conversationId === conversationId || postConversationIds.includes(conversationId)));
+      if (isCharacterPost) {
+        postsToDelete.push(post);
+        continue;
+      }
+
+      const removedCommentIds = new Set<string>();
+      for (const comment of post.comments) {
+        const authorKey = String(comment.authorId ?? comment.authorName ?? '').trim().toLocaleLowerCase();
+        if (characterNameKeys.has(authorKey)) removedCommentIds.add(comment.id);
+      }
+
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const comment of post.comments) {
+          if (comment.parentId && removedCommentIds.has(comment.parentId) && !removedCommentIds.has(comment.id)) {
+            removedCommentIds.add(comment.id);
+            changed = true;
+          }
+        }
+      }
+
+      const nextConversationIds = postConversationIds.filter((id) => id !== conversationId);
+      const nextVisibleCharacterIds = post.visibleCharacterIds?.filter((id) => id !== characterId);
+      const nextComments = removedCommentIds.size ? post.comments.filter((comment) => !removedCommentIds.has(comment.id)) : post.comments;
+      const nextLikes = post.likes.filter((like) => !characterNameKeys.has(like.trim().toLocaleLowerCase()));
+      const nextConversationId = post.conversationId === conversationId ? nextConversationIds[0] : post.conversationId;
+      const touchedPost = post.conversationId === conversationId
+        || postConversationIds.includes(conversationId)
+        || post.visibleCharacterIds?.includes(characterId)
+        || nextComments.length !== post.comments.length
+        || nextLikes.length !== post.likes.length;
+
+      if (!touchedPost) continue;
+
+      postsToUpdate.push(createPersistableVoomPost({
+        ...post,
+        conversationId: nextConversationId || undefined,
+        conversationIds: post.conversationIds ? nextConversationIds : undefined,
+        visibleCharacterIds: post.visibleCharacterIds ? nextVisibleCharacterIds : undefined,
+        comments: nextComments,
+        likes: nextLikes
+      }));
+    }
+
+    const postDeleteIds = new Set(postsToDelete.map((post) => post.id));
+    const postUpdateMap = new Map(postsToUpdate.map((post) => [post.id, post]));
+    messages.value = messages.value.filter((message) => message.conversationId !== conversationId);
+    conversationMemories.value = conversationMemories.value.filter((memory) => memory.conversationId !== conversationId);
+    if (relatedSettings) conversationSettings.value = conversationSettings.value.filter((entry) => entry.conversationId !== conversationId);
+    voomPosts.value = voomPosts.value
+      .filter((post) => !postDeleteIds.has(post.id))
+      .map((post) => postUpdateMap.get(post.id) ?? post);
+    worldBooks.value = worldBooks.value.filter((book) => !relatedLocalWorldBookIds.has(book.id));
+
+    if (relatedLocalWorldBookIds.size) {
+      const affectedCharacters = characters.value.filter((entry) => entry.id !== characterId && entry.localWorldBookIds.some((id) => relatedLocalWorldBookIds.has(id)));
+      await Promise.all(
+        affectedCharacters.map((entry) => {
+          const nextCharacter = {
+            ...entry,
+            localWorldBookIds: entry.localWorldBookIds.filter((id) => !relatedLocalWorldBookIds.has(id))
+          };
+          const characterIndex = characters.value.findIndex((item) => item.id === nextCharacter.id);
+          if (characterIndex >= 0) characters.value[characterIndex] = nextCharacter;
+          return putEntity('characters', nextCharacter);
+        })
+      );
+    }
+
+    const nextCharacter = normalizeCharacterProfile({
+      ...character,
+      subtitle: '刚刚成为好友',
+      lastSeen: '现在',
+      localWorldBookIds: [],
+      voomFrequency: 'medium',
+      mindState: undefined,
+      profile: undefined
+    }, character.boundUserId);
+    const characterIndex = characters.value.findIndex((entry) => entry.id === characterId);
+    if (characterIndex >= 0) characters.value[characterIndex] = nextCharacter;
+
+    const nextConversation = conversation ? {
+      ...conversation,
+      activeMode: 'online' as const,
+      updatedAt: now,
+      unreadCount: 0,
+      summary: '刚成为好友，还没有太多共同经历。'
+    } : undefined;
+    if (nextConversation) {
+      const conversationIndex = conversations.value.findIndex((entry) => entry.id === nextConversation.id);
+      if (conversationIndex >= 0) conversations.value[conversationIndex] = nextConversation;
+    }
+
+    await Promise.all([
+      putEntity('characters', nextCharacter),
+      ...(nextConversation ? [putEntity('conversations', nextConversation)] : []),
+      ...relatedMessages.map((message) => deleteEntity('messages', message.id)),
+      ...relatedMemories.map((memory) => deleteEntity('conversationMemories', memory.id)),
+      ...(relatedSettings ? [deleteEntity('conversationSettings', relatedSettings.conversationId)] : []),
+      ...postsToDelete.map((post) => deleteEntity('voomPosts', post.id)),
+      ...postsToUpdate.map((post) => putEntity('voomPosts', post)),
+      ...relatedLocalWorldBooks.map((book) => deleteEntity('worldBooks', book.id))
+    ]);
+
+    return true;
+  }
+
   async function saveWorldBook(entry: WorldBookEntry) {
     const normalizedEntry = normalizeWorldBookEntry(entry);
     const index = worldBooks.value.findIndex((book) => book.id === normalizedEntry.id);
@@ -1784,6 +1913,7 @@ export const useAppStore = defineStore('app', () => {
     saveAccountProfile,
     deleteUserProfile,
     deleteCharacterProfile,
+    clearCharacterHistory,
     setActiveUser,
     saveVisualProfile,
     saveCharacter,
