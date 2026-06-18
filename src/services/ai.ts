@@ -35,6 +35,11 @@ export interface RoleplayStickerPlacement {
   stickers: string[];
 }
 
+export type RoleplayReplySegment =
+  | { type: 'reply'; content: string; translation?: string }
+  | { type: 'narration'; content: string }
+  | { type: 'sticker'; stickers: string[] };
+
 export interface RoleplayReplyResult {
   reply: string;
   replies?: string[];
@@ -42,6 +47,7 @@ export interface RoleplayReplyResult {
   narrations?: string[];
   stickers?: string[];
   stickerPlacements?: RoleplayStickerPlacement[];
+  segments?: RoleplayReplySegment[];
   messageActions?: RoleplayMessageActions;
   profileUpdate: null | {
     nickname: string;
@@ -387,6 +393,59 @@ function normalizeNarrationLines(value: unknown): string[] {
       const lines = normalizeNarrationLines(candidate);
       if (lines.length) return lines;
     }
+  }
+  return [];
+}
+
+function normalizeSegmentType(value: unknown): RoleplayReplySegment['type'] | '' {
+  const type = String(value ?? '').trim().toLocaleLowerCase();
+  if (['reply', 'message', 'bubble', 'text'].includes(type)) return 'reply';
+  if (['narration', 'narrative', 'action', 'system'].includes(type)) return 'narration';
+  if (['sticker', 'stickers', 'emoji', 'emote'].includes(type)) return 'sticker';
+  return '';
+}
+
+function normalizeRoleplaySegment(value: unknown, narrationEnabled: boolean): RoleplayReplySegment[] {
+  if (Array.isArray(value)) return value.flatMap((item) => normalizeRoleplaySegment(item, narrationEnabled));
+  if (!value || typeof value !== 'object') return [];
+
+  const record = value as Record<string, unknown>;
+  const type = normalizeSegmentType(record.type ?? record.kind ?? record.role);
+  if (type === 'sticker') {
+    const stickers = [...new Set([
+      ...normalizeStickerSelections(record.stickers),
+      ...normalizeStickerSelections(record.stickerIds),
+      ...normalizeStickerSelections(record.sticker),
+      ...normalizeStickerSelections(record.stickerId),
+      ...normalizeStickerSelections(record.id)
+    ].map((item) => item.trim()).filter(Boolean))];
+    return stickers.length ? [{ type: 'sticker', stickers }] : [];
+  }
+
+  if (type === 'narration') {
+    if (!narrationEnabled) return [];
+    return normalizeNarrationLines(record.content ?? record.narration ?? record.text ?? record.message ?? record.description)
+      .map((content) => ({ type: 'narration' as const, content }));
+  }
+
+  if (type === 'reply') {
+    const replies = normalizeTextFragments(record.content ?? record.reply ?? record.message ?? record.text);
+    const translations = normalizeTranslationList(record.translation ?? record.contentTranslation ?? record.translationZh ?? record.chineseTranslation);
+    return replies.map((content, index) => ({
+      type: 'reply' as const,
+      content,
+      ...(translations[index] ? { translation: translations[index] } : {})
+    }));
+  }
+
+  return [];
+}
+
+function normalizeRoleplaySegments(value: unknown, narrationEnabled: boolean): RoleplayReplySegment[] {
+  if (Array.isArray(value)) return value.flatMap((item) => normalizeRoleplaySegment(item, narrationEnabled));
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return normalizeRoleplaySegments(record.segments ?? record.sequence ?? record.timeline ?? record.items, narrationEnabled);
   }
   return [];
 }
@@ -969,6 +1028,7 @@ export async function generateRoleplayReply(input: GenerateReplyInput): Promise<
       const narrations = input.mode === 'online' && input.narrationModeEnabled
         ? normalizeNarrationLines(parsedRecordAny.narrations ?? parsedRecordAny.narrationMessages ?? parsedRecordAny.actionNarrations ?? parsedRecordAny.actions)
         : [];
+      const segments = normalizeRoleplaySegments(parsedRecordAny.segments ?? parsedRecordAny.sequence ?? parsedRecordAny.timeline, input.mode === 'online' && Boolean(input.narrationModeEnabled));
       const messageActions = normalizeRoleplayMessageActions(parsedRecordAny);
       const profileUpdateRecord = parsedRecord.profileUpdate && typeof parsedRecord.profileUpdate === 'object'
         ? parsedRecord.profileUpdate as Record<string, unknown>
@@ -991,6 +1051,7 @@ export async function generateRoleplayReply(input: GenerateReplyInput): Promise<
         narrations: narrations.slice(0, 3),
         stickers,
         stickerPlacements,
+        segments,
         messageActions,
         profileUpdate: profileUpdateRecord
           ? {
@@ -1008,7 +1069,7 @@ export async function generateRoleplayReply(input: GenerateReplyInput): Promise<
       } satisfies RoleplayReplyResult);
     } catch {
       const replies = input.mode === 'online' ? normalizeRawOnlineReply(apiReply) : [apiReply];
-      return JSON.stringify({ reply: replies[0] ?? '', replies, narrations: [], stickers: [], stickerPlacements: [], messageActions: { recallMessageIds: [], quotes: [] }, profileUpdate: null } satisfies RoleplayReplyResult);
+      return JSON.stringify({ reply: replies[0] ?? '', replies, narrations: [], stickers: [], stickerPlacements: [], segments: [], messageActions: { recallMessageIds: [], quotes: [] }, profileUpdate: null } satisfies RoleplayReplyResult);
     }
   }
   throw new Error('角色回复模型没有返回内容。');

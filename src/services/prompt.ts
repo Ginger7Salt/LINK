@@ -104,6 +104,7 @@ export const profileMutationPrompt = `补充输出规则：
   "narrations": [],
   "stickers": [],
   "stickerPlacements": [],
+  "segments": [],
   "messageActions": {
     "recallMessageIds": [],
     "quotes": []
@@ -125,6 +126,7 @@ export const profileMutationPrompt = `补充输出规则：
   "stickerPlacements": [
     { "replyIndex": 1, "position": "after", "stickers": ["合适的Sticker id"] }
   ],
+  "segments": [],
   "messageActions": {
     "recallMessageIds": [],
     "quotes": []
@@ -154,13 +156,19 @@ export const profileMutationPrompt = `补充输出规则：
 14. 你可以引用用户之前发过的某条消息进行回复。若某条 replies 要引用用户消息，在 messageActions.quotes 里写 {"replyIndex": 0, "messageId": "用户消息id"}；replyIndex 从 0 开始，对应 replies 数组下标。
 15. 引用用于自然承接上下文。引用时 replies 里仍只写你真正要发出的新消息，不要重复被引用内容。
 16. 如果没有撤回或引用动作，messageActions 里的两个数组都保持空数组。
-17. narrations 默认保持空数组；只有当额外规则明确说明“旁白模式已开启”时，才允许填入旁白短句。`;
+17. segments 默认保持空数组；只有当额外规则明确说明“旁白模式已开启”时，才优先使用 segments 表达本轮回复的真实发送顺序。
+18. narrations 默认保持空数组；只有当额外规则明确说明“旁白模式已开启”时，才允许填入旁白短句。`;
 
 export const narrationModePrompt = `补充旁白模式规则：
 
 旁白模式已开启，只在线上聊天生效。本次仍然只使用同一次角色回复 API；不要另起一段非 JSON 文本。
 
-在最终 JSON 的 narrations 数组中输出 1-6 条旁白，用于聊天页面像 VOOM 系统旁白一样独立显示。narrations 不属于聊天气泡，不要写进 replies。
+优先在最终 JSON 的 segments 数组中输出本轮真实顺序，允许旁白、聊天气泡、Sticker 任意交错。segments 每一项只能使用以下三种结构之一：
+{ "type": "narration", "content": "旁白短句" }
+{ "type": "reply", "content": "聊天气泡内容", "translation": "对应普通话译文或空字符串" }
+{ "type": "sticker", "stickers": ["Sticker id或文字描述"] }
+
+如果使用 segments，系统会优先且只按 segments 显示本轮旁白、气泡和 Sticker 顺序；replies、replyTranslations 可以同步填入 reply 类型 segment 的文字和译文用于兼容，narrations、stickers、stickerPlacements 保持空数组。narrations 不属于聊天气泡，不要写进 replies 或 reply 类型 segment。
 
 旁白内容：
 1. 可描写{{char}}当下可观察的动作、姿态、停顿、打字状态、手机/环境互动等动描。

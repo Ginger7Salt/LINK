@@ -84,99 +84,6 @@
               </p>
             </article>
 
-            <article class="disclaimer-step disclaimer-step-social">
-              <section class="social-shell social-shell-realistic">
-                <header class="social-app-header">
-                  <button type="button" class="social-header-support" @click="contactLinkSupport">联系 LINK 客服反馈</button>
-                  <span class="social-status-pill" :class="`tone-${socialFeedbackKind}`">{{ socialStatusBadge }}</span>
-                </header>
-
-                <div class="auth-tab-row" role="tablist" aria-label="登录方式">
-                  <button type="button" class="auth-tab" :class="{ active: socialTab === 'login' }" @click="switchSocialTab('login')">登录</button>
-                  <button type="button" class="auth-tab" :class="{ active: socialTab === 'register' }" @click="switchSocialTab('register')">注册</button>
-                  <button type="button" class="auth-tab" :class="{ active: socialTab === 'other' }" @click="switchSocialTab('other')">其他登录</button>
-                </div>
-
-                <section v-if="socialTab === 'login'" class="auth-card auth-card-realistic">
-                  <p class="auth-card-title">登录账号</p>
-                  <p class="auth-card-copy">请输入账号和密码以继续访问 LINK </p>
-
-                  <label class="auth-field">
-                    <span>用户名</span>
-                    <input v-model="loginUsername" type="text" placeholder="请输入用户名" autocomplete="off" />
-                  </label>
-
-                  <label class="auth-field">
-                    <span>密码</span>
-                    <input v-model="loginPassword" type="password" placeholder="请输入密码" autocomplete="off" />
-                  </label>
-
-                  <div class="auth-inline-actions">
-                    <button type="button" class="auth-link-button" @click="switchSocialTab('register')">注册账号</button>
-                    <span class="auth-inline-note">登录即视为同意服务协议与隐私说明</span>
-                  </div>
-
-                  <button type="button" class="social-primary-button social-primary-button-dark" @click="submitLogin">登录</button>
-                </section>
-
-                <section v-else-if="socialTab === 'register'" class="auth-card auth-card-realistic">
-                  <p class="auth-card-title">创建账号</p>
-                  <p class="auth-card-copy">注册后可在此设备使用你的 LINK </p>
-
-                  <label class="auth-field">
-                    <span>用户名</span>
-                    <input v-model="registerUsername" type="text" placeholder="请输入用户名" autocomplete="off" />
-                  </label>
-
-                  <label class="auth-field">
-                    <span>密码</span>
-                    <input v-model="registerPassword" type="password" placeholder="请输入密码" autocomplete="off" />
-                  </label>
-
-                  <div class="auth-inline-actions">
-                    <button type="button" class="auth-link-button" @click="switchSocialTab('login')">返回登录</button>
-                    <span class="auth-inline-note">注册即视为同意服务协议与隐私说明</span>
-                  </div>
-
-                  <button type="button" class="social-primary-button social-primary-button-dark" @click="submitRegister">立即注册</button>
-                </section>
-
-                <section v-else class="auth-card auth-card-other auth-card-realistic">
-                  <p class="auth-card-title">其他方式登录</p>
-                  <p class="auth-card-copy">完成授权后将自动检查 GitHub 云端备份，并恢复或绑定当前 LINK 账号。</p>
-
-                  <button type="button" class="oauth-button github oauth-button-primary" :disabled="githubLinkBusy" @click="openGitHubSocialLogin">
-                    <span>继续使用 GitHub</span>
-                    <small>同步备份记录与自动备份配置</small>
-                  </button>
-
-                  <div class="social-provider-divider">
-                    <span></span>
-                    <strong>其他登录方式</strong>
-                    <span></span>
-                  </div>
-
-                  <div class="social-provider-grid">
-                    <button type="button" class="provider-chip" @click="triggerProviderReply('wechat')">
-                      <span class="provider-icon">微</span>
-                      <small>微信登录</small>
-                    </button>
-                    <button type="button" class="provider-chip" @click="triggerProviderReply('qq')">
-                      <span class="provider-icon">Q</span>
-                      <small>QQ 登录</small>
-                    </button>
-                    <button type="button" class="provider-chip" @click="triggerProviderReply('apple')">
-                      <span class="provider-icon">A</span>
-                      <small>Apple</small>
-                    </button>
-                  </div>
-
-                  <p class="other-login-note">GitHub 登录成功后会优先尝试恢复云端备份；如果未发现备份记录，则自动绑定当前自动备份仓库。</p>
-                </section>
-
-                <p v-if="socialFeedback" class="social-feedback social-feedback-banner" :class="`tone-${socialFeedbackKind}`">{{ socialFeedback }}</p>
-              </section>
-            </article>
           </div>
         </div>
 
@@ -191,8 +98,7 @@
         <footer class="disclaimer-footer">
           <div class="countdown-copy" :class="{ ready: !showCountdown }">
             <span v-if="showCountdown">本页阅读计时剩余 {{ remainingSeconds }} 秒，计时结束后方可继续</span>
-            <span v-else-if="isSocialStep">{{ socialStepFooterCopy }}</span>
-            <span v-else>{{ activeStep < steps.length ? '本页阅读已完成，可继续下一项条款' : '阅读已完成，输入声明无误后即可继续最后一页' }}</span>
+            <span v-else>{{ activeStep < steps.length ? '本页阅读已完成，可继续下一项条款' : '阅读已完成，输入声明无误后即可进入网站' }}</span>
           </div>
 
           <div class="footer-actions">
@@ -216,9 +122,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { buildGitHubLoginUrl, ensureGitHubBackupRepository, getGitHubOAuthWorkerOrigin } from '@/services/githubBackup';
-import { useAppStore } from '@/stores/appStore';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
 type StepClauseTone = 'neutral' | 'warn' | 'danger';
 
@@ -237,15 +141,6 @@ interface DisclaimerStep {
   noticeTone?: StepClauseTone;
 }
 
-interface GitHubOAuthMessage {
-  type: 'link:github-oauth';
-  token?: string;
-  owner?: string;
-  repo?: string;
-  branch?: string;
-  error?: string;
-}
-
 const props = defineProps<{
   modelValue: boolean;
 }>();
@@ -253,8 +148,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   complete: [];
 }>();
-
-const store = useAppStore();
 
 const confirmationText = '本人已满十八周岁，已完整阅读并理解以上全部使用条款，知悉权责，同意所有条款，确认使用。';
 
@@ -408,23 +301,11 @@ const confirmChecklist = [
   }
 ] as const;
 
-const totalSteps = steps.length + 2;
+const totalSteps = steps.length + 1;
 const readDelaySeconds = 8;
 const activeStep = ref(0);
 const typedConfirmation = ref('');
 const remainingSeconds = ref(readDelaySeconds);
-const socialTab = ref<'register' | 'login' | 'other'>('register');
-const registerUsername = ref('');
-const registerPassword = ref('');
-const loginUsername = ref('');
-const loginPassword = ref('');
-const socialFeedback = ref('');
-const socialFeedbackKind = ref<'neutral' | 'success' | 'warn' | 'error'>('neutral');
-const prankRegisteredUsername = ref('');
-const prankRegisteredPassword = ref('');
-const prankPasswordResetDone = ref(false);
-const githubLinkBusy = ref(false);
-let githubLoginWindow: Window | null = null;
 
 let countdownTimer: number | null = null;
 
@@ -435,27 +316,12 @@ const stepNumber = computed(() => String(activeStep.value + 1).padStart(2, '0'))
 const isConfirmationMatched = computed(() => typedConfirmation.value.trim() === confirmationText);
 const showCountdown = computed(() => remainingSeconds.value > 0);
 const isConfirmStep = computed(() => activeStep.value === steps.length);
-const isSocialStep = computed(() => activeStep.value === steps.length + 1);
-const canFinishSocialStep = computed(() => prankPasswordResetDone.value);
-const socialStatusBadge = computed(() => {
-  if (githubLinkBusy.value) return '处理中';
-  if (prankPasswordResetDone.value) return '已通过';
-  if (socialFeedbackKind.value === 'error') return '受限';
-  return socialTab.value === 'other' ? '第三方' : '登录';
-});
-const socialStepFooterCopy = computed(() => {
-  if (githubLinkBusy.value) return 'GitHub 登录处理中，返回后会自动恢复或绑定备份。';
-  if (canFinishSocialStep.value) return '给你开后门，跳过登录直接进入网站';
-  return '完成登录账号或第三方登录后，即可进入网站。';
-});
 const footerPrimaryLabel = computed(() => {
-  if (isConfirmStep.value) return '进入登录系统';
-  if (isSocialStep.value) return '确认进入网站';
+  if (isConfirmStep.value) return '确认进入网站';
   return nextButtonLabel.value;
 });
 const isNextDisabled = computed(() => {
   if (remainingSeconds.value > 0) return true;
-  if (isSocialStep.value) return !canFinishSocialStep.value;
   if (isConfirmStep.value) return !isConfirmationMatched.value;
   return false;
 });
@@ -468,148 +334,6 @@ function stopCountdown() {
   if (countdownTimer !== null) {
     window.clearInterval(countdownTimer);
     countdownTimer = null;
-  }
-}
-
-function setSocialFeedback(message: string, kind: 'neutral' | 'success' | 'warn' | 'error' = 'neutral') {
-  socialFeedback.value = message;
-  socialFeedbackKind.value = kind;
-}
-
-function switchSocialTab(tab: 'register' | 'login' | 'other') {
-  socialTab.value = tab;
-  socialFeedback.value = '';
-}
-
-function triggerProviderReply(provider: 'wechat' | 'qq' | 'apple') {
-  if (provider === 'wechat') {
-    setSocialFeedback('微信登录暂时不可用', 'warn');
-    return;
-  }
-  if (provider === 'qq') {
-    setSocialFeedback('正在检测你是不是 2009 年的尊贵黄钻会员，请稍等...', 'warn');
-    return;
-  }
-  setSocialFeedback('Apple 登录检测到你的设备暂不支持，请稍后重试', 'warn');
-}
-
-function submitRegister() {
-  if (!registerUsername.value.trim()) {
-    setSocialFeedback('请输入用户名后再继续。', 'error');
-    return;
-  }
-  if (registerPassword.value.trim().length < 6) {
-    setSocialFeedback('密码长度不能少于 6 位。', 'error');
-    return;
-  }
-
-  prankRegisteredUsername.value = registerUsername.value.trim();
-  prankRegisteredPassword.value = registerPassword.value;
-  loginUsername.value = prankRegisteredUsername.value;
-  loginPassword.value = prankRegisteredPassword.value;
-  socialTab.value = 'login';
-  setSocialFeedback(`账号 ${prankRegisteredUsername.value} 注册成功，请返回登录继续验证。`, 'success');
-}
-
-function submitLogin() {
-  if (!prankRegisteredUsername.value) {
-    setSocialFeedback('当前设备尚未创建账号，请先完成注册。', 'warn');
-    socialTab.value = 'register';
-    return;
-  }
-  if (loginUsername.value.trim() !== prankRegisteredUsername.value) {
-    setSocialFeedback('账号不存在，请检查用户名后重试。', 'error');
-    return;
-  }
-  if (loginPassword.value !== prankRegisteredPassword.value) {
-    setSocialFeedback('密码错误，请重新输入。', 'error');
-    return;
-  }
-
-  setSocialFeedback('该用户已被封禁，请使用第三方登录或点击“联系LINK客服反馈”按钮。', 'error');
-}
-
-function isGitHubOAuthMessage(value: unknown): value is GitHubOAuthMessage {
-  return Boolean(value && typeof value === 'object' && (value as { type?: string }).type === 'link:github-oauth');
-}
-
-async function bindGitHubBackupAccount(token: string, owner: string, repo?: string, branch?: string) {
-  if (!store.settings) throw new Error('设置尚未载入。');
-
-  const repository = await ensureGitHubBackupRepository({
-    token,
-    owner,
-    repo: repo?.trim() || store.settings.githubBackup.repo || 'link-private-backups'
-  });
-  await store.saveSettings({
-    ...store.settings,
-    githubBackup: {
-      ...store.settings.githubBackup,
-      token,
-      owner: repository.owner,
-      repo: repository.repo,
-      branch: branch?.trim() || repository.branch || 'main',
-      enabled: true,
-      lastBackupStatus: 'idle',
-      lastBackupError: ''
-    }
-  });
-  return repository;
-}
-
-function openGitHubSocialLogin() {
-  const login = buildGitHubLoginUrl();
-  githubLoginWindow = window.open(login.url, 'link-github-oauth', 'width=480,height=720');
-  githubLinkBusy.value = true;
-  setSocialFeedback(login.mode === 'worker'
-    ? '已打开 GitHub 授权页，授权完成后将自动检查并同步云端备份。'
-    : login.mode === 'oauth'
-      ? '已打开 GitHub 授权页，正在等待回调完成身份验证。'
-      : '已打开 GitHub token 页面。若当前环境暂不支持自动回调，可返回设置页手动绑定。');
-}
-
-async function handleGitHubOAuthMessage(event: MessageEvent) {
-  const workerOrigin = getGitHubOAuthWorkerOrigin();
-  if (!workerOrigin || event.origin !== workerOrigin) return;
-  if (!isGitHubOAuthMessage(event.data)) return;
-
-  githubLinkBusy.value = false;
-  const message = event.data;
-  if (message.error) {
-    setSocialFeedback(message.error, 'error');
-    return;
-  }
-  if (!message.token || !message.owner) {
-    setSocialFeedback('GitHub 登录结果不完整，请重试。', 'error');
-    return;
-  }
-
-  try {
-    const repository = await bindGitHubBackupAccount(message.token, message.owner, message.repo, message.branch);
-    const hasRemoteBackup = await store.hasGitHubBackup();
-    githubLoginWindow?.close();
-    if (hasRemoteBackup) {
-      const latestRemote = store.settings?.githubBackup;
-      if (latestRemote?.latestRemoteBackupSha) {
-        await store.saveSettings({
-          ...store.settings!,
-          githubBackup: {
-            ...store.settings!.githubBackup,
-            pendingRestoreSha: latestRemote.latestRemoteBackupSha,
-            pendingRestoreAt: latestRemote.latestRemoteBackupAt
-          }
-        });
-        await store.importGitHubBackup(latestRemote.latestRemoteBackupSha);
-      }
-      prankPasswordResetDone.value = true;
-      setSocialFeedback(`GitHub 登录成功，已从 ${repository.owner}/${repository.repo} 导入备份并允许进入。`, 'success');
-      return;
-    }
-
-    prankPasswordResetDone.value = true;
-    setSocialFeedback(`GitHub 登录成功，当前未检测到远端备份，已绑定 ${repository.owner}/${repository.repo} 作为自动备份账号。`, 'success');
-  } catch (error) {
-    setSocialFeedback(error instanceof Error ? error.message : 'GitHub 登录后绑定失败。', 'error');
   }
 }
 
@@ -631,23 +355,12 @@ function goPrev() {
   activeStep.value -= 1;
 }
 
-function contactLinkSupport() {
-  prankPasswordResetDone.value = true;
-  setSocialFeedback('已转交 LINK 客服处理，你现在可以直接进入网站。', 'success');
-}
-
 function handleNext() {
   if (isNextDisabled.value) return;
 
-  if (isSocialStep.value) {
-    stopCountdown();
-    emit('complete');
-    return;
-  }
-
   if (isConfirmStep.value) {
     stopCountdown();
-    activeStep.value += 1;
+    emit('complete');
     return;
   }
 
@@ -674,17 +387,8 @@ watch(activeStep, () => {
   startCountdown();
 });
 
-const githubOAuthMessageListener = (event: MessageEvent) => {
-  void handleGitHubOAuthMessage(event);
-};
-
-onMounted(() => {
-  window.addEventListener('message', githubOAuthMessageListener);
-});
-
 onBeforeUnmount(() => {
   stopCountdown();
-  window.removeEventListener('message', githubOAuthMessageListener);
 });
 </script>
 
@@ -1075,390 +779,6 @@ onBeforeUnmount(() => {
 
 .confirm-hint-success {
   color: var(--accent-ink);
-}
-
-.disclaimer-step-social {
-  display: flex;
-  flex-direction: column;
-}
-
-.social-shell {
-  display: grid;
-  gap: 12px;
-  margin-top: 12px;
-}
-
-.social-shell-header,
-.auth-tab-row,
-.gender-chip-row,
-.social-status-pill,
-.oauth-button,
-.history-entry,
-.social-provider-divider,
-.social-provider-grid,
-.provider-chip,
-.auth-inline-actions {
-  display: flex;
-  align-items: center;
-}
-
-.social-shell-realistic {
-  gap: 14px;
-  padding: 18px 16px 16px;
-  border-radius: 24px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(251, 251, 251, 0.98));
-  box-shadow: 0 22px 40px rgba(15, 23, 42, 0.08);
-}
-
-.social-app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.social-header-support {
-  min-height: 28px;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.05);
-  color: #535963;
-  font-size: 11px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.social-brand-card {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  padding: 6px 0 2px;
-  text-align: center;
-}
-
-.social-brand-avatar {
-  width: 64px;
-  height: 64px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #d9dadf, #c6c8cf);
-  box-shadow: inset 0 1px 3px rgba(255, 255, 255, 0.7);
-}
-
-.social-brand-card strong {
-  color: #2a2d33;
-  font-size: 19px;
-  font-weight: 800;
-}
-
-.social-brand-card p,
-.auth-card-copy,
-.reset-card p,
-.social-feedback {
-  margin: 0;
-  color: #8f949b;
-  font-size: 12px;
-  line-height: 1.58;
-}
-
-.social-status-pill {
-  justify-content: center;
-  min-height: 24px;
-  padding: 0 9px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.social-status-pill.tone-neutral {
-  background: rgba(15, 23, 42, 0.06);
-  color: #425466;
-}
-
-.social-status-pill.tone-success {
-  background: rgba(8, 182, 104, 0.12);
-  color: var(--accent-ink);
-}
-
-.social-status-pill.tone-warn {
-  background: var(--warn-soft);
-  color: var(--warn-ink);
-}
-
-.social-status-pill.tone-error {
-  background: var(--danger-soft);
-  color: var(--danger-ink);
-}
-
-.auth-tab-row {
-  gap: 8px;
-  padding: 4px;
-  border-radius: 16px;
-  background: rgba(15, 23, 42, 0.04);
-}
-
-.auth-tab {
-  flex: 1;
-  min-height: 34px;
-  border-radius: 12px;
-  background: transparent;
-  color: #7b8289;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.auth-tab.active {
-  background: #ffffff;
-  color: #24272d;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
-}
-
-.auth-card,
-.reset-card,
-.social-log-card {
-  display: grid;
-  gap: 12px;
-  padding: 4px 0 0;
-  border-radius: 0;
-  border: 0;
-  background: #ffffff;
-  box-shadow: none;
-}
-
-.auth-card-title {
-  margin: 0;
-  color: #2a2d33;
-  font-size: 24px;
-  font-weight: 800;
-}
-
-.auth-card-realistic {
-  gap: 14px;
-}
-
-.auth-field {
-  display: grid;
-  gap: 6px;
-}
-
-.auth-field span,
-.social-log-title,
-.reset-card strong {
-  color: #575e65;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-}
-
-.auth-field input {
-  min-height: 48px;
-  padding: 0 14px;
-  border: 0;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.1);
-  border-radius: 0;
-  background: transparent;
-  color: #1d2127;
-  font-size: 14px;
-}
-
-.auth-field input:focus {
-  border-color: rgba(48, 53, 63, 0.48);
-  box-shadow: inset 0 -1px 0 rgba(48, 53, 63, 0.48);
-}
-
-.auth-inline-actions {
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.auth-link-button,
-.auth-inline-note {
-  color: #8a8f96;
-  font-size: 12px;
-}
-
-.auth-link-button {
-  padding: 0;
-  font-weight: 600;
-}
-
-.gender-chip-row {
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.gender-chip {
-  min-height: 38px;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.05);
-  color: #4d5560;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.gender-chip.locked {
-  background: rgba(228, 87, 87, 0.08);
-  color: var(--danger-ink);
-}
-
-.gender-chip.active {
-  background: rgba(43, 48, 58, 0.9);
-  color: #ffffff;
-}
-
-.social-primary-button,
-.social-secondary-button {
-  min-height: 46px;
-  border-radius: 999px;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.social-primary-button {
-  background: linear-gradient(180deg, #4b4b4f, #343438);
-  color: #ffffff;
-}
-
-.social-primary-button-dark {
-  box-shadow: 0 12px 24px rgba(31, 33, 39, 0.16);
-}
-
-.social-secondary-button {
-  background: rgba(15, 23, 42, 0.06);
-  color: #18211c;
-}
-
-.oauth-button {
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  min-height: 52px;
-  padding: 0 16px;
-  border-radius: 18px;
-  text-align: left;
-}
-
-.oauth-button span,
-.oauth-button small {
-  display: block;
-}
-
-.oauth-button span {
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.oauth-button small {
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 10px;
-}
-
-.oauth-button.github {
-  background: linear-gradient(180deg, #161b22, #0d1117);
-  color: #ffffff;
-}
-
-.oauth-button-primary {
-  box-shadow: 0 16px 28px rgba(9, 13, 18, 0.18);
-}
-
-.oauth-button.muted {
-  background: rgba(15, 23, 42, 0.06);
-  color: #31413a;
-}
-
-.oauth-button.muted small {
-  color: #6b7b73;
-}
-
-.oauth-button:disabled {
-  opacity: 0.72;
-}
-
-.social-provider-divider {
-  justify-content: center;
-  gap: 12px;
-  color: #9ca2a8;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.social-provider-divider span {
-  flex: 1;
-  height: 1px;
-  background: rgba(15, 23, 42, 0.1);
-}
-
-.social-provider-grid {
-  justify-content: center;
-  gap: 12px;
-}
-
-.provider-chip {
-  flex-direction: column;
-  justify-content: center;
-  gap: 8px;
-  width: 82px;
-  min-height: 82px;
-  border-radius: 18px;
-  background: rgba(15, 23, 42, 0.04);
-  color: #49515a;
-}
-
-.provider-icon {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  background: #ffffff;
-  color: #2d3138;
-  font-size: 14px;
-  font-weight: 800;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
-}
-
-.provider-chip small {
-  font-size: 11px;
-  color: #707780;
-}
-
-.other-login-note {
-  margin: 0;
-  color: #959ba2;
-  font-size: 11px;
-  line-height: 1.6;
-}
-
-.social-feedback.tone-success {
-  color: var(--accent-ink);
-}
-
-.social-feedback.tone-warn {
-  color: var(--warn-ink);
-}
-
-.social-feedback.tone-error {
-  color: var(--danger-ink);
-}
-
-.social-feedback-banner {
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(15, 23, 42, 0.04);
-}
-
-.social-feedback-banner.tone-success {
-  background: rgba(8, 182, 104, 0.1);
-}
-
-.social-feedback-banner.tone-warn {
-  background: rgba(240, 171, 67, 0.12);
-}
-
-.social-feedback-banner.tone-error {
-  background: rgba(228, 87, 87, 0.1);
 }
 
 .disclaimer-dots {

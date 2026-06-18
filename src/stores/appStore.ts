@@ -11,7 +11,7 @@ import { normalizeWorldBookEntry, normalizeWorldBooks } from '@/utils/worldBook'
 import { createStickerFromDraft, createStickerGroup, normalizeSticker, normalizeStickerGroup, type StickerImportDraft } from '@/utils/stickers';
 import { ageMemoryKind, createMemoryRecord, getConversationFloorCount, getHiddenMessageIds, getMemoryContext, getMessageFloorMap, getMessagesInFloorRange, getNextSummaryRange, getVisibleMessages, normalizeConversationSettings, renderCharacterMemoryPrompt, shouldCompressMemory } from '@/utils/memory';
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
-import { estimateRoleplayReplyInputTokens, fetchVendorModels, generateConversationSummary, generateEmbeddingVector, generateRoleplayReply, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, shouldAutoGenerateMoment, type RoleplayReplyResult } from '@/services/ai';
+import { estimateRoleplayReplyInputTokens, fetchVendorModels, generateConversationSummary, generateEmbeddingVector, generateRoleplayReply, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, shouldAutoGenerateMoment, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
 import { downloadGitHubBackup, downloadGitHubBackupVersion, formatGitHubBackupError, listGitHubBackupHistory, uploadGitHubBackup } from '@/services/githubBackup';
 import { createLinkBackupFile, parseLinkBackupFileText, parseLinkBackupText } from '@/utils/backup';
 
@@ -1689,6 +1689,28 @@ export const useAppStore = defineStore('app', () => {
           translation: conversation.activeMode === 'online' ? normalizeTranslationText(replyTranslations[index]) : ''
         }))
         .filter((reply) => Boolean(reply.content));
+      const orderedSegments = Array.isArray(parsedReply.segments)
+        ? parsedReply.segments
+          .flatMap((segment): RoleplayReplySegment[] => {
+            if (segment.type === 'reply') {
+              const content = String(segment.content ?? '').trim();
+              if (!content) return [];
+              const translation = conversation.activeMode === 'online' ? normalizeTranslationText(segment.translation) : '';
+              return [{ type: 'reply', content, ...(translation ? { translation } : {}) }];
+            }
+            if (segment.type === 'narration') {
+              if (conversation.activeMode !== 'online' || !chatSettings.narrationModeEnabled) return [];
+              const content = String(segment.content ?? '').trim();
+              return content ? [{ type: 'narration', content }] : [];
+            }
+            if (segment.type === 'sticker') {
+              const stickers = Array.isArray(segment.stickers) ? segment.stickers.map((sticker) => String(sticker ?? '').trim()).filter(Boolean) : [];
+              return stickers.length ? [{ type: 'sticker', stickers }] : [];
+            }
+            return [];
+          })
+          .slice(0, 12)
+        : [];
       const narrationMessages = conversation.activeMode === 'online' && chatSettings.narrationModeEnabled
         ? (parsedReply.narrations ?? [])
           .map((narration) => String(narration ?? '').trim())
@@ -1707,6 +1729,11 @@ export const useAppStore = defineStore('app', () => {
           return { replyIndex, position, stickers };
         })
         .filter((placement) => placement.stickers.length);
+      const orderedReplyMessages = orderedSegments.filter((segment): segment is Extract<RoleplayReplySegment, { type: 'reply' }> => segment.type === 'reply');
+      const effectiveReplyMessages = orderedSegments.length ? orderedReplyMessages : replyMessages;
+      const hasOrderedSticker = orderedSegments.some((segment) => segment.type === 'sticker'
+        && resolveCharacterStickerSelections(segment.stickers, availableCharacterStickers).length);
+      const hasOrderedNarration = orderedSegments.some((segment) => segment.type === 'narration');
       const recallMessageIds = parsedReply.messageActions?.recallMessageIds ?? [];
       const validRecallMessageIds = recallMessageIds.filter((messageId) => messages.value.some((message) => message.id === messageId && message.conversationId === conversationId && message.sender === 'char'));
       const quoteByReplyIndex = new Map<number, ChatMessageQuote>();
@@ -1715,7 +1742,7 @@ export const useAppStore = defineStore('app', () => {
         const quote = targetMessage ? createMessageQuoteSnapshot(targetMessage) : null;
         if (quote) quoteByReplyIndex.set(Math.max(0, Math.floor(quoteAction.replyIndex)), quote);
       }
-      if (!replyMessages.length && !replyStickers.length && !narrationMessages.length && !validRecallMessageIds.length) {
+      if (!effectiveReplyMessages.length && !replyStickers.length && !narrationMessages.length && !hasOrderedSticker && !hasOrderedNarration && !validRecallMessageIds.length) {
         showConfigAlert('AI 返回内容中没有可显示的聊天文本，请重试或检查模型输出格式。', '回复异常');
         return;
       }
@@ -1763,30 +1790,68 @@ export const useAppStore = defineStore('app', () => {
         status: 'sent' as const
       } satisfies ChatMessage));
       const charMessagesAfterNarration: ChatMessage[] = [];
-      let charMessageOffset = charNarrationMessages.length;
+      const orderedCharMessages: ChatMessage[] = [];
+      let charMessageOffset = orderedSegments.length ? 0 : charNarrationMessages.length;
+      let orderedReplyIndex = 0;
+      const createStickerMessages = (stickersToSend: Sticker[]) => stickersToSend.map((sticker) => ({
+        id: createId('msg'),
+        conversationId,
+        sender: 'char' as const,
+        mode: conversation.activeMode,
+        content: `[Sticker] ${sticker.description}`,
+        sticker: {
+          stickerId: sticker.id,
+          description: sticker.description,
+          imageUrl: sticker.imageUrl
+        },
+        replyBatchId,
+        createdAt: createdAt + charMessageOffset++,
+        status: 'sent' as const
+      } satisfies ChatMessage));
       const appendStickerMessages = (stickersToSend: Sticker[]) => {
-        charMessagesAfterNarration.push(...stickersToSend.map((sticker) => ({
-          id: createId('msg'),
-          conversationId,
-          sender: 'char' as const,
-          mode: conversation.activeMode,
-          content: `[Sticker] ${sticker.description}`,
-          sticker: {
-            stickerId: sticker.id,
-            description: sticker.description,
-            imageUrl: sticker.imageUrl
-          },
-          replyBatchId,
-          createdAt: createdAt + charMessageOffset++,
-          status: 'sent' as const
-        } satisfies ChatMessage)));
+        charMessagesAfterNarration.push(...createStickerMessages(stickersToSend));
+      };
+      const appendOrderedStickerMessages = (stickersToSend: Sticker[]) => {
+        orderedCharMessages.push(...createStickerMessages(stickersToSend));
       };
       const appendPlacedStickers = (replyIndex: number, position: 'before' | 'after') => {
         for (const placement of replyStickerPlacements) {
           if (placement.replyIndex === replyIndex && placement.position === position) appendStickerMessages(placement.stickers);
         }
       };
-      if (replyMessages.length) {
+      if (orderedSegments.length) {
+        for (const segment of orderedSegments) {
+          if (segment.type === 'narration') {
+            orderedCharMessages.push({
+              id: createId('msg'),
+              conversationId,
+              sender: 'system' as const,
+              mode: conversation.activeMode,
+              content: segment.content,
+              createdAt: createdAt + charMessageOffset++,
+              displayStyle: 'narration' as const,
+              replyBatchId,
+              status: 'sent' as const
+            } satisfies ChatMessage);
+          } else if (segment.type === 'reply') {
+            orderedCharMessages.push({
+              id: createId('msg'),
+              conversationId,
+              sender: 'char' as const,
+              mode: conversation.activeMode,
+              content: segment.content,
+              translation: segment.translation || undefined,
+              quote: quoteByReplyIndex.get(orderedReplyIndex),
+              replyBatchId,
+              createdAt: createdAt + charMessageOffset++,
+              status: 'sent' as const
+            } satisfies ChatMessage);
+            orderedReplyIndex += 1;
+          } else {
+            appendOrderedStickerMessages(resolveCharacterStickerSelections(segment.stickers, availableCharacterStickers));
+          }
+        }
+      } else if (replyMessages.length) {
         replyMessages.forEach((reply, index) => {
           appendPlacedStickers(index, 'before');
           charMessagesAfterNarration.push({
@@ -1807,7 +1872,7 @@ export const useAppStore = defineStore('app', () => {
         replyStickerPlacements.forEach((placement) => appendStickerMessages(placement.stickers));
       }
       appendStickerMessages(replyStickers);
-      const charMessages = [...charNarrationMessages, ...charMessagesAfterNarration];
+      const charMessages = orderedSegments.length ? orderedCharMessages : [...charNarrationMessages, ...charMessagesAfterNarration];
       if (charMessages.length) {
         messages.value.push(...charMessages);
         await Promise.all(charMessages.map((message) => putEntity('messages', message)));
