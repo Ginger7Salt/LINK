@@ -7,6 +7,12 @@ import './styles/main.css';
 
 syncAppViewportHeight();
 
+if (import.meta.env.DEV && 'serviceWorker' in navigator) {
+	navigator.serviceWorker.getRegistrations()
+		.then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+		.catch(() => undefined);
+}
+
 createApp(App).use(createPinia()).use(router).mount('#app');
 
 const bootLoader = document.getElementById('boot-loader');

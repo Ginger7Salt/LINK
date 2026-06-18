@@ -176,6 +176,24 @@ function createTextRequestEndpoint(endpoint: string) {
   return trimmed;
 }
 
+function createOpenAiImageRequestEndpoint(endpoint: string) {
+  const trimmed = endpoint.trim();
+  if (import.meta.env.DEV && /^https?:\/\//i.test(trimmed)) {
+    return `/__image-proxy?url=${encodeURIComponent(trimmed)}`;
+  }
+  return trimmed;
+}
+
+function getOpenAiImageDisplayEndpoint(endpoint: string) {
+  const trimmed = endpoint.trim();
+  if (!trimmed.startsWith('/__image-proxy')) return trimmed;
+  try {
+    return new URL(trimmed, window.location.origin).searchParams.get('url') || trimmed;
+  } catch {
+    return trimmed;
+  }
+}
+
 function normalizeImageSource(value: unknown) {
   const source = String(value ?? '').trim();
   if (!source) return '';
@@ -927,6 +945,8 @@ export async function generateOpenAiImage(settings: AppSettings, overrides: Imag
   const prompt = sanitizePrompt(positivePrompt, negativePrompt);
   const model = String(overrides.model ?? resolved.model).trim();
   const size = String(overrides.size ?? resolved.size).trim();
+  const requestEndpoint = createOpenAiImageRequestEndpoint(resolved.endpoint);
+  const displayEndpoint = getOpenAiImageDisplayEndpoint(requestEndpoint);
 
   if (!resolved.endpoint.trim() || !resolved.apiKey.trim()) {
     throw new Error('请先在 OpenAI 图片模块里配置可用的兼容供应商和 API Key。');
@@ -942,7 +962,7 @@ export async function generateOpenAiImage(settings: AppSettings, overrides: Imag
 
   let response: Response;
   try {
-    response = await fetch(resolved.endpoint, {
+    response = await fetch(requestEndpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -956,12 +976,15 @@ export async function generateOpenAiImage(settings: AppSettings, overrides: Imag
       })
     });
   } catch (error) {
-    throw new Error(createNetworkErrorMessage(error, 'OpenAI 图片网络请求失败', resolved.endpoint));
+    throw new Error(createNetworkErrorMessage(error, 'OpenAI 图片网络请求失败', displayEndpoint));
   }
 
   if (!response.ok) {
-    if (resolved.endpoint.startsWith('/__image-proxy') && response.status === 502) {
+    if (requestEndpoint.startsWith('/__image-proxy') && response.status === 502) {
       throw new Error(await createApiErrorMessage(response, '本地 OpenAI 兼容图片代理请求失败'));
+    }
+    if (requestEndpoint.startsWith('/__image-proxy') && response.status >= 500) {
+      throw new Error(await createApiErrorMessage(response, 'OpenAI 兼容图片网关生成失败'));
     }
     throw new Error(await createApiErrorMessage(response, 'OpenAI 图片请求失败'));
   }
