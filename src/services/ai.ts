@@ -194,6 +194,25 @@ function getOpenAiImageDisplayEndpoint(endpoint: string) {
   }
 }
 
+function createOpenAiImageRequestBody(endpoint: string, apiKey: string, model: string, prompt: string, size: string) {
+  if (import.meta.env.DEV) {
+    return JSON.stringify({
+      endpoint,
+      apiKey,
+      model,
+      prompt,
+      ...(size ? { size } : {})
+    });
+  }
+
+  return JSON.stringify({
+    model,
+    prompt,
+    ...(size ? { size } : {}),
+    n: 1
+  });
+}
+
 function normalizeImageSource(value: unknown) {
   const source = String(value ?? '').trim();
   if (!source) return '';
@@ -945,8 +964,9 @@ export async function generateOpenAiImage(settings: AppSettings, overrides: Imag
   const prompt = sanitizePrompt(positivePrompt, negativePrompt);
   const model = String(overrides.model ?? resolved.model).trim();
   const size = String(overrides.size ?? resolved.size).trim();
-  const requestEndpoint = createOpenAiImageRequestEndpoint(resolved.endpoint);
-  const displayEndpoint = getOpenAiImageDisplayEndpoint(requestEndpoint);
+  const proxiedEndpoint = createOpenAiImageRequestEndpoint(resolved.endpoint);
+  const displayEndpoint = getOpenAiImageDisplayEndpoint(proxiedEndpoint);
+  const requestEndpoint = import.meta.env.DEV ? '/__openai-image-generate' : proxiedEndpoint;
 
   if (!resolved.endpoint.trim() || !resolved.apiKey.trim()) {
     throw new Error('请先在 OpenAI 图片模块里配置可用的兼容供应商和 API Key。');
@@ -966,24 +986,19 @@ export async function generateOpenAiImage(settings: AppSettings, overrides: Imag
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${resolved.apiKey}`
+        ...(import.meta.env.DEV ? {} : { Authorization: `Bearer ${resolved.apiKey}` })
       },
-      body: JSON.stringify({
-        model,
-        prompt,
-        ...(size ? { size } : {}),
-        n: 1
-      })
+      body: createOpenAiImageRequestBody(displayEndpoint, resolved.apiKey, model, prompt, size)
     });
   } catch (error) {
     throw new Error(createNetworkErrorMessage(error, 'OpenAI 图片网络请求失败', displayEndpoint));
   }
 
   if (!response.ok) {
-    if (requestEndpoint.startsWith('/__image-proxy') && response.status === 502) {
-      throw new Error(await createApiErrorMessage(response, '本地 OpenAI 兼容图片代理请求失败'));
+    if (requestEndpoint.startsWith('/__openai-image-generate') && response.status === 502) {
+      throw new Error(await createApiErrorMessage(response, '本地 OpenAI 兼容图片生成代理请求失败'));
     }
-    if (requestEndpoint.startsWith('/__image-proxy') && response.status >= 500) {
+    if ((requestEndpoint.startsWith('/__openai-image-generate') || requestEndpoint.startsWith('/__image-proxy')) && response.status >= 500) {
       throw new Error(await createApiErrorMessage(response, 'OpenAI 兼容图片网关生成失败'));
     }
     throw new Error(await createApiErrorMessage(response, 'OpenAI 图片请求失败'));

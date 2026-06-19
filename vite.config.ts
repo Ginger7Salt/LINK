@@ -7,6 +7,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 const base = process.env.BASE_PATH || '/';
 const textProxyPath = '/__text-proxy';
 const imageProxyPath = '/__image-proxy';
+const openAiImageGeneratePath = '/__openai-image-generate';
 
 async function readRequestBody(request: IncomingMessage) {
   const chunks: Buffer[] = [];
@@ -28,9 +29,29 @@ function sendProxyError(response: ServerResponse, statusCode: number, message: s
   response.end(message);
 }
 
+function sendJson(response: ServerResponse, statusCode: number, payload: unknown) {
+  response.statusCode = statusCode;
+  response.setHeader('Content-Type', 'application/json; charset=utf-8');
+  response.end(JSON.stringify(payload));
+}
+
+function createProxyErrorPayload(message: string, code = 'proxy_request_failed') {
+  return {
+    error: {
+      message,
+      type: 'link_proxy_error',
+      param: '',
+      code
+    }
+  };
+}
+
 export default defineConfig({
   base,
   server: {
+    headers: {
+      'Cache-Control': 'no-store'
+    },
     proxy: {
       '/__openai': {
         target: 'https://api.openai.com',
@@ -148,6 +169,77 @@ export default defineConfig({
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             sendProxyError(response, 502, `OpenAI-compatible image proxy request failed: ${message}`);
+          }
+        });
+
+        server.middlewares.use(openAiImageGeneratePath, async (request, response) => {
+          if (request.method === 'OPTIONS') {
+            response.statusCode = 204;
+            response.end();
+            return;
+          }
+
+          if (request.method !== 'POST') {
+            sendJson(response, 405, createProxyErrorPayload('OpenAI image generation proxy only supports POST requests.', 'method_not_allowed'));
+            return;
+          }
+
+          let payload: Record<string, unknown>;
+          try {
+            payload = JSON.parse((await readRequestBody(request)).toString('utf8')) as Record<string, unknown>;
+          } catch {
+            sendJson(response, 400, createProxyErrorPayload('OpenAI image generation proxy received invalid JSON.', 'invalid_json'));
+            return;
+          }
+
+          const endpoint = String(payload.endpoint ?? '').trim();
+          const apiKey = String(payload.apiKey ?? '').trim();
+          const model = String(payload.model ?? '').trim();
+          const prompt = String(payload.prompt ?? '').trim();
+          const size = String(payload.size ?? '').trim();
+
+          if (!endpoint || !apiKey || !model || !prompt) {
+            sendJson(response, 400, createProxyErrorPayload('OpenAI image generation proxy requires endpoint, apiKey, model, and prompt.', 'missing_required_fields'));
+            return;
+          }
+
+          let targetUrl: URL;
+          try {
+            targetUrl = new URL(endpoint);
+          } catch {
+            sendJson(response, 400, createProxyErrorPayload('OpenAI image generation endpoint is invalid.', 'invalid_endpoint'));
+            return;
+          }
+
+          if (!['http:', 'https:'].includes(targetUrl.protocol)) {
+            sendJson(response, 400, createProxyErrorPayload('OpenAI image generation endpoint must use http or https.', 'invalid_endpoint_protocol'));
+            return;
+          }
+
+          try {
+            const upstreamResponse = await fetch(targetUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                Authorization: `Bearer ${apiKey}`
+              },
+              body: JSON.stringify({
+                model,
+                prompt,
+                ...(size ? { size } : {}),
+                n: 1
+              })
+            });
+
+            response.statusCode = upstreamResponse.status;
+            response.statusMessage = upstreamResponse.statusText;
+            const upstreamContentType = upstreamResponse.headers.get('content-type');
+            response.setHeader('Content-Type', upstreamContentType || 'application/json; charset=utf-8');
+            response.end(Buffer.from(await upstreamResponse.arrayBuffer()));
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            sendJson(response, 502, createProxyErrorPayload(`OpenAI image generation proxy could not reach upstream: ${message}`, 'upstream_unreachable'));
           }
         });
       }
