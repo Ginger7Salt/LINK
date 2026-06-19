@@ -1,29 +1,50 @@
 <template>
-  <section class="screen voom-page">
+  <section ref="voomPageRef" class="screen voom-page" @scroll="handleVoomPageScroll">
     <header class="top-bar">
       <h1 class="top-title">LINK VOOM</h1>
       <div class="icon-row">
+        <button class="icon-button" type="button" aria-label="切换用户账号" @click="showAccountSwitcher = true">
+          <UsersRound :size="20" />
+        </button>
         <button class="icon-button" type="button" aria-label="用户发布 VOOM" @click="openUserVoomPublisher">
-          <Plus :size="24" />
+          <Plus :size="20" />
         </button>
         <button class="icon-button" type="button" aria-label="发布 VOOM" @click="openVoomPublisher">
-          <SquarePen :size="24" />
+          <SquarePen :size="20" />
         </button>
-        <ImageModelPickerButton :icon-size="24" />
+        <ImageModelPickerButton :icon-size="20" />
       </div>
     </header>
 
-    <section class="story-strip">
-      <button class="story-button" type="button">
+    <section class="story-strip" aria-label="VOOM 动态筛选">
+      <button class="story-button account-story" :class="{ active: !selectedVoomCharacterId }" type="button" :aria-label="`查看 ${activeUserDisplayName} 的 VOOM 动态`" @click="selectAccountVoomFeed">
         <span class="story-avatar">
-          <UserRound :size="30" />
-          <i><Plus :size="16" /></i>
+          <img v-if="activeUserAvatar" :src="activeUserAvatar" alt="" aria-hidden="true" />
+          <UserRound v-else :size="30" />
+          <i v-if="accountHasUnreadVoom" class="story-unread" aria-hidden="true"></i>
+          <i class="story-add" aria-hidden="true"><Plus :size="14" /></i>
         </span>
-        <span>您的故事</span>
+        <span class="story-name">{{ activeUserDisplayName }}</span>
+      </button>
+
+      <button
+        v-for="character in voomStoryCharacters"
+        :key="character.id"
+        class="story-button"
+        :class="{ active: selectedVoomCharacterId === character.id }"
+        type="button"
+        :aria-label="`只看 ${getCharacterVoomAuthorName(character)} 的 VOOM 动态`"
+        @click="selectCharacterVoomFeed(character.id)"
+      >
+        <span class="story-avatar">
+          <img :src="character.avatar" alt="" aria-hidden="true" />
+          <i v-if="hasUnreadVoomForCharacter(character.id)" class="story-unread" aria-hidden="true"></i>
+        </span>
+        <span class="story-name">{{ getCharacterVoomAuthorName(character) }}</span>
       </button>
     </section>
 
-    <div v-if="!store.sortedVoomPosts.length" class="empty-state">
+    <div v-if="!filteredSortedVoomPosts.length" class="empty-state">
       <div>
         <h2>马上就开始使用LINK VOOM吧!</h2>
         <p>到LINK VOOM看看大家的近况吧!<br />您也试着分享看看吧!</p>
@@ -31,7 +52,7 @@
     </div>
 
     <VoomPostCard
-      v-for="post in store.sortedVoomPosts"
+      v-for="post in visibleVoomPosts"
       :key="post.id"
       :post="post"
       :author-name="voomAuthorNameForPost(post)"
@@ -41,9 +62,43 @@
       :replying-thread="store.isReplyingVoomComments(post.id)"
       @comment="handleComment"
       @regenerate-image="handleRegenerateImage"
+      @busy-action="store.showConfigAlert"
       @reply-thread="store.replyToVoomComments"
       @toggle-like="store.toggleVoomLike"
+      @delete-post="requestDeleteVoomPost"
     />
+
+    <div v-if="hasMoreVoomPosts" class="voom-loader">继续下滑加载更多</div>
+
+    <AppModal v-model="showDeletePostConfirm" title="确认删除" :show-header="false" variant="ins">
+      <section class="voom-delete-confirm">
+        <h3>删除这条 VOOM 动态？</h3>
+        <p>删除后会同时移除相关对话事件，AI 不会再读取这部分信息。</p>
+        <div class="voom-delete-actions">
+          <button class="publisher-secondary" type="button" @click="cancelDeleteVoomPost">取消</button>
+          <button class="voom-danger-button" type="button" @click="confirmDeleteVoomPost">删除</button>
+        </div>
+      </section>
+    </AppModal>
+
+    <AppModal v-model="showAccountSwitcher" title="切换账号" variant="ins">
+      <div class="account-list account-switch-list">
+        <button
+          v-for="account in store.accounts"
+          :key="account.id"
+          class="account-option"
+          :class="{ active: store.user?.id === account.id }"
+          type="button"
+          @click="switchActiveAccount(account.id)"
+        >
+          <img :src="account.avatar" :alt="account.nickname || account.name" />
+          <span>
+            <strong>{{ account.nickname || account.name }}</strong>
+            <small>{{ account.id }}</small>
+          </span>
+        </button>
+      </div>
+    </AppModal>
 
     <AppModal v-model="showVoomPublisher" title="发布 VOOM" variant="ins">
       <section class="voom-publisher">
@@ -215,22 +270,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { FileText, Globe2, Image as ImageIcon, LoaderCircle, Plus, Shuffle, SquarePen, Upload, UserRound, X } from 'lucide-vue-next';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { FileText, Globe2, Image as ImageIcon, LoaderCircle, Plus, Shuffle, SquarePen, Upload, UserRound, UsersRound, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import ImageModelPickerButton from '@/components/settings/ImageModelPickerButton.vue';
 import VoomPostCard from '@/components/voom/VoomPostCard.vue';
 import { useAppStore } from '@/stores/appStore';
 import type { VoomPost, VoomPostVisibility } from '@/types/domain';
 import { getCharacterDisplayName, getCharacterVoomAuthorName } from '@/utils/character';
+import { getVisualProfile } from '@/utils/profile';
 import { getSelectedImageModelOption } from '@/utils/settings';
 
 const store = useAppStore();
+const showAccountSwitcher = ref(false);
 const showVoomPublisher = ref(false);
 const showUserVoomPublisher = ref(false);
+const showDeletePostConfirm = ref(false);
 const creatingVoomPost = ref(false);
 const creatingUserVoomPost = ref(false);
 const regeneratingImagePostIds = ref<string[]>([]);
+const voomPageRef = ref<HTMLElement | null>(null);
+const visibleVoomPostLimit = ref(12);
 const randomPublisherId = 'random';
 const selectedPublisherId = ref(randomPublisherId);
 const selectedUserVoomAccountId = ref('');
@@ -240,9 +300,44 @@ const userVoomImage = ref('');
 const userVoomImageDescription = ref('');
 const userVoomVisibility = ref<VoomPostVisibility>('public');
 const selectedUserVoomCharacterIds = ref<string[]>([]);
+const selectedVoomCharacterId = ref('');
+const pendingDeletePostId = ref('');
 
 const publisherCharacters = computed(() => store.charactersForActiveUser);
-const canRegenerateVoomImage = computed(() => Boolean(getSelectedImageModelOption(store.settings)));
+const canRegenerateVoomImage = computed(() => Boolean(getSelectedImageModelOption(store.settings, 'voom')));
+const activeUserProfile = computed(() => getVisualProfile(store.user));
+const activeUserDisplayName = computed(() => store.user?.nickname || store.user?.name || '账号');
+const activeUserAvatar = computed(() => activeUserProfile.value?.avatar || store.user?.avatar || '');
+const activeUserCharacterIds = computed(() => new Set(store.charactersForActiveUser.map((character) => character.id)));
+const voomLatestPostAtByCharacter = computed(() => {
+  const latestByCharacter = new Map<string, number>();
+  for (const post of store.sortedVoomPosts) {
+    if (post.authorType === 'user' || !post.charId) continue;
+    latestByCharacter.set(post.charId, Math.max(latestByCharacter.get(post.charId) ?? 0, post.createdAt));
+  }
+  return latestByCharacter;
+});
+const voomStoryCharacters = computed(() => store.charactersForActiveUser
+  .filter((character) => voomLatestPostAtByCharacter.value.has(character.id))
+  .sort((a, b) => (voomLatestPostAtByCharacter.value.get(b.id) ?? 0) - (voomLatestPostAtByCharacter.value.get(a.id) ?? 0))
+);
+const filteredSortedVoomPosts = computed(() => {
+  if (selectedVoomCharacterId.value) {
+    return store.sortedVoomPosts.filter((post) => post.charId === selectedVoomCharacterId.value && post.authorType !== 'user');
+  }
+
+  const activeAccountId = store.user?.id ?? '';
+  return store.sortedVoomPosts.filter((post) => {
+    if (post.authorType === 'user') return Boolean(activeAccountId && post.userId === activeAccountId);
+    return Boolean(post.charId && activeUserCharacterIds.value.has(post.charId));
+  });
+});
+const visibleVoomPosts = computed(() => filteredSortedVoomPosts.value.slice(0, visibleVoomPostLimit.value));
+const hasMoreVoomPosts = computed(() => visibleVoomPostLimit.value < filteredSortedVoomPosts.value.length);
+const accountHasUnreadVoom = computed(() => voomStoryCharacters.value.some((character) => hasUnreadVoomForCharacter(character.id)));
+
+const voomPostLoadStep = 8;
+const voomLoadThreshold = 320;
 
 const selectedUserVoomAccount = computed(() => {
   const selectedId = selectedUserVoomAccountId.value.trim();
@@ -278,6 +373,66 @@ function voomAuthorNameForPost(post: VoomPost) {
   return character ? getCharacterVoomAuthorName(character) : post.authorName;
 }
 
+function voomReadAtForCharacter(characterId: string) {
+  const userId = store.user?.id ?? '';
+  return userId ? store.settings?.voomReadAtByUser[userId]?.[characterId] ?? 0 : 0;
+}
+
+function hasUnreadVoomForCharacter(characterId: string) {
+  const latestPostAt = voomLatestPostAtByCharacter.value.get(characterId) ?? 0;
+  return latestPostAt > voomReadAtForCharacter(characterId);
+}
+
+function selectAccountVoomFeed() {
+  selectedVoomCharacterId.value = '';
+  void store.markVoomCharactersRead([...activeUserCharacterIds.value]);
+}
+
+function selectCharacterVoomFeed(characterId: string) {
+  selectedVoomCharacterId.value = characterId;
+  void store.markVoomCharactersRead([characterId]);
+}
+
+async function switchActiveAccount(userId: string) {
+  await store.setActiveUser(userId);
+  selectedVoomCharacterId.value = '';
+  showAccountSwitcher.value = false;
+}
+
+function loadMoreVoomPosts() {
+  if (!hasMoreVoomPosts.value) return;
+  visibleVoomPostLimit.value = Math.min(filteredSortedVoomPosts.value.length, visibleVoomPostLimit.value + voomPostLoadStep);
+}
+
+function handleVoomPageScroll() {
+  const page = voomPageRef.value;
+  if (!page || page.scrollHeight - page.scrollTop - page.clientHeight > voomLoadThreshold) return;
+  loadMoreVoomPosts();
+}
+
+async function ensureVoomScrollable() {
+  await nextTick();
+  const page = voomPageRef.value;
+  if (!page) return;
+  while (hasMoreVoomPosts.value && page.scrollHeight <= page.clientHeight) {
+    loadMoreVoomPosts();
+    await nextTick();
+  }
+}
+
+onMounted(() => {
+  void ensureVoomScrollable();
+});
+
+watch(() => filteredSortedVoomPosts.value.length, () => {
+  void ensureVoomScrollable();
+});
+
+watch([() => selectedVoomCharacterId.value, () => store.user?.id], () => {
+  visibleVoomPostLimit.value = 12;
+  void ensureVoomScrollable();
+});
+
 async function handleComment(postId: string, content: string, parentId?: string) {
   await store.addVoomComment(postId, content, parentId ?? '');
 }
@@ -290,6 +445,24 @@ async function handleRegenerateImage(postId: string, description: string) {
   } finally {
     regeneratingImagePostIds.value = regeneratingImagePostIds.value.filter((id) => id !== postId);
   }
+}
+
+function requestDeleteVoomPost(postId: string) {
+  pendingDeletePostId.value = postId;
+  showDeletePostConfirm.value = true;
+}
+
+function cancelDeleteVoomPost() {
+  pendingDeletePostId.value = '';
+  showDeletePostConfirm.value = false;
+}
+
+async function confirmDeleteVoomPost() {
+  const postId = pendingDeletePostId.value;
+  if (!postId) return;
+  await store.deleteVoomPost(postId);
+  pendingDeletePostId.value = '';
+  showDeletePostConfirm.value = false;
 }
 
 function openVoomPublisher() {
@@ -408,26 +581,80 @@ async function confirmCreateUserVoomPost() {
 <style scoped>
 .voom-page {
   background: #ffffff;
+  --top-icon-size: 20px;
+  --top-icon-button-width: 26px;
+  --top-icon-button-height: 30px;
+  --top-icon-gap: 1px;
+}
+
+.voom-page :deep(.image-model-button) {
+  display: grid;
+  place-items: center;
+  flex: 0 0 var(--top-icon-button-width);
+  width: var(--top-icon-button-width);
+  height: var(--top-icon-button-height);
+  min-height: var(--top-icon-button-height);
+  padding: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #141414;
+  box-shadow: none;
+}
+
+.voom-page :deep(.image-model-button:active) {
+  background: var(--soft);
+}
+
+.voom-page :deep(.image-model-button svg) {
+  width: var(--top-icon-size);
+  height: var(--top-icon-size);
 }
 
 .story-strip {
-  padding: 8px 16px 18px;
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 8px 16px 14px;
+  scrollbar-width: none;
+}
+
+.story-strip::-webkit-scrollbar {
+  display: none;
 }
 
 .story-button {
+  flex: 0 0 62px;
   display: grid;
   justify-items: center;
   gap: 6px;
+  min-width: 0;
+  padding: 0;
   color: #222222;
   font-size: 12px;
+}
+
+.story-button.active .story-avatar {
+  box-shadow: 0 0 0 2px rgba(6, 199, 85, 0.28), 0 0 0 5px rgba(6, 199, 85, 0.08);
+}
+
+.story-name {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+  text-align: center;
 }
 
 .story-avatar {
   position: relative;
   display: grid;
   place-items: center;
-  width: 58px;
-  height: 58px;
+  flex: 0 0 54px;
+  width: 54px;
+  height: 54px;
+  overflow: visible;
   border-radius: 50%;
   background: #cfedfb;
   color: #ffffff;
@@ -438,23 +665,44 @@ async function confirmCreateUserVoomPost() {
   height: 26px;
 }
 
-.story-avatar i {
+.story-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.story-add {
   position: absolute;
   right: -2px;
-  bottom: 5px;
+  bottom: 3px;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #ffffff;
   border-radius: 50%;
   background: #35cf64;
   color: #ffffff;
   font-style: normal;
 }
 
-.story-avatar i svg {
-  width: 14px;
-  height: 14px;
+.story-add svg {
+  width: 12px;
+  height: 12px;
+}
+
+.story-unread {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #ff405a;
 }
 
 .empty-state h2 {
@@ -466,6 +714,51 @@ async function confirmCreateUserVoomPost() {
 .empty-state p {
   margin: 0;
   line-height: 1.55;
+}
+
+.voom-loader {
+  padding: 14px 16px calc(18px + var(--safe-bottom));
+  color: #8b929a;
+  font-size: 12px;
+  font-weight: 760;
+  text-align: center;
+}
+
+.voom-delete-confirm {
+  display: grid;
+  gap: 12px;
+  color: #202329;
+}
+
+.voom-delete-confirm h3,
+.voom-delete-confirm p {
+  margin: 0;
+}
+
+.voom-delete-confirm h3 {
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.voom-delete-confirm p {
+  color: #656a73;
+  line-height: 1.6;
+}
+
+.voom-delete-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.voom-danger-button {
+  display: inline-grid;
+  place-items: center;
+  height: 40px;
+  border-radius: 8px;
+  background: #fff1f2;
+  color: #b42318;
+  font-weight: 900;
 }
 
 .model-picker {

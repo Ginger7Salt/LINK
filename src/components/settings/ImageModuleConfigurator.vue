@@ -492,12 +492,9 @@
             <button class="sync-button" type="button" :disabled="vendorSyncState === 'loading'" @click="pullVendorModels">
               {{ vendorSyncButtonLabel }}
             </button>
-            <button class="sync-button" type="button" :disabled="vendorTestState === 'loading'" @click="testVendorImageGeneration">
-              {{ vendorTestButtonLabel }}
-            </button>
           </div>
-          <p v-if="vendorSyncFeedback || vendorTestFeedback" class="module-feedback" :class="vendorSyncState === 'error' || vendorTestState === 'error' ? 'error' : 'success'">
-            {{ [vendorSyncFeedback, vendorTestFeedback].filter(Boolean).join('\n\n') }}
+          <p v-if="vendorSyncFeedback" class="module-feedback" :class="vendorSyncState === 'error' ? 'error' : 'success'">
+            {{ vendorSyncFeedback }}
           </p>
 
           <div class="manual-model-row">
@@ -552,7 +549,7 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import AppModal from '@/components/common/AppModal.vue';
 import AvatarCropperModal from '@/components/image/AvatarCropperModal.vue';
-import { checkNovelAiImageAccess, checkPollinationsImageAccess, fetchNovelAiModels, fetchPollinationsModels, fetchVendorModels, generateOpenAiImage } from '@/services/ai';
+import { checkNovelAiImageAccess, checkPollinationsImageAccess, fetchNovelAiModels, fetchPollinationsModels, fetchVendorModels } from '@/services/ai';
 import type { ApiVendor, ApiVendorModel, AppSettings, ImageModuleId, ImagePromptPreset } from '@/types/domain';
 import { createId } from '@/utils/id';
 import { readImageFileFromInput } from '@/utils/imageFile';
@@ -591,8 +588,6 @@ const manualModelId = ref('');
 const manualModelNickname = ref('');
 const vendorSyncState = ref<PreviewState>('idle');
 const vendorSyncFeedback = ref('');
-const vendorTestState = ref<PreviewState>('idle');
-const vendorTestFeedback = ref('');
 const novelAiSyncState = ref<PreviewState>('idle');
 const novelAiSyncFeedback = ref('');
 const pollinationsSyncState = ref<PreviewState>('idle');
@@ -654,12 +649,6 @@ const vendorSyncButtonLabel = computed(() => ({
   success: 'Synced',
   error: 'Retry sync'
 }[vendorSyncState.value]));
-const vendorTestButtonLabel = computed(() => ({
-  idle: '测试生图',
-  loading: '生成中',
-  success: '重新测试',
-  error: '重试生图'
-}[vendorTestState.value]));
 const novelAiSizePresets = [
   { label: 'Portrait 832 x 1216', value: '832x1216', width: 832, height: 1216 },
   { label: 'Portrait 768 x 1152', value: '768x1152', width: 768, height: 1152 },
@@ -906,8 +895,6 @@ function openVendorCreator() {
   manualModelNickname.value = '';
   vendorSyncState.value = 'idle';
   vendorSyncFeedback.value = '';
-  vendorTestState.value = 'idle';
-  vendorTestFeedback.value = '';
   showVendorComposer.value = true;
 }
 
@@ -919,8 +906,6 @@ function openVendorEditor(vendor: ApiVendor) {
   manualModelNickname.value = '';
   vendorSyncState.value = 'idle';
   vendorSyncFeedback.value = '';
-  vendorTestState.value = 'idle';
-  vendorTestFeedback.value = '';
   showVendorComposer.value = true;
 }
 
@@ -936,67 +921,6 @@ async function pullVendorModels() {
   } catch (error) {
     vendorSyncState.value = 'error';
     vendorSyncFeedback.value = error instanceof Error ? error.message : '图片模型同步失败，请检查 API 配置。';
-  }
-}
-
-async function testVendorImageGeneration() {
-  const selectedModel = vendorDraft.value.models.find((model) => model.selected) ?? vendorDraft.value.models[0];
-  if (!vendorDraft.value.apiUrl.trim() || !vendorDraft.value.apiPath.trim() || !vendorDraft.value.apiKey.trim()) {
-    vendorTestState.value = 'error';
-    vendorTestFeedback.value = '请先填写 API Url、API 路径和 API Key。';
-    return;
-  }
-  if (!selectedModel?.id.trim()) {
-    vendorTestState.value = 'error';
-    vendorTestFeedback.value = '请先同步或手动添加一个图片模型。';
-    return;
-  }
-
-  vendorTestState.value = 'loading';
-  vendorTestFeedback.value = '正在用当前供应商真实生成一张 1024x1024 测试图。';
-
-  const testVendor = createImageApiVendor({
-    ...vendorDraft.value,
-    enabled: true,
-    models: vendorDraft.value.models.map((model) => ({
-      ...model,
-      selected: model.id === selectedModel.id
-    }))
-  });
-  const testPrompt = 'link health check, simple clean app icon, soft light, no text, square image';
-  const testSettings = normalizeAppSettings({
-    ...draft.value,
-    imageOpenAi: {
-      ...draft.value.imageOpenAi,
-      activeVendorId: testVendor.id,
-      positivePrompt: testPrompt,
-      negativePrompt: '',
-      vendors: [
-        testVendor,
-        ...draft.value.imageOpenAi.vendors.filter((vendor) => vendor.id !== testVendor.id)
-      ]
-    }
-  });
-
-  try {
-    const result = await generateOpenAiImage(testSettings, {
-      positivePrompt: testPrompt,
-      negativePrompt: '',
-      model: selectedModel.id,
-      size: draft.value.imageOpenAi.size || '1024x1024'
-    });
-    draft.value = normalizeAppSettings({
-      ...draft.value,
-      imageOpenAi: {
-        ...draft.value.imageOpenAi,
-        lastImageUrl: result.imageUrl
-      }
-    });
-    vendorTestState.value = 'success';
-    vendorTestFeedback.value = `测试图生成成功。\n模型：${selectedModel.id}\n如果 VOOM 仍失败，请检查 VOOM 描述词或该模型是否支持当前尺寸。`;
-  } catch (error) {
-    vendorTestState.value = 'error';
-    vendorTestFeedback.value = error instanceof Error ? error.message : '测试生图失败：没有返回错误详情。';
   }
 }
 
@@ -1017,7 +941,7 @@ function scheduleNovelAiSelfCheck() {
 
 async function refreshNovelAiSelfCheck() {
   novelAiSyncState.value = 'loading';
-  novelAiSyncFeedback.value = '正在检测 NovelAI 鉴权，并生成一张 64x64 测试图。';
+  novelAiSyncFeedback.value = '正在检测 NovelAI 鉴权、生图入口与模型列表。';
 
   try {
     const normalizedSettings = normalizeAppSettings(draft.value);
@@ -1036,7 +960,7 @@ async function refreshNovelAiSelfCheck() {
       }
     });
     novelAiSyncState.value = 'success';
-    novelAiSyncFeedback.value = `鉴权通过，测试图生成成功，已准备 ${models.length} 个模型。`;
+    novelAiSyncFeedback.value = `鉴权通过，生图入口可达，已准备 ${models.length} 个模型。`;
   } catch (error) {
     novelAiSyncState.value = 'error';
     novelAiSyncFeedback.value = error instanceof Error ? error.message : 'NovelAI 生图接口预检失败，请检查 Token 或连接方式。';

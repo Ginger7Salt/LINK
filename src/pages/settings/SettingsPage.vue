@@ -5,9 +5,14 @@
         <h1 class="top-title">{{ activeMeta.label }}</h1>
       </button>
 
-      <button v-if="activeTab === 'api'" class="header-action-button" type="button" aria-label="新增 API 配置" title="新增 API 配置" @click="openApiComposer">
-        <Plus :size="18" stroke-width="2.4" />
-      </button>
+      <div v-if="activeTab === 'api'" class="settings-header-actions">
+        <button class="header-action-button" type="button" aria-label="切换调用模型" title="切换调用模型" @click="showModelSwitch = true">
+          <SlidersHorizontal :size="18" stroke-width="2.4" />
+        </button>
+        <button class="header-action-button" type="button" aria-label="新增 API 配置" title="新增 API 配置" @click="openApiComposer">
+          <Plus :size="18" stroke-width="2.4" />
+        </button>
+      </div>
       <ImageModelPickerButton v-else-if="activeTab === 'image'" />
     </header>
 
@@ -37,6 +42,8 @@
         <span>{{ tab.shortLabel }}</span>
       </button>
     </nav>
+
+    <ChatModelSwitchPanel v-model="showModelSwitch" variant="global" />
   </section>
 </template>
 
@@ -44,6 +51,7 @@
 import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CloudUpload, ImagePlus, Plus, SlidersHorizontal, Volume2 } from 'lucide-vue-next';
+import ChatModelSwitchPanel from '@/components/chat/ChatModelSwitchPanel.vue';
 import ApiSettingsEditor from '@/components/home/ApiSettingsEditor.vue';
 import DataCenterPanel from '@/components/settings/DataCenterPanel.vue';
 import ImageSettingsEditor from '@/components/settings/ImageSettingsEditor.vue';
@@ -94,6 +102,7 @@ const route = useRoute();
 const router = useRouter();
 const store = useAppStore();
 const apiComposerTick = ref(0);
+const showModelSwitch = ref(false);
 
 const currentSettings = computed<AppSettings>(() => normalizeAppSettings(store.settings));
 
@@ -130,7 +139,9 @@ async function saveSettings(nextSettings: AppSettings) {
 .settings-page {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   padding-bottom: 0;
+  overflow-x: hidden;
   background:
     radial-gradient(circle at top left, rgba(6, 199, 85, 0.14), transparent 36%),
     linear-gradient(180deg, #fafcfb, #f4f6f5 56%, #eef2f1);
@@ -160,8 +171,10 @@ async function saveSettings(nextSettings: AppSettings) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 34px;
+  width: 34px;
   min-height: 34px;
-  padding: 0 12px;
+  padding: 0;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.88);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
@@ -169,10 +182,20 @@ async function saveSettings(nextSettings: AppSettings) {
   font-weight: 800;
 }
 
+.settings-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .settings-main {
   flex: 1;
   min-width: 0;
+  width: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 10px 16px 18px;
 }
 

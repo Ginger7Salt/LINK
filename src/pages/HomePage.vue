@@ -132,10 +132,6 @@ function openAddFriendPage() {
   font-size: 12px;
 }
 
-.home-content :deep(.profile-panel span) {
-  font-size: 10px;
-}
-
 .home-content :deep(.profile-avatar) {
   width: 54px;
   height: 54px;

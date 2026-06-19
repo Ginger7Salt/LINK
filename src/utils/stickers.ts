@@ -8,8 +8,108 @@ export interface StickerImportDraft {
   sourceType: StickerSourceType;
 }
 
+const imageDownloadPath = '/__image-download';
+const maxStickerImageBytes = 12 * 1024 * 1024;
 const urlPattern = /(data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/[^\s<>"'，。；;、)\]}]*?\.(?:png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#][^\s<>"'，。；;、)\]}]*)?|https?:\/\/[^\s<>"'，。；;、)\]}]+)/gi;
 const imageExtensionPattern = /\.(?:png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#].*)?$/i;
+
+function isDataImageUrl(value: string) {
+  return /^data:image\//i.test(value.trim());
+}
+
+function isRemoteImageUrl(value: string) {
+  return /^https?:\/\//i.test(value.trim());
+}
+
+function inferImageMimeType(url: string) {
+  const pathname = (() => {
+    try {
+      return new URL(url).pathname;
+    } catch {
+      return url;
+    }
+  })();
+  if (/\.jpe?g$/i.test(pathname)) return 'image/jpeg';
+  if (/\.gif$/i.test(pathname)) return 'image/gif';
+  if (/\.webp$/i.test(pathname)) return 'image/webp';
+  if (/\.avif$/i.test(pathname)) return 'image/avif';
+  if (/\.bmp$/i.test(pathname)) return 'image/bmp';
+  if (/\.svg$/i.test(pathname)) return 'image/svg+xml';
+  return 'image/png';
+}
+
+function createImageDownloadUrl(url: string) {
+  return import.meta.env.DEV && isRemoteImageUrl(url)
+    ? `${imageDownloadPath}?url=${encodeURIComponent(url)}`
+    : url;
+}
+
+function readBlobAsDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('图片转码失败。'));
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.readAsDataURL(blob);
+  });
+}
+
+export function shouldLocalizeStickerImageUrl(imageUrl: string) {
+  const trimmed = imageUrl.trim();
+  return Boolean(trimmed) && !isDataImageUrl(trimmed) && isRemoteImageUrl(trimmed);
+}
+
+export async function localizeStickerImageUrl(imageUrl: string) {
+  const trimmed = imageUrl.trim();
+  if (!trimmed || isDataImageUrl(trimmed)) return trimmed;
+  if (!isRemoteImageUrl(trimmed)) return trimmed;
+
+  let response: Response;
+  try {
+    response = await fetch(createImageDownloadUrl(trimmed), {
+      headers: { Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8' }
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`贴纸图片下载失败，无法本地化：${message}。请改用本地图片导入，或通过可访问的图片代理/图床重新导入。`);
+  }
+
+  if (!response.ok) {
+    throw new Error(`贴纸图片下载失败，状态码：${response.status}。请改用本地图片导入，或通过可访问的图片代理/图床重新导入。`);
+  }
+
+  const contentLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > maxStickerImageBytes) {
+    throw new Error('贴纸图片超过 12MB，无法写入本地缓存。');
+  }
+
+  const contentType = response.headers.get('content-type')?.split(';')[0]?.trim() ?? '';
+  const downloadedBlob = await response.blob();
+  if (!downloadedBlob.size) throw new Error('贴纸图片下载结果为空。');
+  if (downloadedBlob.size > maxStickerImageBytes) throw new Error('贴纸图片超过 12MB，无法写入本地缓存。');
+
+  const mimeType = downloadedBlob.type || contentType || inferImageMimeType(trimmed);
+  if (!mimeType.startsWith('image/')) {
+    throw new Error(`贴纸链接返回的不是图片内容：${mimeType || '未知类型'}。`);
+  }
+
+  return readBlobAsDataUrl(downloadedBlob.type ? downloadedBlob : new Blob([downloadedBlob], { type: mimeType }));
+}
+
+export async function localizeStickerImportDraft(draft: StickerImportDraft): Promise<StickerImportDraft> {
+  if (!shouldLocalizeStickerImageUrl(draft.imageUrl)) return draft;
+  return {
+    ...draft,
+    imageUrl: await localizeStickerImageUrl(draft.imageUrl)
+  };
+}
+
+export async function localizeStickerImportDrafts(drafts: StickerImportDraft[]) {
+  const localizedDrafts: StickerImportDraft[] = [];
+  for (const draft of drafts) {
+    localizedDrafts.push(await localizeStickerImportDraft(draft));
+  }
+  return localizedDrafts;
+}
 
 function stripWrappingPunctuation(value: string) {
   return value

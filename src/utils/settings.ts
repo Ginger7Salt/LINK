@@ -1,4 +1,4 @@
-import type { ApiVendor, ApiVendorModel, AppSettings, GitHubBackupSettings, ImagePromptPreset, ImageProviderType, NovelAiImageSettings, OpenAiImageSettings, PollinationsImageSettings } from '@/types/domain';
+import type { ApiVendor, ApiVendorModel, AppSettings, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, NovelAiImageSettings, OpenAiImageSettings, PollinationsImageSettings } from '@/types/domain';
 import { createId } from './id';
 
 export const novelAiOfficialApiUrl = 'https://image.novelai.net';
@@ -41,6 +41,34 @@ const defaultOpenAiPromptPresetId = 'openai_default';
 const defaultNovelAiPromptPresetId = 'novelai_default';
 const defaultPollinationsPromptPresetId = 'pollinations_default';
 
+export const openAiImageSizeOptions = ['1024x1024', '1536x1024', '1024x1536', '1280x720', '720x1280', 'auto'];
+
+export function parseImageSize(size: string) {
+  const [width, height] = size.split('x').map((value) => Number.parseInt(value, 10));
+  return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
+    ? { width, height }
+    : { width: 720, height: 1280 };
+}
+
+export function getImageGenerationSize(settings: AppSettings, provider: ImageProviderType) {
+  if (provider === 'novelai') {
+    return {
+      size: `${settings.imageNovelAi.width}x${settings.imageNovelAi.height}`,
+      width: settings.imageNovelAi.width,
+      height: settings.imageNovelAi.height
+    };
+  }
+  if (provider === 'pollinations') {
+    return {
+      size: `${settings.imagePollinations.width}x${settings.imagePollinations.height}`,
+      width: settings.imagePollinations.width,
+      height: settings.imagePollinations.height
+    };
+  }
+  const size = openAiImageSizeOptions.includes(settings.imageOpenAi.size) ? settings.imageOpenAi.size : defaultAppSettings.imageOpenAi.size;
+  return { size, ...parseImageSize(size) };
+}
+
 const defaultVendorAvatar = `data:image/svg+xml;utf8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
   <defs>
@@ -70,6 +98,12 @@ export const defaultAppSettings: AppSettings = {
   apiEndpoint: '',
   apiKey: '',
   model: 'gpt-compatible-model',
+  modelOverrides: {
+    online: '',
+    offline: '',
+    summary: '',
+    voom: ''
+  },
   apiVendors: [],
   autoGenerateVoom: true,
   disclaimerAccepted: false,
@@ -136,8 +170,14 @@ export const defaultAppSettings: AppSettings = {
     private: true,
     lastImageUrl: ''
   },
+  imageModelOverrides: {
+    worldBook: { provider: '', model: '' },
+    voom: { provider: '', model: '' },
+    onlineChat: { provider: '', model: '' }
+  },
   voomImageProvider: '',
   voomImageModel: '',
+  voomReadAtByUser: {},
   imagePrivateOnly: true,
   githubBackup: {
     enabled: false,
@@ -167,6 +207,47 @@ export const defaultAppSettings: AppSettings = {
 function normalizeImageProvider(provider: string | null | undefined): ImageProviderType | '' {
   const normalized = String(provider ?? '').trim();
   return imageProviderOrder.includes(normalized as ImageProviderType) ? normalized as ImageProviderType : '';
+}
+
+function normalizeImageModelSelection(selection: Partial<ImageModelSelection> | null | undefined, fallback?: Partial<ImageModelSelection> | null): ImageModelSelection {
+  const provider = normalizeImageProvider(selection?.provider ?? fallback?.provider);
+  return {
+    provider,
+    model: String(selection?.model ?? fallback?.model ?? '').trim()
+  };
+}
+
+function normalizeImageModelOverrides(settings?: Partial<AppSettings> | null) {
+  const legacySelection = {
+    provider: settings?.voomImageProvider,
+    model: settings?.voomImageModel
+  };
+  const overrides = settings?.imageModelOverrides;
+  return {
+    worldBook: normalizeImageModelSelection(overrides?.worldBook, legacySelection),
+    voom: normalizeImageModelSelection(overrides?.voom, legacySelection),
+    onlineChat: normalizeImageModelSelection(overrides?.onlineChat, legacySelection)
+  } satisfies Record<ImageModelScope, ImageModelSelection>;
+}
+
+function normalizeVoomReadAtByUser(input: unknown): Record<string, Record<string, number>> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+
+  const normalized: Record<string, Record<string, number>> = {};
+  for (const [userId, characterMap] of Object.entries(input)) {
+    const normalizedUserId = userId.trim();
+    if (!normalizedUserId || !characterMap || typeof characterMap !== 'object' || Array.isArray(characterMap)) continue;
+
+    const normalizedCharacterMap: Record<string, number> = {};
+    for (const [characterId, readAt] of Object.entries(characterMap)) {
+      const normalizedCharacterId = characterId.trim();
+      const timestamp = Math.max(0, Number(readAt) || 0);
+      if (normalizedCharacterId && timestamp > 0) normalizedCharacterMap[normalizedCharacterId] = timestamp;
+    }
+    if (Object.keys(normalizedCharacterMap).length) normalized[normalizedUserId] = normalizedCharacterMap;
+  }
+
+  return normalized;
 }
 
 function normalizePromptPreset(preset: Partial<ImagePromptPreset> | null | undefined, fallbackName: string): ImagePromptPreset | null {
@@ -621,7 +702,7 @@ export function getConfiguredImageProviders(settings?: AppSettings | null) {
 
 export function getPreferredVoomImageProvider(settings?: AppSettings | null): ImageProviderType | null {
   const configuredProviders = getConfiguredImageProviders(settings);
-  const selectedProvider = normalizeImageProvider(settings?.voomImageProvider);
+  const selectedProvider = normalizeImageProvider(settings?.imageModelOverrides?.voom.provider ?? settings?.voomImageProvider);
   if (selectedProvider && configuredProviders.includes(selectedProvider)) return selectedProvider;
   return configuredProviders[0] ?? null;
 }
@@ -635,17 +716,26 @@ export function getConfiguredImageModelOptions(settings?: AppSettings | null): C
 
   const openAiOptions = settings.imageOpenAi.vendors.flatMap((vendor) => {
     if (!vendor.enabled || !vendor.apiUrl.trim() || !vendor.apiPath.trim() || !vendor.apiKey.trim()) return [];
-    const model = vendor.models.find((item) => item.selected) ?? vendor.models[0] ?? (settings.imageModel.trim() ? { id: settings.imageModel.trim(), nickname: '', selected: true } : null);
-    if (!model?.id.trim()) return [];
-    const modelSelection = `${vendor.id}::${model.id}`;
-    return [{
-      key: createImageModelKey('openai', modelSelection),
-      provider: 'openai' as const,
-      providerLabel: 'OpenAI',
-      label: model.nickname || model.id,
-      detail: vendor.name,
-      model: modelSelection
-    }];
+    const selectedModels = vendor.models.filter((item) => item.selected);
+    const models = selectedModels.length
+      ? selectedModels
+      : vendor.models[0]
+        ? [vendor.models[0]]
+        : settings.imageModel.trim()
+          ? [{ id: settings.imageModel.trim(), nickname: '', selected: true }]
+          : [];
+    return models.flatMap((model) => {
+      if (!model.id.trim()) return [];
+      const modelSelection = `${vendor.id}::${model.id}`;
+      return [{
+        key: createImageModelKey('openai', modelSelection),
+        provider: 'openai' as const,
+        providerLabel: 'OpenAI',
+        label: model.nickname || model.id,
+        detail: vendor.name,
+        model: modelSelection
+      }];
+    });
   });
 
   const novelAiOptions = settings.imageNovelAi.apiKey.trim() && settings.imageNovelAi.model.trim()
@@ -673,10 +763,12 @@ export function getConfiguredImageModelOptions(settings?: AppSettings | null): C
   return [...openAiOptions, ...novelAiOptions, ...pollinationsOptions];
 }
 
-export function getSelectedImageModelOption(settings?: AppSettings | null) {
+export function getSelectedImageModelOption(settings?: AppSettings | null, scope: ImageModelScope = 'voom') {
   const options = getConfiguredImageModelOptions(settings);
-  const selectedProvider = normalizeImageProvider(settings?.voomImageProvider);
-  const selectedKey = selectedProvider ? createImageModelKey(selectedProvider, settings?.voomImageModel ?? '') : '';
+  const scopedSelection = settings?.imageModelOverrides?.[scope];
+  const selectedProvider = normalizeImageProvider(scopedSelection?.provider ?? settings?.voomImageProvider);
+  const selectedModel = String(scopedSelection?.model ?? settings?.voomImageModel ?? '').trim();
+  const selectedKey = selectedProvider ? createImageModelKey(selectedProvider, selectedModel) : '';
   return options.find((option) => option.key === selectedKey) ?? options[0] ?? null;
 }
 
@@ -731,6 +823,13 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
 
   const normalized = {
     ...merged,
+    modelOverrides: {
+      online: String(merged.modelOverrides?.online ?? '').trim(),
+      offline: String(merged.modelOverrides?.offline ?? '').trim(),
+      summary: String(merged.modelOverrides?.summary ?? '').trim(),
+      voom: String(merged.modelOverrides?.voom ?? '').trim()
+    },
+    imageModelOverrides: normalizeImageModelOverrides(settings),
     apiVendors: normalizedVendors,
     imageOpenAi: normalizeOpenAiImageSettings(settings?.imageOpenAi, {
       imageModel: legacyImageModel || merged.imageModel,
@@ -739,6 +838,7 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
     }),
     imageNovelAi: normalizeNovelAiImageSettings(settings?.imageNovelAi),
     imagePollinations: normalizePollinationsImageSettings(settings?.imagePollinations),
+    voomReadAtByUser: normalizeVoomReadAtByUser(settings?.voomReadAtByUser),
     githubBackup: normalizeGitHubBackupSettings(settings?.githubBackup)
   };
 
@@ -754,8 +854,9 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
     imageModel: resolvedImageConfig.model || normalized.imageModel,
     imageSize: normalized.imageOpenAi.size || normalized.imageSize,
     imagePromptPrefix: normalized.imageOpenAi.positivePrompt || normalized.imagePromptPrefix,
-    voomImageProvider: normalizeImageProvider(normalized.voomImageProvider),
-    voomImageModel: String(normalized.voomImageModel ?? '').trim(),
+    imageModelOverrides: normalized.imageModelOverrides,
+    voomImageProvider: normalized.imageModelOverrides.voom.provider,
+    voomImageModel: normalized.imageModelOverrides.voom.model,
     imageOpenAi: {
       ...normalized.imageOpenAi,
       activeVendorId: normalized.imageOpenAi.activeVendorId

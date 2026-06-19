@@ -76,9 +76,9 @@
         </div>
 
         <div class="gallery-grid">
-          <article v-for="tile in galleryTiles" :key="tile.id" class="gallery-card" :class="{ mock: !tile.image && tile.caption }">
+          <article v-for="tile in galleryTiles" :key="tile.id" class="gallery-card" :class="{ mock: !tile.image, empty: tile.empty }">
             <img v-if="tile.image" :src="tile.image" :alt="tile.caption || 'Voom image'" />
-            <div v-if="tile.caption" class="gallery-copy">
+            <div v-if="!tile.image && tile.caption" class="gallery-copy">
               <span>{{ tile.caption }}</span>
             </div>
           </article>
@@ -104,7 +104,9 @@ const emit = defineEmits<{
 
 const isEditing = ref(false);
 
-const recentPosts = computed(() => props.posts.filter((post) => post.charId === props.character.id).slice(0, 3));
+const recentPosts = computed(() => props.posts
+  .filter((post) => post.charId === props.character.id || post.visibleCharacterIds?.includes(props.character.id))
+  .slice(0, 3));
 const visualProfile = computed(() => getCharacterVisualProfile(props.character) ?? createVisualProfile(props.character));
 
 const editorForm = reactive({
@@ -134,11 +136,15 @@ const mindStateLines = computed(() => {
 });
 
 const galleryTiles = computed(() => {
-  return Array.from({ length: 3 }, (_, index) => ({
-    id: recentPosts.value[index]?.id ?? `empty-voom-${index + 1}`,
-    caption: recentPosts.value[index]?.imageDescription || recentPosts.value[index]?.content || '',
-    image: recentPosts.value[index]?.image ?? ''
-  }));
+  return Array.from({ length: 3 }, (_, index) => {
+    const post = recentPosts.value[index];
+    return {
+      id: post?.id ?? `empty-voom-${index + 1}`,
+      caption: post?.imageDescription || post?.content || '暂无 VOOM',
+      image: post?.image ?? '',
+      empty: !post
+    };
+  });
 });
 
 function formatCompactStat(value: number) {
@@ -468,6 +474,7 @@ function saveEditor() {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-top: 14px;
+  min-width: 0;
 }
 
 .gallery-card {
@@ -486,9 +493,14 @@ function saveEditor() {
 }
 
 .gallery-card.mock {
+  display: grid;
+  place-items: center;
   background:
-    radial-gradient(circle at 24% 22%, rgba(255, 255, 255, 0.12), transparent 28%),
     linear-gradient(180deg, rgba(36, 40, 49, 0.98), rgba(10, 12, 18, 0.98));
+}
+
+.gallery-card.empty {
+  opacity: 0.72;
 }
 
 .gallery-copy {
@@ -501,6 +513,12 @@ function saveEditor() {
   align-items: flex-end;
   justify-content: flex-end;
   text-align: right;
+}
+
+.gallery-card.mock .gallery-copy {
+  position: static;
+  padding: 10px;
+  text-align: center;
 }
 
 .gallery-copy span {

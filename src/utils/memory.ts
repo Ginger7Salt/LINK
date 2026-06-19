@@ -32,6 +32,7 @@ export const defaultConversationSettings: Omit<ConversationSettings, 'conversati
   modelOverrides: {
     online: '',
     offline: '',
+    summary: '',
     voom: ''
   },
   appearance: {
@@ -59,6 +60,7 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
   const memory = settings?.memory ?? defaultChatMemorySettings;
   const appearance = settings?.appearance ?? defaultConversationSettings.appearance;
   const modelOverrides = settings?.modelOverrides ?? defaultConversationSettings.modelOverrides;
+  const summaryModel = String(modelOverrides.summary ?? memory.summaryModel ?? '').trim();
   const rawBackgroundColor = String(appearance.backgroundColor ?? defaultConversationSettings.appearance.backgroundColor).trim();
   const backgroundColor = !rawBackgroundColor || rawBackgroundColor.toLowerCase() === legacyDefaultBackgroundColor
     ? defaultBackgroundColor
@@ -80,7 +82,7 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
       enabled: true,
       autoSummarize: memory.autoSummarize ?? defaultChatMemorySettings.autoSummarize,
       summarizeEvery: Math.max(10, Math.round(Number(memory.summarizeEvery) || defaultChatMemorySettings.summarizeEvery)),
-      summaryModel: String(memory.summaryModel ?? '').trim(),
+      summaryModel,
       summaryPrompt: String(memory.summaryPrompt ?? defaultChatMemorySettings.summaryPrompt).trim() || defaultChatMemorySettings.summaryPrompt,
       mergeSummaryPrompt: String(memory.mergeSummaryPrompt ?? defaultChatMemorySettings.mergeSummaryPrompt).trim() || defaultChatMemorySettings.mergeSummaryPrompt,
       vectorMemoryEnabled: memory.vectorMemoryEnabled ?? defaultChatMemorySettings.vectorMemoryEnabled,
@@ -89,6 +91,7 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
     modelOverrides: {
       online: String(modelOverrides.online ?? '').trim(),
       offline: String(modelOverrides.offline ?? '').trim(),
+      summary: summaryModel,
       voom: String(modelOverrides.voom ?? '').trim()
     },
     appearance: {

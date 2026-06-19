@@ -144,7 +144,9 @@ defineExpose({
 .image-console {
   display: grid;
   gap: 16px;
+  min-width: 0;
   padding-bottom: calc(10px + var(--safe-bottom));
+  container-type: inline-size;
 }
 
 .module-tabs {
@@ -190,12 +192,14 @@ defineExpose({
 .module-list {
   display: grid;
   gap: 14px;
+  min-width: 0;
   padding-bottom: 96px;
 }
 
 .module-card {
   display: grid;
   gap: 14px;
+  min-width: 0;
   padding: 14px;
   border-radius: 26px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 248, 252, 0.96));
@@ -205,6 +209,7 @@ defineExpose({
 .module-preview-shell {
   position: relative;
   overflow: hidden;
+  min-width: 0;
   min-height: 220px;
   border-radius: 20px;
   background: #f3f4f6;
@@ -273,6 +278,7 @@ defineExpose({
 .module-copy {
   display: grid;
   gap: 12px;
+  min-width: 0;
 }
 
 .module-copy-top {
@@ -280,6 +286,11 @@ defineExpose({
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
+}
+
+.module-copy-top > div {
+  min-width: 0;
 }
 
 .module-kicker {
@@ -298,13 +309,17 @@ defineExpose({
   font-family: 'Iowan Old Style', 'Palatino Linotype', 'Times New Roman', 'Songti SC', serif;
   font-size: 24px;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .module-copy-top small {
+  flex: 0 1 auto;
+  min-width: 0;
   color: #76737b;
   font-size: 11px;
   font-weight: 700;
   text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .module-description,
@@ -354,7 +369,7 @@ defineExpose({
   font-weight: 800;
 }
 
-@media (min-width: 720px) {
+@container (min-width: 620px) {
   .module-card {
     grid-template-columns: minmax(0, 250px) minmax(0, 1fr);
     align-items: center;

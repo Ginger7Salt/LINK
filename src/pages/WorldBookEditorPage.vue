@@ -547,7 +547,7 @@ function getErrorMessage(error: unknown) {
 }
 
 function getCoverModelLabel(provider: ImageProviderType) {
-  const selected = getSelectedImageModelOption(currentSettings.value);
+  const selected = getSelectedImageModelOption(currentSettings.value, 'worldBook');
   return selected?.provider === provider ? selected.label : '';
 }
 
@@ -556,7 +556,7 @@ function getCoverSizeLabel(provider: ImageProviderType) {
 }
 
 async function generateCover() {
-  const selectedModel = getSelectedImageModelOption(currentSettings.value);
+  const selectedModel = getSelectedImageModelOption(currentSettings.value, 'worldBook');
   if (!selectedModel) {
     coverState.value = 'error';
     coverFeedback.value = '请先在顶部切换按钮里选择一个已配置的生图模型。';

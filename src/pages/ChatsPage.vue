@@ -6,13 +6,13 @@
       </div>
       <div class="icon-row">
         <button class="icon-button" type="button" aria-label="排序">
-          <ListChecks :size="24" />
+          <ListChecks :size="20" />
         </button>
         <button class="icon-button" type="button" aria-label="相册">
-          <Images :size="24" />
+          <Images :size="20" />
         </button>
         <button class="icon-button" type="button" aria-label="新建" @click="openAddFriendPage">
-          <Plus :size="24" />
+          <Plus :size="20" />
         </button>
       </div>
     </header>
@@ -128,6 +128,13 @@ function openAddFriendPage() {
 </script>
 
 <style scoped>
+.chats-page {
+  --top-icon-size: 20px;
+  --top-icon-button-width: 26px;
+  --top-icon-button-height: 30px;
+  --top-icon-gap: 1px;
+}
+
 .online-title {
   display: flex;
   align-items: center;

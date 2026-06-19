@@ -31,7 +31,7 @@
             </div>
 
             <div class="gallery-actions">
-              <button class="gallery-action" type="button" @click="openOriginal(image)">查看原图</button>
+              <button class="gallery-action" type="button" @click="openOriginal(image)">查看</button>
               <button class="gallery-action" type="button" @click="saveImage(image)">保存</button>
               <button class="gallery-action danger" type="button" @click="deleteImage(image.id)">删除</button>
             </div>
@@ -45,7 +45,7 @@
       </section>
     </main>
 
-    <AppModal v-model="showOriginal" title="查看原图" variant="ins">
+    <AppModal v-model="showOriginal" title="查看" variant="ins">
       <section v-if="activeImage" class="original-sheet">
         <img class="original-image" :src="activeImage.imageUrl" :alt="activeImage.title || activeMeta.title" />
         <div class="original-actions">
@@ -224,6 +224,10 @@ async function deleteActiveImage() {
   min-width: 0;
 }
 
+.gallery-summary > div {
+  min-width: 0;
+}
+
 .section-kicker {
   margin: 0;
   color: #9d7a86;
@@ -268,6 +272,7 @@ async function deleteActiveImage() {
   display: block;
   width: 100%;
   min-width: 0;
+  aspect-ratio: 1 / 1;
   overflow: hidden;
   border-radius: 15px;
   background: #f3f4f5;
@@ -276,7 +281,7 @@ async function deleteActiveImage() {
 .gallery-image {
   display: block;
   width: 100%;
-  aspect-ratio: 1 / 1;
+  height: 100%;
   object-fit: cover;
 }
 
@@ -336,7 +341,9 @@ async function deleteActiveImage() {
   font-weight: 900;
   line-height: 1.2;
   text-align: center;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gallery-action.danger {
@@ -397,9 +404,4 @@ async function deleteActiveImage() {
   }
 }
 
-@media (max-width: 340px) {
-  .gallery-actions {
-    grid-template-columns: 1fr;
-  }
-}
 </style>

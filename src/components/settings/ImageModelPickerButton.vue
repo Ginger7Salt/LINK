@@ -1,34 +1,29 @@
 <template>
-  <button class="image-model-button" type="button" :aria-label="buttonLabel" :title="buttonLabel" @click="showPicker = true">
+  <button class="image-model-button" :class="{ 'with-label': showLabel }" type="button" :aria-label="buttonLabel" :title="buttonLabel" @click="showPicker = true">
     <ImagePlus :size="iconSize" stroke-width="2.2" />
     <span v-if="showLabel">{{ compactSelectedLabel }}</span>
   </button>
 
-  <AppModal v-model="showPicker" title="生图模型" variant="ins">
-    <section class="model-picker">
-      <div class="picker-copy">
-        <strong>{{ selectedModelLabel }}</strong>
-        <span>{{ imageModelOptions.length ? '世界书封面和 VOOM 配图会使用当前模型。' : '配置生图模型后会在这里显示。' }}</span>
-      </div>
+  <AppModal v-model="showPicker" title="生图模型" :show-header="false" variant="ins">
+    <section class="image-model-switch-panel form-grid">
+      <label v-for="scope in imageModelScopes" :key="scope.id" class="field model-select-field">
+        <span>{{ scope.label }}</span>
+        <div class="model-select-shell">
+          <span v-if="selectedModelMeta(scope.id)" class="model-select-vendor">{{ selectedModelMeta(scope.id)?.providerLabel }}</span>
+          <select :value="selectionValueFor(scope.id)" :class="{ 'with-provider': selectedModelMeta(scope.id) }" @change="updateImageModel(scope.id, $event)">
+            <option value="">跟随可用默认生图模型</option>
+            <optgroup v-for="group in groupedImageModels" :key="`${scope.id}-${group.id}`" :label="group.label">
+              <option v-for="option in group.options" :key="`${scope.id}-${option.key}`" :value="option.key">
+                {{ option.label }}{{ option.detail ? ` · ${option.detail}` : '' }}
+              </option>
+            </optgroup>
+          </select>
+        </div>
+      </label>
 
-      <div v-if="imageModelOptions.length" class="model-list">
-        <button
-          v-for="option in imageModelOptions"
-          :key="option.key"
-          class="model-option"
-          :class="{ active: option.key === selectedModelKey }"
-          type="button"
-          @click="selectImageModel(option)"
-        >
-          <span class="model-provider">{{ option.providerLabel }}</span>
-          <strong>{{ option.label }}</strong>
-          <small>{{ option.detail }}</small>
-        </button>
-      </div>
-
-      <section v-else class="picker-empty">
+      <section v-if="!imageModelOptions.length" class="picker-empty">
         <strong>暂无可切换模型</strong>
-        <p>先在 Image 页面配置 OpenAI 图片供应商、NovelAI 或 Pollinations。没有可用配置时，VOOM 会显示文字描述卡片。</p>
+        <p>先在 Image 页面配置 OpenAI 图片供应商、NovelAI 或 Pollinations。</p>
       </section>
     </section>
   </AppModal>
@@ -39,7 +34,7 @@ import { computed, ref } from 'vue';
 import { ImagePlus } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import { useAppStore } from '@/stores/appStore';
-import type { AppSettings } from '@/types/domain';
+import type { AppSettings, ImageModelScope } from '@/types/domain';
 import { createImageModelKey, getConfiguredImageModelOptions, getSelectedImageModelOption, type ConfiguredImageModelOption } from '@/utils/settings';
 
 withDefaults(defineProps<{
@@ -53,22 +48,72 @@ withDefaults(defineProps<{
 const store = useAppStore();
 const showPicker = ref(false);
 
-const imageModelOptions = computed(() => getConfiguredImageModelOptions(store.settings));
-const selectedModel = computed(() => getSelectedImageModelOption(store.settings));
-const selectedModelKey = computed(() => selectedModel.value?.key ?? '');
-const selectedModelLabel = computed(() => selectedModel.value ? `${selectedModel.value.providerLabel} · ${selectedModel.value.label}` : '使用文字描述卡片');
-const compactSelectedLabel = computed(() => selectedModel.value?.providerLabel ?? 'Image');
-const buttonLabel = computed(() => selectedModel.value ? `切换生图模型：${selectedModelLabel.value}` : '切换生图模型');
+const imageModelScopes: Array<{ id: ImageModelScope; label: string }> = [
+  { id: 'worldBook', label: '世界书封面' },
+  { id: 'voom', label: 'VOOM' },
+  { id: 'onlineChat', label: '线上聊天' }
+];
 
-async function selectImageModel(option: ConfiguredImageModelOption) {
+const imageModelOptions = computed(() => getConfiguredImageModelOptions(store.settings));
+const selectedModel = computed(() => getSelectedImageModelOption(store.settings, 'voom'));
+const compactSelectedLabel = computed(() => selectedModel.value?.providerLabel ?? 'Image');
+const buttonLabel = computed(() => selectedModel.value ? `切换生图模型：${selectedModel.value.providerLabel} · ${selectedModel.value.label}` : '切换生图模型');
+const groupedImageModels = computed(() => {
+  const groups = new Map<string, { id: string; label: string; options: ConfiguredImageModelOption[] }>();
+  for (const option of imageModelOptions.value) {
+    const id = `${option.provider}:${option.detail}`;
+    const label = option.detail ? `${option.providerLabel} · ${option.detail}` : option.providerLabel;
+    const group = groups.get(id) ?? { id, label, options: [] };
+    group.options.push(option);
+    groups.set(id, group);
+  }
+  return [...groups.values()].map((group) => ({
+    ...group,
+    options: [...group.options].sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans-CN'))
+  }));
+});
+
+function rawSelectionFor(scope: ImageModelScope) {
+  return store.settings?.imageModelOverrides[scope] ?? { provider: '', model: '' };
+}
+
+function selectionValueFor(scope: ImageModelScope) {
+  const selection = rawSelectionFor(scope);
+  const key = selection.provider ? createImageModelKey(selection.provider, selection.model) : '';
+  return imageModelOptions.value.some((option) => option.key === key) ? key : '';
+}
+
+function selectedModelMeta(scope: ImageModelScope) {
+  const value = selectionValueFor(scope);
+  return value ? imageModelOptions.value.find((option) => option.key === value) ?? null : null;
+}
+
+async function updateImageModel(scope: ImageModelScope, event: Event) {
   const settings = store.settings;
   if (!settings) return;
+  const value = (event.target as HTMLSelectElement).value;
+  const option = imageModelOptions.value.find((item) => item.key === value) ?? null;
 
   const nextSettings: AppSettings = {
     ...settings,
-    voomImageProvider: option.provider,
-    voomImageModel: option.model
+    imageModelOverrides: {
+      ...settings.imageModelOverrides,
+      [scope]: {
+        provider: option?.provider ?? '',
+        model: option?.model ?? ''
+      }
+    }
   };
+
+  if (scope === 'voom' && option) {
+    nextSettings.voomImageProvider = option.provider;
+    nextSettings.voomImageModel = option.model;
+  }
+
+  if (!option) {
+    await store.saveSettings(nextSettings);
+    return;
+  }
 
   if (option.provider === 'openai') {
     const [vendorId] = option.model.split('::');
@@ -89,7 +134,6 @@ async function selectImageModel(option: ConfiguredImageModelOption) {
   }
 
   await store.saveSettings(nextSettings);
-  showPicker.value = false;
 }
 </script>
 
@@ -98,16 +142,23 @@ async function selectImageModel(option: ConfiguredImageModelOption) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  min-width: 34px;
+  flex: 0 0 34px;
+  width: 34px;
   min-height: 34px;
-  padding: 0 10px;
+  padding: 0;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.88);
   color: #111111;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
   font-size: 12px;
   font-weight: 900;
+}
+
+.image-model-button.with-label {
+  flex-basis: auto;
+  width: auto;
+  gap: 6px;
+  padding: 0 10px;
 }
 
 .image-model-button span {
@@ -117,74 +168,49 @@ async function selectImageModel(option: ConfiguredImageModelOption) {
   white-space: nowrap;
 }
 
-.model-picker,
-.picker-copy,
-.model-list {
+.image-model-switch-panel {
+  padding-top: 4px;
+}
+
+.model-select-field select {
+  width: 100%;
+  min-height: 42px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.76);
+  color: #24201e;
+  font-weight: 800;
+}
+
+.model-select-shell {
   display: grid;
-  gap: 14px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 5px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.58);
 }
 
-.picker-copy {
-  gap: 5px;
-}
-
-.picker-copy strong {
-  color: #151515;
-  font-size: 18px;
+.model-select-vendor {
+  max-width: 86px;
+  overflow: hidden;
+  color: #5f5a56;
+  font-size: 12px;
   font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.picker-copy span,
+.model-select-shell select:not(.with-provider) {
+  grid-column: 1 / -1;
+}
+
 .picker-empty p {
   margin: 0;
   color: #767b82;
   font-size: 12px;
   line-height: 1.45;
-}
-
-.model-option {
-  display: grid;
-  grid-template-columns: 74px minmax(0, 1fr);
-  gap: 4px 10px;
-  width: 100%;
-  min-height: 58px;
-  padding: 10px 12px;
-  border: 1px solid #edf0f2;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #171717;
-  text-align: left;
-}
-
-.model-option.active {
-  border-color: rgba(6, 199, 85, 0.54);
-  background: #effbf4;
-}
-
-.model-provider {
-  grid-row: span 2;
-  align-self: center;
-  color: #12853f;
-  font-size: 11px;
-  font-weight: 900;
-}
-
-.model-option strong,
-.model-option small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.model-option strong {
-  font-size: 13px;
-  font-weight: 900;
-}
-
-.model-option small {
-  color: #858a91;
-  font-size: 11px;
 }
 
 .picker-empty {

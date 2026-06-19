@@ -3,7 +3,6 @@
     <div>
       <h1>{{ user.nickname }}</h1>
       <p>{{ user.signature }}</p>
-      <span>ID {{ user.id }}</span>
     </div>
     <img class="profile-avatar" :src="visualProfile.avatar" :alt="visualProfile.nickname" />
   </button>
@@ -55,11 +54,6 @@ p {
 small {
   display: block;
   color: #6b7179;
-  font-size: 11px;
-}
-
-span {
-  color: #a5a8ad;
   font-size: 11px;
 }
 

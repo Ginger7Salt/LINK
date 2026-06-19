@@ -12,10 +12,11 @@
     <button class="icon-button" type="button" aria-label="添加" @click="$emit('open-menu')">
       <Plus :size="27" />
     </button>
-    <button class="icon-button" type="button" aria-label="相机">
+    <input ref="cameraInputRef" class="visually-hidden-input" type="file" accept="image/*" capture="environment" @change="handleCameraFile" />
+    <button class="icon-button" type="button" aria-label="相机" :disabled="disabled" @click="openCameraInput">
       <Camera :size="23" />
     </button>
-    <button v-if="online" class="icon-button" type="button" aria-label="图片">
+    <button v-if="online" class="icon-button" type="button" aria-label="图片" :disabled="disabled" @click="$emit('open-image-panel')">
       <ImageIcon :size="23" />
     </button>
     <label class="composer-input">
@@ -52,9 +53,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'cancel-quote': [];
+  'capture-photo': [file: File];
   blur: [];
   focus: [];
   'prepare-focus': [];
+  'open-image-panel': [];
   'open-menu': [];
   'open-stickers': [];
   reply: [content: string];
@@ -62,7 +65,12 @@ const emit = defineEmits<{
 }>();
 
 const text = ref('');
-const quoteContent = computed(() => props.quote?.sticker ? `[Sticker] ${props.quote.sticker.description}` : props.quote?.content ?? '');
+const cameraInputRef = ref<HTMLInputElement | null>(null);
+const quoteContent = computed(() => {
+  if (props.quote?.sticker) return `[Sticker] ${props.quote.sticker.description}`;
+  if (props.quote?.image) return `[图片] ${props.quote.image.description}`;
+  return props.quote?.content ?? '';
+});
 
 function submit() {
   const content = text.value.trim();
@@ -84,6 +92,17 @@ function pressSendButton() {
   }
   submit();
 }
+
+function openCameraInput() {
+  cameraInputRef.value?.click();
+}
+
+function handleCameraFile(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (file?.type.startsWith('image/')) emit('capture-photo', file);
+}
 </script>
 
 <style scoped>
@@ -99,6 +118,21 @@ function pressSendButton() {
   background: rgba(255, 255, 255, 0.98);
   transform: translate3d(0, calc(0px - var(--keyboard-inset)), 0);
   will-change: transform;
+}
+
+.visually-hidden-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.icon-button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .composer-quote {

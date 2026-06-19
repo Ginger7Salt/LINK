@@ -1,13 +1,13 @@
 <template>
-  <AppModal :model-value="modelValue" title="模型切换" :show-header="false" variant="ins" @update:model-value="emit('update:modelValue', $event)">
+  <AppModal :model-value="modelValue" :title="panelTitle" :show-header="false" variant="ins" @update:model-value="emit('update:modelValue', $event)">
     <section class="model-switch-panel form-grid">
       <label v-for="scope in modelScopes" :key="scope.id" class="field model-select-field">
         <span>{{ scope.label }}</span>
         <div class="model-select-shell">
-          <img v-if="selectedModelMeta(draft.modelOverrides[scope.id])" :src="selectedModelMeta(draft.modelOverrides[scope.id])?.avatar" :alt="selectedModelMeta(draft.modelOverrides[scope.id])?.vendorName" />
-          <span v-if="selectedModelMeta(draft.modelOverrides[scope.id])" class="model-select-vendor">{{ selectedModelMeta(draft.modelOverrides[scope.id])?.vendorName }}</span>
-          <select v-model="draft.modelOverrides[scope.id]" :class="{ 'with-provider': selectedModelMeta(draft.modelOverrides[scope.id]) }" @change="saveDraft">
-            <option value="">跟随全局默认模型</option>
+          <img v-if="selectedModelMeta(modelValueFor(scope.id))" :src="selectedModelMeta(modelValueFor(scope.id))?.avatar" :alt="selectedModelMeta(modelValueFor(scope.id))?.vendorName" />
+          <span v-if="selectedModelMeta(modelValueFor(scope.id))" class="model-select-vendor">{{ selectedModelMeta(modelValueFor(scope.id))?.vendorName }}</span>
+          <select :value="modelValueFor(scope.id)" :class="{ 'with-provider': selectedModelMeta(modelValueFor(scope.id)) }" @change="updateModel(scope.id, $event)">
+            <option value="">{{ fallbackLabel(scope.id) }}</option>
             <optgroup v-for="vendor in groupedModels" :key="`${scope.id}-${vendor.id}`" :label="vendorSelectLabel(vendor)">
               <option v-for="model in vendor.models" :key="`${scope.id}-${model.value}`" :value="model.value">
                 {{ model.label }}
@@ -24,13 +24,18 @@
 import { computed, reactive, watch } from 'vue';
 import AppModal from '@/components/common/AppModal.vue';
 import { useAppStore } from '@/stores/appStore';
-import type { ChatModelScope, ConversationSettings } from '@/types/domain';
+import type { AppSettings, ChatModelScope, ConversationSettings } from '@/types/domain';
 import { normalizeConversationSettings } from '@/utils/memory';
+import { normalizeAppSettings } from '@/utils/settings';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: boolean;
-  conversationId: string;
-}>();
+  conversationId?: string;
+  variant?: 'conversation' | 'global';
+}>(), {
+  conversationId: '',
+  variant: 'conversation'
+});
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean];
@@ -40,9 +45,13 @@ const store = useAppStore();
 const modelScopes: Array<{ id: ChatModelScope; label: string }> = [
   { id: 'online', label: '线上聊天模型' },
   { id: 'offline', label: '线下 RP 模型' },
+  { id: 'summary', label: '总结模型' },
   { id: 'voom', label: 'VOOM 生成模型' }
 ];
 const draft = reactive<ConversationSettings>(normalizeConversationSettings(null, props.conversationId));
+const settingsDraft = reactive<AppSettings>(normalizeAppSettings(null));
+const isGlobal = computed(() => props.variant === 'global');
+const panelTitle = computed(() => (isGlobal.value ? '全局模型切换' : '模型切换'));
 
 const groupedModels = computed(() => {
   return (store.settings?.apiVendors ?? [])
@@ -65,13 +74,59 @@ const groupedModels = computed(() => {
 watch(
   () => [props.conversationId, store.conversationSettings.length, props.modelValue] as const,
   () => {
+    if (isGlobal.value) return;
     Object.assign(draft, normalizeConversationSettings(store.settingsForConversation(props.conversationId), props.conversationId));
   },
   { immediate: true }
 );
 
-function saveDraft() {
-  void store.saveConversationSettings({ ...draft, conversationId: props.conversationId });
+watch(
+  () => [store.settings, props.modelValue] as const,
+  () => {
+    if (!isGlobal.value) return;
+    Object.assign(settingsDraft, normalizeAppSettings(store.settings));
+  },
+  { immediate: true }
+);
+
+function modelValueFor(scope: ChatModelScope) {
+  return isGlobal.value ? settingsDraft.modelOverrides[scope] : draft.modelOverrides[scope];
+}
+
+function fallbackLabel(scope: ChatModelScope) {
+  if (isGlobal.value) return '跟随 API 默认模型';
+  const labels: Record<ChatModelScope, string> = {
+    online: '跟随全局线上聊天模型',
+    offline: '跟随全局线下 RP 模型',
+    summary: '跟随全局总结模型',
+    voom: '跟随全局 VOOM 生成模型'
+  };
+  return labels[scope];
+}
+
+function updateModel(scope: ChatModelScope, event: Event) {
+  const value = (event.target as HTMLSelectElement).value;
+  if (isGlobal.value) {
+    void store.saveSettings(normalizeAppSettings({
+      ...settingsDraft,
+      modelOverrides: {
+        ...settingsDraft.modelOverrides,
+        [scope]: value
+      }
+    }));
+    return;
+  }
+
+  const nextSettings = normalizeConversationSettings({
+    ...draft,
+    conversationId: props.conversationId,
+    modelOverrides: {
+      ...draft.modelOverrides,
+      [scope]: value
+    }
+  }, props.conversationId);
+  Object.assign(draft, nextSettings);
+  void store.saveConversationSettings(nextSettings);
 }
 
 function vendorSelectLabel(vendor: { avatar: string; name: string }) {

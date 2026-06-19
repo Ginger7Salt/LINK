@@ -34,8 +34,9 @@
         z-index: 9999;
         display: grid;
         place-items: center;
-        background: #ffffff;
-        transition: opacity 280ms ease, visibility 280ms ease;
+        padding: max(20px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(34px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+        background: #fffdfa;
+        transition: opacity 320ms ease, visibility 320ms ease;
       }
 
       #boot-loader.is-hidden {
@@ -46,187 +47,134 @@
 
       .boot-loader__inner {
         display: grid;
-        place-items: center;
-        width: min(220px, calc(100vw - 72px));
-        aspect-ratio: 1;
+        justify-items: center;
+        gap: 18px;
+        width: min(100%, 780px);
       }
 
-      .boot-loader__link {
-        width: 100%;
+      .boot-loader__image {
+        display: block;
+        width: min(100%, 760px);
+        max-height: min(72dvh, 620px);
+        object-fit: contain;
+      }
+
+      .boot-loader__progress {
+        display: grid;
+        gap: 8px;
+        width: min(68vw, 280px);
+      }
+
+      .boot-loader__track {
+        height: 6px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(225, 74, 92, 0.14);
+      }
+
+      .boot-loader__bar {
+        width: 0%;
         height: 100%;
-        overflow: visible;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #ef6374, #5ba6bd);
+        transition: width 180ms ease-out;
       }
 
-      .boot-loader__route,
-      .boot-loader__route-glow {
-        stroke: #06c755;
-        stroke-width: 5;
-        stroke-linecap: round;
-        fill: none;
+      .boot-loader__meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        color: #c84f63;
+        font: 600 12px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
 
-      .boot-loader__route-glow {
-        opacity: 0.14;
-        stroke-width: 17;
+      .boot-loader__label {
+        letter-spacing: 0;
       }
 
-      .boot-loader__route {
-        stroke-dasharray: 14 16;
-        animation: boot-link-route 1.25s linear infinite;
-      }
-
-      .boot-loader__bubble {
-        transform-box: fill-box;
-        transform-origin: center;
-        animation: boot-bubble 1.85s ease-in-out infinite;
-      }
-
-      .boot-loader__bubble--center {
-        animation-delay: 120ms;
-      }
-
-      .boot-loader__bubble--right {
-        animation-delay: 240ms;
-      }
-
-      .boot-loader__bubble-shell,
-      .boot-loader__bubble-tail {
-        fill: #ffffff;
-        stroke: #111111;
-        stroke-width: 4;
-      }
-
-      .boot-loader__bubble-shell--green,
-      .boot-loader__bubble-tail--green {
-        fill: #06c755;
-        stroke: #06c755;
-        stroke-width: 4;
-      }
-
-      .boot-loader__dot {
-        animation: boot-dot 1.35s ease-in-out infinite;
-        transform-box: fill-box;
-        transform-origin: center;
-      }
-
-      .boot-loader__dot:nth-of-type(2) {
-        animation-delay: 120ms;
-      }
-
-      .boot-loader__dot:nth-of-type(3) {
-        animation-delay: 240ms;
-      }
-
-      .boot-loader__scan {
-        stroke: #06c755;
-        stroke-width: 4;
-        stroke-linecap: round;
-        fill: none;
-        opacity: 0;
-        transform-origin: 110px 110px;
-        animation: boot-scan 2.4s ease-in-out infinite;
-      }
-
-      @keyframes boot-link-route {
-        to {
-          stroke-dashoffset: -30;
-        }
-      }
-
-      @keyframes boot-bubble {
-        0%,
-        100% {
-          transform: translateY(0) scale(1);
+      @media (max-width: 520px) {
+        .boot-loader__inner {
+          gap: 14px;
         }
 
-        50% {
-          transform: translateY(-7px) scale(1.025);
-        }
-      }
-
-      @keyframes boot-dot {
-        0% {
-          opacity: 0.34;
-          transform: scale(0.72);
+        .boot-loader__image {
+          max-height: 68dvh;
         }
 
-        45% {
-          opacity: 1;
-          transform: scale(1.08);
-        }
-
-        100% {
-          opacity: 0.34;
-          transform: scale(0.72);
-        }
-      }
-
-      @keyframes boot-scan {
-        0%,
-        18%,
-        100% {
-          opacity: 0;
-          transform: rotate(-8deg) scale(0.82);
-        }
-
-        42% {
-          opacity: 0.42;
-          transform: rotate(0deg) scale(1);
-        }
-
-        68% {
-          opacity: 0;
-          transform: rotate(8deg) scale(1.12);
+        .boot-loader__progress {
+          width: min(76vw, 280px);
         }
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .boot-loader__route,
-        .boot-loader__bubble,
-        .boot-loader__dot,
-        .boot-loader__scan {
-          animation: none;
+        #boot-loader,
+        .boot-loader__bar {
+          transition: none;
         }
       }
     </style>
     <title>Link</title>
   </head>
   <body>
-    <div id="boot-loader" aria-hidden="true">
+    <div id="boot-loader" aria-live="polite" aria-label="正在加载 Link">
       <div class="boot-loader__inner">
-        <svg class="boot-loader__link" viewBox="0 0 220 220" role="presentation" aria-hidden="true">
-          <path class="boot-loader__route-glow" d="M58 118 C72 74 101 54 132 70 C157 82 164 115 187 130" />
-          <path class="boot-loader__route" d="M58 118 C72 74 101 54 132 70 C157 82 164 115 187 130" />
-          <path class="boot-loader__scan" d="M65 162 C92 184 134 184 162 162" />
-          <path class="boot-loader__scan" d="M49 45 C82 17 138 17 171 45" />
-
-          <g class="boot-loader__bubble boot-loader__bubble--left">
-            <path class="boot-loader__bubble-tail" d="M55 136 L43 151 L47 128 Z" />
-            <rect class="boot-loader__bubble-shell" x="26" y="95" width="70" height="48" rx="20" />
-            <circle class="boot-loader__dot" cx="50" cy="119" r="5" fill="#06c755" />
-            <circle class="boot-loader__dot" cx="62" cy="119" r="5" fill="#06c755" />
-            <circle class="boot-loader__dot" cx="74" cy="119" r="5" fill="#06c755" />
-          </g>
-
-          <g class="boot-loader__bubble boot-loader__bubble--center">
-            <path class="boot-loader__bubble-tail--green" d="M118 103 L108 120 L105 101 Z" />
-            <rect class="boot-loader__bubble-shell--green" x="82" y="54" width="72" height="54" rx="22" />
-            <circle class="boot-loader__dot" cx="106" cy="81" r="5" fill="#ffffff" />
-            <circle class="boot-loader__dot" cx="119" cy="81" r="5" fill="#ffffff" />
-            <circle class="boot-loader__dot" cx="132" cy="81" r="5" fill="#ffffff" />
-          </g>
-
-          <g class="boot-loader__bubble boot-loader__bubble--right">
-            <path class="boot-loader__bubble-tail" d="M167 143 L181 158 L177 136 Z" />
-            <rect class="boot-loader__bubble-shell" x="135" y="105" width="64" height="46" rx="19" />
-            <circle class="boot-loader__dot" cx="157" cy="128" r="5" fill="#06c755" />
-            <circle class="boot-loader__dot" cx="169" cy="128" r="5" fill="#06c755" />
-            <circle class="boot-loader__dot" cx="181" cy="128" r="5" fill="#06c755" />
-          </g>
-        </svg>
+        <img class="boot-loader__image" src="%BASE_URL%loading.png" alt="" decoding="async" />
+        <div class="boot-loader__progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="boot-loader__track">
+            <div class="boot-loader__bar"></div>
+          </div>
+          <div class="boot-loader__meta">
+            <span class="boot-loader__label">Loading</span>
+            <span class="boot-loader__value">0%</span>
+          </div>
+        </div>
       </div>
     </div>
     <div id="app"></div>
+    <script>
+      (() => {
+        const loader = document.getElementById('boot-loader');
+        const progress = loader?.querySelector('.boot-loader__progress');
+        const bar = loader?.querySelector('.boot-loader__bar');
+        const value = loader?.querySelector('.boot-loader__value');
+
+        if (!loader || !progress || !bar || !value) return;
+
+        let current = 0;
+        let timer = 0;
+        let isDone = false;
+
+        const setProgress = (next) => {
+          current = Math.max(current, Math.min(next, 100));
+          const percent = `${Math.round(current)}%`;
+          bar.style.width = percent;
+          value.textContent = percent;
+          progress.setAttribute('aria-valuenow', String(Math.round(current)));
+        };
+
+        const tick = () => {
+          if (current >= 92) return;
+          const step = current < 52 ? 8 : current < 78 ? 4 : 1.5;
+          setProgress(current + Math.random() * step);
+          timer = window.setTimeout(tick, 140 + Math.random() * 180);
+        };
+
+        const finish = () => {
+          if (isDone) return;
+          isDone = true;
+          window.clearTimeout(timer);
+          setProgress(100);
+          window.setTimeout(() => {
+            loader.classList.add('is-hidden');
+            window.setTimeout(() => loader.remove(), 340);
+          }, 220);
+        };
+
+        tick();
+        window.addEventListener('link:app-mounted', finish, { once: true });
+        window.setTimeout(finish, 8000);
+      })();
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

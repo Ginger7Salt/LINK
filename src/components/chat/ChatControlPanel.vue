@@ -83,10 +83,10 @@
           <label class="field model-select-field">
             <span>自动总结模型</span>
             <div class="model-select-shell">
-              <img v-if="selectedModelMeta(draft.memory.summaryModel)" :src="selectedModelMeta(draft.memory.summaryModel)?.avatar" :alt="selectedModelMeta(draft.memory.summaryModel)?.vendorName" />
-              <span v-if="selectedModelMeta(draft.memory.summaryModel)" class="model-select-vendor">{{ selectedModelMeta(draft.memory.summaryModel)?.vendorName }}</span>
-              <select v-model="draft.memory.summaryModel" :class="{ 'with-provider': selectedModelMeta(draft.memory.summaryModel) }" @change="saveDraft">
-                <option value="">跟随当前模式模型</option>
+              <img v-if="selectedModelMeta(draft.modelOverrides.summary)" :src="selectedModelMeta(draft.modelOverrides.summary)?.avatar" :alt="selectedModelMeta(draft.modelOverrides.summary)?.vendorName" />
+              <span v-if="selectedModelMeta(draft.modelOverrides.summary)" class="model-select-vendor">{{ selectedModelMeta(draft.modelOverrides.summary)?.vendorName }}</span>
+              <select v-model="draft.modelOverrides.summary" :class="{ 'with-provider': selectedModelMeta(draft.modelOverrides.summary) }" @change="saveDraft">
+                <option value="">跟随全局总结模型</option>
                 <optgroup v-for="vendor in groupedModels" :key="vendor.id" :label="vendorSelectLabel(vendor)">
                   <option v-for="model in vendor.models" :key="model.value" :value="model.value">
                     {{ model.label }}

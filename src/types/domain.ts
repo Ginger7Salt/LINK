@@ -88,11 +88,12 @@ export interface CharacterProfile {
 
 export type VoomFrequency = 'very-low' | 'low' | 'medium' | 'high' | 'very-high' | 'always';
 
-export type ChatModelScope = 'online' | 'offline' | 'voom';
+export type ChatModelScope = 'online' | 'offline' | 'summary' | 'voom';
 
 export interface ChatModelOverrides {
   online: string;
   offline: string;
+  summary: string;
   voom: string;
 }
 
@@ -195,12 +196,42 @@ export interface ChatStickerAttachment {
   imageUrl: string;
 }
 
+export type ChatImageAttachmentKind = 'photo' | 'local' | 'description' | 'generated';
+
+export type ChatImageProviderType = 'openai' | 'novelai' | 'pollinations' | 'mock' | 'local';
+
+export interface ChatImageCandidate {
+  id: string;
+  image: string;
+  description: string;
+  provider: ChatImageProviderType;
+  model?: string;
+  size?: string;
+  createdAt: number;
+}
+
+export interface ChatImageAttachment {
+  kind: ChatImageAttachmentKind;
+  description: string;
+  aiHint?: string;
+  url?: string;
+  provider?: ChatImageProviderType;
+  model?: string;
+  size?: string;
+  candidates?: ChatImageCandidate[];
+  fileName?: string;
+  mimeType?: string;
+  width?: number;
+  height?: number;
+}
+
 export interface ChatMessageQuote {
   messageId: string;
   sender: 'user' | 'char' | 'system';
   authorName: string;
   content: string;
   sticker?: ChatStickerAttachment;
+  image?: ChatImageAttachment;
 }
 
 export interface ChatMessage {
@@ -216,6 +247,7 @@ export interface ChatMessage {
   voomCommentId?: string;
   voomEventType?: 'post' | 'like' | 'unlike' | 'comment' | 'reply';
   sticker?: ChatStickerAttachment;
+  image?: ChatImageAttachment;
   quote?: ChatMessageQuote;
   replyBatchId?: string;
   status?: 'sending' | 'sent' | 'failed';
@@ -227,6 +259,16 @@ export type VoomPostAuthorType = 'character' | 'user';
 export type VoomPostVisibility = 'public' | 'selected';
 
 export type VoomImageProviderType = ImageProviderType | 'mock' | 'local';
+
+export interface VoomImageCandidate {
+  id: string;
+  image: string;
+  description: string;
+  provider: VoomImageProviderType;
+  model?: string;
+  size?: string;
+  createdAt: number;
+}
 
 export interface VoomPost {
   id: string;
@@ -244,6 +286,7 @@ export interface VoomPost {
   image?: string;
   imageDescription?: string;
   imageProvider?: VoomImageProviderType;
+  imageCandidates?: VoomImageCandidate[];
   createdAt: number;
   comments: VoomComment[];
   likes: string[];
@@ -296,6 +339,13 @@ export interface WorldBookEntry {
 export type ImageProviderType = 'openai' | 'novelai' | 'pollinations';
 
 export type ImageModuleId = ImageProviderType;
+
+export type ImageModelScope = 'worldBook' | 'voom' | 'onlineChat';
+
+export interface ImageModelSelection {
+  provider: ImageProviderType | '';
+  model: string;
+}
 
 export interface GeneratedImageRecord {
   id: string;
@@ -446,6 +496,7 @@ export interface AppSettings {
   apiEndpoint: string;
   apiKey: string;
   model: string;
+  modelOverrides: ChatModelOverrides;
   apiVendors: ApiVendor[];
   autoGenerateVoom: boolean;
   disclaimerAccepted: boolean;
@@ -458,8 +509,10 @@ export interface AppSettings {
   imageOpenAi: OpenAiImageSettings;
   imageNovelAi: NovelAiImageSettings;
   imagePollinations: PollinationsImageSettings;
+  imageModelOverrides: Record<ImageModelScope, ImageModelSelection>;
   voomImageProvider: ImageProviderType | '';
   voomImageModel: string;
+  voomReadAtByUser: Record<string, Record<string, number>>;
   imagePrivateOnly: boolean;
   githubBackup: GitHubBackupSettings;
 }

@@ -93,18 +93,13 @@ export const profileMutationPrompt = `补充输出规则：
 
 最终必须输出 JSON，不要输出 JSON 以外的任何文字，不要使用 Markdown 代码块。
 
-线上聊天像真实社交软件消息。replies 数组长度由当下角色状态和上下文自然决定：可以只有 1 条，也可以连续 2、3、4、5、6条甚至更多；线下模式通常只使用一个数组项。
-
-默认先按 1 条自然回复来思考,在合适的地方分割输出多个 replies 项，注意标点符号要符合现实社交软件app的使用。
+线上聊天像真实社交软件消息。messages 数组就是本轮发送顺序，可自由组合文字、图片、Sticker；旁白模式开启时也可加入旁白。线下模式通常只用一条 text。
 
 如果不修改资料：
 {
-  "replies": ["正常回复内容"],
-  "replyTranslations": ["对应 replies[0] 的普通话译文；如果 replies[0] 已经是普通话则填空字符串"],
-  "narrations": [],
-  "stickers": [],
-  "stickerPlacements": [],
-  "segments": [],
+  "messages": [
+    { "type": "text", "content": "正常回复内容", "translation": "非中文外语/粤语的简体中文译文，否则留空" }
+  ],
   "messageActions": {
     "recallMessageIds": [],
     "quotes": []
@@ -119,14 +114,12 @@ export const profileMutationPrompt = `补充输出规则：
 
 如果你要修改资料：
 {
-  "replies": ["第一条聊天气泡", "第二条聊天气泡", "第三条聊天气泡"],
-  "replyTranslations": ["第一条的普通话译文或空字符串", "第二条的普通话译文或空字符串", "第三条的普通话译文或空字符串"],
-  "narrations": [],
-  "stickers": [],
-  "stickerPlacements": [
-    { "replyIndex": 1, "position": "after", "stickers": ["合适的Sticker id"] }
+  "messages": [
+    { "type": "text", "content": "第一条聊天气泡", "translation": "" },
+    { "type": "image", "description": "你要发送的一张图片的画面描述" },
+    { "type": "sticker", "stickers": ["合适的Sticker id"] },
+    { "type": "text", "content": "第二条聊天气泡", "translation": "" }
   ],
-  "segments": [],
   "messageActions": {
     "recallMessageIds": [],
     "quotes": []
@@ -140,35 +133,28 @@ export const profileMutationPrompt = `补充输出规则：
 }
 
 要求：
-1. replies 只放正常聊天内容，每个数组项会显示成一个独立聊天气泡；示例只表示 JSON 结构，不代表固定数量。
-2. replyTranslations 必须与 replies 一一对应，长度必须相同；第 n 项只翻译 replies 第 n 项，不要合并多条消息。
-3. 只要 replies 某项不是中文，就必须在对应 replyTranslations 项写中文译文；包括但不限于外语、粤语等方言、繁体中文、文言/古风表达、韩文、泰文、俄文等。
-4. 普通话译文必须是自然口语化的现代简体中文，只翻译意思，不解释语言来源，不加“翻译：”“普通话：”等前缀，不使用括号包裹。
-5. 如果 replies 某项已经是自然标准普通话，对应 replyTranslations 项填空字符串 ""。
-6. 根据角色习惯、情绪、当前节奏和用户消息自然选择几条消息气泡。
+1. messages 按数组顺序发送。
+2. text 项显示成聊天气泡：{ "type":"text", "content":"...", "translation":"..." }。根据角色习惯、情绪、当前节奏自然决定条数。
+3. translation 只在 content 是非中文外语或粤语时填写自然简体中文译文；中文内容一律填空字符串。
+4. image 项显示成图片：{ "type":"image", "description":"画面描述" }。description 描述图片里有什么和氛围，不要写英文标签、相机参数、画质词或模型术语。
+5. 图片内容由角色性格、当前对话、生活状态和要表达的情绪决定，可以是自拍、随手拍、物品、街景、餐食、房间、作业、工作现场等任何合理画面。不合适就不发 image。
+6. sticker 项显示成 Sticker：{ "type":"sticker", "stickers":["Sticker id或文字描述"] }。不合适就不发 sticker，不要为了凑形式发送。
 7. 线上模式每次都要在 profileUpdate.innerMonologue 输出 3-5 句当前内心独白；一句一项，像角色当下不会说出口的心声，不要解释给用户听，不要使用上帝视角，不要重复聊天气泡原文。
 8. 线下模式可以把 profileUpdate 设为 null；线上模式即使不修改资料，也保留 profileUpdate，并让 nickname、signature、narration 为空字符串。
-9. narration 只描述资料变动本身，不要总结，不要剧透；没有资料变动时 narration 为空字符串。
-10. 如果允许你发送 Stickers，优先使用 stickerPlacements 决定发送位置；格式为 {"replyIndex": 0, "position": "after", "stickers": ["Sticker id或文字描述"]}。replyIndex 从 0 开始，对应 replies 数组下标；position 只能是 "before" 或 "after"，表示在该条文字气泡前或后单独发送 Sticker。
-11. 不要默认把 Sticker 固定放在整轮回复末尾。像真实聊天一样根据语境、情绪和节奏决定是否发、发哪张、在第几条消息前后发；不合适就不发。
-12. 顶层 stickers 数组仅作为旧格式兼容，会显示在整轮回复结束后；除非确实想让 Sticker 最后发送，否则保持空数组。不要把同一张 Sticker 同时写进 stickers 和 stickerPlacements。
-13. 最近对话每条消息前的 [msg_xxx] 是 messageId。你可以像真实社交软件一样撤回自己之前发出的某条消息，但只能把你自己发过的角色消息 id 放进 messageActions.recallMessageIds；不要撤回用户或系统消息。
-14. 你可以引用用户之前发过的某条消息进行回复。若某条 replies 要引用用户消息，在 messageActions.quotes 里写 {"replyIndex": 0, "messageId": "用户消息id"}；replyIndex 从 0 开始，对应 replies 数组下标。
-15. 引用用于自然承接上下文。引用时 replies 里仍只写你真正要发出的新消息，不要重复被引用内容。
-16. 如果没有撤回或引用动作，messageActions 里的两个数组都保持空数组。
-17. segments 默认保持空数组；只有当额外规则明确说明“旁白模式已开启”时，才优先使用 segments 表达本轮回复的真实发送顺序。
-18. narrations 默认保持空数组；只有当额外规则明确说明“旁白模式已开启”时，才允许填入旁白短句。`;
+9. profileUpdate.narration 只描述资料变动本身，不要总结，不要剧透；没有资料变动时 narration 为空字符串。
+10. 最近对话每条消息前的 [msg_xxx] 是 messageId。你可以像真实社交软件一样撤回自己之前发出的某条消息，但只能把你自己发过的角色消息 id 放进 messageActions.recallMessageIds；不要撤回用户或系统消息。
+11. 你可以引用用户之前发过的某条消息进行回复。若第 n 个 text 气泡要引用用户消息，在 messageActions.quotes 里写 {"replyIndex": n, "messageId": "用户消息id"}；replyIndex 从 0 开始，只按 text 气泡计数，不把 image、sticker、narration 算进去。
+12. 引用用于自然承接上下文。引用时 text.content 里仍只写你真正要发出的新消息，不要重复被引用内容。
+13. 如果没有撤回或引用动作，messageActions 里的两个数组都保持空数组。`;
 
 export const narrationModePrompt = `补充旁白模式规则：
 
 旁白模式已开启，只在线上聊天生效。本次仍然只使用同一次角色回复 API；不要另起一段非 JSON 文本。
 
-优先在最终 JSON 的 segments 数组中输出本轮真实顺序，允许旁白、聊天气泡、Sticker 任意交错。segments 每一项只能使用以下三种结构之一：
+messages 可加入旁白项，并与聊天气泡、图片、Sticker 按真实发送顺序交错。旁白项格式：
 { "type": "narration", "content": "旁白短句" }
-{ "type": "reply", "content": "聊天气泡内容", "translation": "对应普通话译文或空字符串" }
-{ "type": "sticker", "stickers": ["Sticker id或文字描述"] }
 
-如果使用 segments，系统会优先且只按 segments 显示本轮旁白、气泡和 Sticker 顺序；replies、replyTranslations 可以同步填入 reply 类型 segment 的文字和译文用于兼容，narrations、stickers、stickerPlacements 保持空数组。narrations 不属于聊天气泡，不要写进 replies 或 reply 类型 segment。
+narration 不属于聊天气泡，不要写进 text 项。
 
 旁白内容：
 1. 可描写{{char}}当下可观察的动作、姿态、停顿、打字状态、手机/环境互动等动描。
@@ -176,7 +162,7 @@ export const narrationModePrompt = `补充旁白模式规则：
 3. 可描写{{char}}所在的物理空间里发生的、与{{char}}相关的事件。
 4. 不写{{user}}的动作或状态。
 5. 每条控制在 10-66 个中文字符，第三人称或无主语短句均可，语气要像聊天流里的轻量提示，注意时间流逝的合理性。
-6. 如果当前完全不适合动描，允许 narrations 输出空数组，但不要为了凑数写空泛句。`;
+6. 如果当前完全不适合动描，可以不输出 narration 项，但不要为了凑数写空泛句。`;
 
 export const onlineStickerSemanticsPrompt = `你是精通Z世代社交语境的“活人”，视 Sticker 为情绪缓冲带与互联网嘴替。
 
@@ -213,8 +199,15 @@ const modeInstructions: Record<ChatMode, string> = {
   offline: '当前是线下模式。回复为长文本 RP，像小说章节一样呈现。'
 };
 
-function getMessageText(message: Pick<PromptContext['messages'][number], 'content' | 'sticker'>) {
-  return message.sticker ? `[Sticker] ${message.sticker.description}` : message.content;
+function getMessageText(message: Pick<PromptContext['messages'][number], 'content' | 'sticker' | 'image'>) {
+  if (message.sticker) return `[Sticker] ${message.sticker.description}`;
+  if (message.image) {
+    if (message.image.kind === 'description') return `用户发送了一张图片，图片内容为“${message.image.description}”。`;
+    const kindLabel = message.image.kind === 'photo' ? '相机照片' : '本地图片';
+    const hintText = message.image.aiHint ? `图片内容线索：${message.image.aiHint}。` : '';
+    return `用户发送了一张${kindLabel}，已随请求附带真实图片，可直接识图。${hintText}`;
+  }
+  return message.content;
 }
 
 function getWorldBookActivationText(context: PromptContext) {
@@ -290,11 +283,11 @@ function renderWorldBooks(entries: WorldBookEntry[], context: PromptContext) {
 
 function renderAvailableStickers(context: PromptContext) {
   const stickers = context.availableStickers ?? [];
-  if (!stickers.length) return '当前没有允许你主动发送的 Stickers。stickers 必须输出空数组。';
+  if (!stickers.length) return '当前没有允许你主动发送的 Stickers。';
   return [
     '你可以在合适时主动发送 Stickers，但只能从下面列表中选择。',
-    '如果要发送，优先在 JSON 的 stickerPlacements 中填写位置和对应 id 或文字描述；不要编造列表外的 Sticker。',
-    '不要默认把 Sticker 放在所有文字消息末尾，要像真实聊天一样按上下文决定它出现在某条消息前还是后。',
+    '如果要发送，在 messages 中加入 { "type":"sticker", "stickers":["Sticker id或文字描述"] }。',
+    'Sticker 的顺序由 messages 的位置决定；不要编造列表外的 Sticker。',
     ...stickers.map((sticker) => `- id: ${sticker.stickerId}；描述: ${sticker.description}`)
   ].join('\n');
 }
@@ -328,10 +321,11 @@ export function buildPrompt(context: PromptContext) {
       const quoteText = message.quote
         ? `引用 ${message.quote.authorName}: ${getMessageText(message.quote)}\n`
         : '';
-      const stickerText = message.sticker
-        ? `${getMessageText(message)}${context.stickerVisionEnabled ? '（已随请求附带图片，可直接识图）' : '（识图关闭，仅可读取文字描述）'}`
-        : message.content;
-      return `[${message.id}] ${speaker}: ${quoteText}${stickerText}`;
+      const messageText = getMessageText(message);
+      const visualText = message.sticker
+        ? `${messageText}${context.stickerVisionEnabled ? '（已随请求附带图片，可直接识图）' : '（识图关闭，仅可读取文字描述）'}`
+        : messageText;
+      return `[${message.id}] ${speaker}: ${quoteText}${visualText}`;
     })
     .join('\n');
 
@@ -358,12 +352,12 @@ export function buildPrompt(context: PromptContext) {
     `当前对话总结：\n${context.conversationSummary || '暂无总结。'}`,
     `记忆手册：\n${context.memorySummary || '暂无记忆手册。'}`,
     `世界书：\n${renderWorldBooks(selectedWorldBooks, context) || '无启用条目。'}`,
-    'Sticker 规则：用户发送 Sticker 时，文字描述是用户提供的贴纸含义。若本次请求附带图片，你可以观察图片内容；若未附带图片，不要臆造图片细节，只能按文字描述理解。',
+    'Sticker / 图片规则：用户发送 Sticker 时，文字描述是用户提供的贴纸含义。用户发送真实图片时，若本次请求附带图片，你可以观察图片内容；用户发送文字描述卡片时，必须理解为“用户发送了一张图片，图片内容为描述文本”，虽然没有真实图片文件，也要按图片内容参与对话。若未附带真实图片，不要臆造描述之外的图片细节。',
     `角色可用 Stickers：\n${renderAvailableStickers(context)}`,
     `最近对话：\n${history || '暂无。'}`
   ].filter(Boolean).join('\n\n');
 }
 
 export function buildMomentPrompt(context: PromptContext) {
-  return `${buildPrompt(context)}\n\n现在生成角色要发布的一条 LINK VOOM / 朋友圈动态，以及这条动态自然产生的点赞和评论区。只输出 JSON，不要输出 Markdown，不要输出 JSON 以外的任何文字。\n\n格式：\n{\n  "content": "朋友圈正文",\n  "contentTranslation": "如 content 不是普通话，则给普通话译文；否则留空",\n  "imageDescription": "这条动态会同时发布的一张配图的文字描述",\n  "likes": ["NPC在社交软件上的网名"],\n  "comments": [\n    { "authorName": "NPC在社交软件上的网名", "content": "评论内容", "contentTranslation": "如 content 不是普通话，则给普通话译文；否则留空" }\n  ]\n}\n\n要求：\n1. content 是角色真正发出去的动态文字，像社交软件朋友圈正文，可以短，可以日常，不要解释设定。\n2. contentTranslation 和每条 comment.contentTranslation 的规则：外语、粤语、方言、繁体中文、文言/古风表达都要翻译成自然现代简体普通话；不要加“翻译：”前缀。\n3. imageDescription 是配图画面描述，不是生图提示词，不要写英文标签、相机参数、画质词或模型术语。\n4. 配图内容由角色性格、对话历史、动态正文、最近经历和生活状态决定，不固定题材；可以是自拍、随手拍、物品、街景、餐食、房间、作业、工作现场等任何合理画面。\n5. imageDescription 描述“画面里有什么”和“看起来是什么氛围”，注意环境场景、时间、图片视角、角色设定形象，构图组成部分等，控制在 40-140 个中文字符。\n6. likes 和 comments 来自角色真实社交圈里的 NPC，不要包含{{user}}，也不要使用“NPC”这种占位名字。\n7. comments 控制在 2-6 条，内容要像社交软件评论区里会出现的真实评论。`;
+  return `${buildPrompt(context)}\n\n现在生成角色要发布的一条 LINK VOOM / 朋友圈动态，以及这条动态自然产生的点赞和评论区。只输出 JSON，不要输出 Markdown，不要输出 JSON 以外的任何文字。\n\n格式：\n{\n  "content": "朋友圈正文",\n  "contentTranslation": "只在 content 是非中文外语或粤语时填写简体中文译文，否则留空",\n  "imageDescription": "这条动态会同时发布的一张配图的文字描述",\n  "likes": ["NPC在社交软件上的网名"],\n  "comments": [\n    { "authorName": "NPC在社交软件上的网名", "content": "评论内容", "contentTranslation": "只在 content 是非中文外语或粤语时填写简体中文译文，否则留空" }\n  ]\n}\n\n要求：\n1. content 是角色真正发出去的动态文字，像社交软件朋友圈正文，可以短，可以日常，不要解释设定。\n2. contentTranslation 和每条 comment.contentTranslation 只翻译非中文外语或粤语；中文内容留空。译文必须是自然简体中文，不要加“翻译：”前缀。\n3. imageDescription 是配图画面描述，不是生图提示词，不要写英文标签、相机参数、画质词或模型术语。\n4. 配图内容由角色性格、对话历史、动态正文、最近经历和生活状态决定，不固定题材；可以是自拍、随手拍、物品、街景、餐食、房间、作业、工作现场等任何合理画面。\n5. imageDescription 描述“画面里有什么”和“看起来是什么氛围”，注意环境场景、时间、图片视角、角色设定形象，构图组成部分等，控制在 40-140 个中文字符。\n6. likes 和 comments 来自角色真实社交圈里的 NPC，不要包含{{user}}，也不要使用“NPC”这种占位名字。\n7. comments 控制在 2-6 条，内容要像社交软件评论区里会出现的真实评论。`;
 }

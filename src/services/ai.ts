@@ -2,7 +2,7 @@ import { unzipSync } from 'fflate';
 import type { ApiVendor, AppSettings, CharacterProfile, ConversationTimeAwarenessSettings, GenerateReplyInput, ImageProviderType, NovelAiModelOption, PollinationsModelOption, PromptContext, UserProfile, VoomComment, VoomFrequency, VoomPost } from '@/types/domain';
 import { createId } from '@/utils/id';
 import { getCharacterVoomAuthorName } from '@/utils/character';
-import { defaultNovelAiModels, defaultPollinationsModels, getPreferredVoomImageProvider, getResolvedApiConfig, getResolvedOpenAiImageConfig, novelAiOfficialApiUrl, novelAiProxyApiUrl } from '@/utils/settings';
+import { defaultNovelAiModels, defaultPollinationsModels, getImageGenerationSize, getResolvedApiConfig, getResolvedOpenAiImageConfig, getSelectedImageModelOption, novelAiOfficialApiUrl, novelAiProxyApiUrl } from '@/utils/settings';
 import { estimateTokenCount } from '@/utils/memory';
 import { renderTimeAwarenessPrompt } from '@/utils/timeAwareness';
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
@@ -38,13 +38,15 @@ export interface RoleplayStickerPlacement {
 export type RoleplayReplySegment =
   | { type: 'reply'; content: string; translation?: string }
   | { type: 'narration'; content: string }
-  | { type: 'sticker'; stickers: string[] };
+  | { type: 'sticker'; stickers: string[] }
+  | { type: 'image'; description: string };
 
 export interface RoleplayReplyResult {
   reply: string;
   replies?: string[];
   replyTranslations?: string[];
   narrations?: string[];
+  images?: Array<{ description: string }>;
   stickers?: string[];
   stickerPlacements?: RoleplayStickerPlacement[];
   segments?: RoleplayReplySegment[];
@@ -133,6 +135,91 @@ function normalizeBaseUrl(url: string) {
   return url.trim().replace(/\/+$/, '');
 }
 
+const httpStatusText: Record<number, string> = {
+  408: 'Request Timeout',
+  429: 'Too Many Requests',
+  500: 'Internal Server Error',
+  502: 'Bad Gateway',
+  503: 'Service Unavailable',
+  504: 'Gateway Timeout',
+  520: 'Unknown Error',
+  522: 'Connection Timed Out',
+  524: 'A Timeout Occurred'
+};
+
+const transientOpenAiImageStatuses = new Set([408, 429, 500, 502, 503, 504, 520, 522, 524]);
+const openAiImageRetryDelays = [1200];
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function parseRetryAfter(value: string | null) {
+  if (!value) return 0;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds > 0) return seconds * 1000;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? Math.max(0, timestamp - Date.now()) : 0;
+}
+
+function decodeHtmlEntities(value: string) {
+  return value
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([\da-f]+);/gi, (_, code) => String.fromCharCode(Number.parseInt(code, 16)));
+}
+
+function stripHtml(value: string) {
+  return decodeHtmlEntities(value)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractHtmlTagText(payload: string, tagName: string) {
+  const match = payload.match(new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i'));
+  return match ? stripHtml(match[1]) : '';
+}
+
+function extractCloudflareHost(payload: string) {
+  const hostBlock = payload.match(/<div[^>]+id=["']cf-host-status["'][\s\S]*?<\/div>/i)?.[0] ?? '';
+  const labels = [...hostBlock.matchAll(/<span\b[^>]*>([\s\S]*?)<\/span>/gi)]
+    .map((match) => stripHtml(match[1]))
+    .filter(Boolean);
+  return labels.find((label) => label.includes('.')) ?? '';
+}
+
+function extractCloudflareErrorPayload(payload: string) {
+  if (!/cloudflare|cf-error-details|cf-wrapper/i.test(payload)) return '';
+
+  const title = extractHtmlTagText(payload, 'title') || extractHtmlTagText(payload, 'h1');
+  const errorCode = payload.match(/Error code\s*(\d{3})/i)?.[1] ?? payload.match(/\b(5\d{2}|524)\b/)?.[1] ?? '';
+  const rayId = payload.match(/Cloudflare Ray ID:\s*<strong[^>]*>([^<]+)<\/strong>/i)?.[1]?.trim() ?? '';
+  const host = extractCloudflareHost(payload);
+  const happenedBlock = payload.match(/What happened\?[\s\S]*?<\/h2>([\s\S]*?)(?:<\/div>|<h2)/i)?.[1] ?? '';
+  const happened = stripHtml(happenedBlock);
+
+  return [
+    title || (errorCode ? `Cloudflare ${errorCode} 错误` : 'Cloudflare 网关错误'),
+    host ? `异常主机：${host}` : '',
+    rayId ? `Cloudflare Ray ID：${rayId}` : '',
+    happened ? `说明：${happened}` : '',
+    '这通常表示图片供应商网关或其上游模型服务暂时不可用，不是本地请求格式错误。'
+  ].filter(Boolean).join('\n');
+}
+
+function formatHttpStatus(response: Response) {
+  const statusText = response.statusText.trim() || httpStatusText[response.status] || '';
+  return [response.status || '', statusText].filter(Boolean).join(' ');
+}
+
 function formatApiErrorPayload(payload: string) {
   const trimmed = payload.trim();
   if (!trimmed) return '';
@@ -140,52 +227,20 @@ function formatApiErrorPayload(payload: string) {
   try {
     return JSON.stringify(JSON.parse(trimmed), null, 2);
   } catch {
+    const cloudflareError = extractCloudflareErrorPayload(trimmed);
+    if (cloudflareError) return cloudflareError;
+
+    if (/^\s*<!doctype html|^\s*<html[\s>]/i.test(trimmed)) {
+      const title = extractHtmlTagText(trimmed, 'title') || extractHtmlTagText(trimmed, 'h1');
+      const body = stripHtml(trimmed).slice(0, 800);
+      return [title, body && body !== title ? body : ''].filter(Boolean).join('\n') || '上游返回了 HTML 错误页。';
+    }
+
     return trimmed;
   }
 }
 
-function formatApiHeaders(headers: Headers) {
-  const entries = Array.from(headers.entries())
-    .filter(([name]) => !['authorization', 'cookie', 'set-cookie'].includes(name.toLocaleLowerCase()))
-    .map(([name, value]) => `${name}: ${value}`);
-  return entries.length ? entries.join('\n') : '';
-}
-
-interface ApiErrorContext {
-  endpoint?: string;
-  method?: string;
-  request?: Record<string, unknown>;
-}
-
-function formatApiRequestContext(context?: ApiErrorContext) {
-  if (!context) return '';
-  const rows = [
-    context.method ? `方法：${context.method}` : '',
-    context.endpoint ? `请求地址：${context.endpoint}` : '',
-    context.request ? `请求参数：\n${JSON.stringify(context.request, null, 2)}` : ''
-  ].filter(Boolean);
-  return rows.join('\n');
-}
-
-function formatUnknownPayload(payload: unknown) {
-  if (typeof payload === 'string') return formatApiErrorPayload(payload) || payload;
-  try {
-    return JSON.stringify(payload, null, 2);
-  } catch {
-    return String(payload);
-  }
-}
-
-function createApiPayloadErrorMessage(title: string, context: ApiErrorContext, payload: unknown) {
-  const requestContext = formatApiRequestContext(context);
-  return [
-    title,
-    requestContext ? `请求信息：\n${requestContext}` : '',
-    `后台日志：\n${formatUnknownPayload(payload) || '空响应体'}`
-  ].filter(Boolean).join('\n\n');
-}
-
-async function createApiErrorMessage(response: Response, title: string, context?: ApiErrorContext) {
+async function createApiErrorMessage(response: Response, title: string) {
   let details = '';
   try {
     details = formatApiErrorPayload(await response.text());
@@ -193,14 +248,10 @@ async function createApiErrorMessage(response: Response, title: string, context?
     details = `读取后台日志失败：${error instanceof Error ? error.message : String(error)}`;
   }
 
-  const status = [response.status, response.statusText].filter(Boolean).join(' ');
-  const requestContext = formatApiRequestContext({ endpoint: response.url, ...context });
-  const responseHeaders = formatApiHeaders(response.headers);
+  const status = formatHttpStatus(response);
   return [
     `${title}：${status || '请求失败'}`,
-    requestContext ? `请求信息：\n${requestContext}` : '',
-    responseHeaders ? `响应头：\n${responseHeaders}` : '',
-    details ? `后台日志：\n${details}` : '后台日志：空响应体'
+    details ? `后台日志：\n${details}` : ''
   ].filter(Boolean).join('\n\n');
 }
 
@@ -221,58 +272,48 @@ function createTextRequestEndpoint(endpoint: string) {
   return trimmed;
 }
 
-function createOpenAiImageRequestEndpoint(endpoint: string) {
-  const trimmed = endpoint.trim();
-  if (import.meta.env.DEV && /^https?:\/\//i.test(trimmed)) {
-    return `/__image-proxy?url=${encodeURIComponent(trimmed)}`;
-  }
-  return trimmed;
-}
-
-function getOpenAiImageDisplayEndpoint(endpoint: string) {
-  const trimmed = endpoint.trim();
-  if (!trimmed.startsWith('/__image-proxy')) return trimmed;
-  try {
-    return new URL(trimmed, window.location.origin).searchParams.get('url') || trimmed;
-  } catch {
-    return trimmed;
-  }
-}
-
-function createOpenAiImageRequestBody(endpoint: string, apiKey: string, model: string, prompt: string, size: string) {
-  if (import.meta.env.DEV) {
-    return JSON.stringify({
-      endpoint,
-      apiKey,
-      model,
-      prompt,
-      ...(size ? { size } : {})
-    });
+function getOpenAiImageErrorTitle(response: Response, endpoint: string) {
+  if (endpoint.startsWith('/__image-proxy')) {
+    return response.headers.get('x-link-proxy-error')
+      ? '本地 OpenAI 兼容图片代理请求失败'
+      : 'OpenAI 兼容图片网关请求失败';
   }
 
-  return JSON.stringify({
-    model,
-    prompt,
-    ...(size ? { size } : {}),
-    n: 1
-  });
+  return 'OpenAI 图片请求失败';
 }
 
-function normalizeImageMimeType(value: unknown, fallback = 'image/png') {
-  const normalized = String(value ?? '').trim().toLocaleLowerCase();
-  if (!normalized) return fallback;
-  if (normalized.startsWith('image/')) return normalized;
-  if (normalized === 'jpg') return 'image/jpeg';
-  if (['jpeg', 'png', 'webp', 'gif'].includes(normalized)) return `image/${normalized}`;
-  return fallback;
+async function fetchOpenAiImageWithRetry(endpoint: string, init: RequestInit) {
+  let lastNetworkError: unknown = null;
+
+  for (let attempt = 0; attempt <= openAiImageRetryDelays.length; attempt += 1) {
+    let response: Response;
+    try {
+      response = await fetch(endpoint, init);
+    } catch (error) {
+      lastNetworkError = error;
+      if (attempt >= openAiImageRetryDelays.length) break;
+      await wait(openAiImageRetryDelays[attempt]);
+      continue;
+    }
+
+    if (!response.ok && transientOpenAiImageStatuses.has(response.status) && attempt < openAiImageRetryDelays.length) {
+      const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
+      await wait(retryAfter || openAiImageRetryDelays[attempt]);
+      continue;
+    }
+
+    return response;
+  }
+
+  throw lastNetworkError ?? new Error('图片请求失败。');
 }
 
-function normalizeImageSource(value: unknown, mimeType = 'image/png') {
+function normalizeImageSource(value: unknown) {
   const source = String(value ?? '').trim();
   if (!source) return '';
   if (/^(?:https?:|data:image\/|blob:)/i.test(source)) return source;
   if (/^[A-Za-z0-9+/]+={0,2}$/.test(source) && source.length > 80) {
-    return toDataUrlFromBase64(source, mimeType);
+    return toDataUrlFromBase64(source);
   }
   return '';
 }
@@ -291,64 +332,31 @@ function extractGeneratedImage(payload: unknown): string {
   }
 
   const record = payload as Record<string, unknown>;
-  const mimeType = normalizeImageMimeType(record.mimeType ?? record.mime_type ?? record.contentType ?? record.content_type ?? record.output_format);
   const directCandidates = [
-    { value: record.b64_json, mimeType },
-    { value: record.b64Json, mimeType },
-    { value: record.base64, mimeType },
-    { value: record.image_base64, mimeType },
-    { value: record.imageBase64, mimeType },
-    { value: record.data, mimeType },
-    { value: record.result, mimeType },
-    { value: record.url, mimeType },
-    { value: record.imageUrl, mimeType },
-    { value: record.image_url, mimeType },
-    { value: record.outputUrl, mimeType },
-    { value: record.output_url, mimeType }
+    record.url,
+    record.imageUrl,
+    record.image_url,
+    record.outputUrl,
+    record.output_url,
+    record.b64_json,
+    record.b64Json,
+    record.base64,
+    record.image_base64,
+    record.imageBase64
   ];
 
   for (const candidate of directCandidates) {
-    const image = normalizeImageSource(candidate.value, candidate.mimeType);
+    const image = normalizeImageSource(candidate);
     if (image) return image;
   }
 
-  const nestedCandidates = [record.data, record.images, record.image, record.output, record.results, record.artifacts, record.predictions, record.generations];
+  const nestedCandidates = [record.data, record.images, record.image, record.imageUrl, record.image_url, record.output, record.result, record.results, record.artifacts];
   for (const candidate of nestedCandidates) {
     const image = extractGeneratedImage(candidate);
     if (image) return image;
   }
 
   return '';
-}
-
-async function materializeGeneratedImage(imageUrl: string, context: ApiErrorContext) {
-  if (!import.meta.env.DEV || !/^https?:\/\//i.test(imageUrl)) return imageUrl;
-  const downloadEndpoint = `/__image-download?url=${encodeURIComponent(imageUrl)}`;
-  let response: Response;
-  try {
-    response = await fetch(downloadEndpoint);
-  } catch (error) {
-    throw new Error(createNetworkErrorMessage(error, '生成图片下载失败', imageUrl, '供应商返回的是远程图片 URL，但浏览器无法下载。请检查该 URL 是否可访问或供应商是否返回 b64_json。'));
-  }
-
-  if (!response.ok) {
-    throw new Error(await createApiErrorMessage(response, '生成图片下载失败', {
-      ...context,
-      endpoint: imageUrl,
-      method: 'GET'
-    }));
-  }
-
-  const contentType = response.headers.get('content-type') || 'image/png';
-  const buffer = await response.arrayBuffer();
-  if (!buffer.byteLength) {
-    throw new Error(createApiPayloadErrorMessage('生成图片下载成功，但图片内容为空。', {
-      ...context,
-      endpoint: imageUrl,
-      method: 'GET'
-    }, '空响应体'));
-  }
-  return arrayBufferToDataUrl(buffer, contentType.startsWith('image/') ? contentType : 'image/png');
 }
 
 function splitModelSelection(selection = '') {
@@ -589,11 +597,30 @@ function normalizeNarrationLines(value: unknown): string[] {
   return [];
 }
 
+function normalizeImageDescriptions(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap((item) => normalizeImageDescriptions(item));
+  if (typeof value === 'string' || typeof value === 'number') {
+    const content = String(value).trim();
+    return content ? [content] : [];
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const candidates = [record.description, record.imageDescription, record.prompt, record.content, record.text, record.message];
+    for (const candidate of candidates) {
+      const descriptions = normalizeImageDescriptions(candidate);
+      if (descriptions.length) return descriptions;
+    }
+    return normalizeImageDescriptions(record.images ?? record.image);
+  }
+  return [];
+}
+
 function normalizeSegmentType(value: unknown): RoleplayReplySegment['type'] | '' {
   const type = String(value ?? '').trim().toLocaleLowerCase();
   if (['reply', 'message', 'bubble', 'text'].includes(type)) return 'reply';
   if (['narration', 'narrative', 'action', 'system'].includes(type)) return 'narration';
   if (['sticker', 'stickers', 'emoji', 'emote'].includes(type)) return 'sticker';
+  if (['image', 'picture', 'photo', 'pic'].includes(type)) return 'image';
   return '';
 }
 
@@ -630,6 +657,11 @@ function normalizeRoleplaySegment(value: unknown, narrationEnabled: boolean): Ro
     }));
   }
 
+  if (type === 'image') {
+    return normalizeImageDescriptions(record.description ?? record.imageDescription ?? record.prompt ?? record.content ?? record.text ?? record.message)
+      .map((description) => ({ type: 'image' as const, description }));
+  }
+
   return [];
 }
 
@@ -637,7 +669,7 @@ function normalizeRoleplaySegments(value: unknown, narrationEnabled: boolean): R
   if (Array.isArray(value)) return value.flatMap((item) => normalizeRoleplaySegment(item, narrationEnabled));
   if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>;
-    return normalizeRoleplaySegments(record.segments ?? record.sequence ?? record.timeline ?? record.items, narrationEnabled);
+    return normalizeRoleplaySegments(record.messages ?? record.items ?? record.sequence ?? record.timeline ?? record.segments, narrationEnabled);
   }
   return [];
 }
@@ -739,9 +771,8 @@ interface TextApiContentPart {
   image_url?: { url: string };
 }
 
-function getStickerImageParts(input: GenerateReplyInput): TextApiContentPart[] {
-  if (!input.stickerVisionEnabled) return [];
-  return input.messages
+function getVisualImageParts(input: GenerateReplyInput): TextApiContentPart[] {
+  const stickerParts = input.stickerVisionEnabled ? input.messages
     .slice(-12)
     .filter((message) => message.sender === 'user' && message.sticker?.imageUrl)
     .slice(-4)
@@ -754,12 +785,30 @@ function getStickerImageParts(input: GenerateReplyInput): TextApiContentPart[] {
         type: 'image_url' as const,
         image_url: { url: message.sticker?.imageUrl ?? '' }
       }
+    ]) : [];
+  const imageParts = input.messages
+    .slice(-12)
+    .filter((message) => message.sender === 'user' && message.image?.url)
+    .slice(-4)
+    .flatMap((message) => [
+      {
+        type: 'text' as const,
+        text: [
+          `User sent image (${message.image?.kind ?? 'image'}).`,
+          message.image?.aiHint ? `Visual context: ${message.image.aiHint}` : ''
+        ].filter(Boolean).join(' ')
+      },
+      {
+        type: 'image_url' as const,
+        image_url: { url: message.image?.url ?? '' }
+      }
     ]);
+  return [...stickerParts, ...imageParts];
 }
 
 export function estimateRoleplayReplyInputTokens(input: GenerateReplyInput) {
   const prompt = buildPrompt(input);
-  const imageParts = getStickerImageParts(input);
+  const imageParts = getVisualImageParts(input);
   const imageText = imageParts
     .filter((part) => part.type === 'text')
     .map((part) => part.text ?? '')
@@ -982,16 +1031,6 @@ async function callTextApi(settings: AppSettings | undefined, prompt: string, mo
   const content = imageParts.length
     ? [{ type: 'text' as const, text: prompt }, ...imageParts]
     : prompt;
-  const requestPayload = {
-    model: resolved.model,
-    messages: [{ role: 'user', content }],
-    temperature: 0.9
-  };
-  const errorContext = {
-    endpoint: resolved.endpoint,
-    method: 'POST',
-    request: requestPayload
-  };
 
   let response: Response;
   try {
@@ -1001,7 +1040,11 @@ async function callTextApi(settings: AppSettings | undefined, prompt: string, mo
         'Content-Type': 'application/json',
         ...(resolved.apiKey ? { Authorization: `Bearer ${resolved.apiKey}` } : {})
       },
-      body: JSON.stringify(requestPayload)
+      body: JSON.stringify({
+        model: resolved.model,
+        messages: [{ role: 'user', content }],
+        temperature: 0.9
+      })
     });
   } catch (error) {
     throw new Error(createNetworkErrorMessage(
@@ -1014,9 +1057,9 @@ async function callTextApi(settings: AppSettings | undefined, prompt: string, mo
 
   if (!response.ok) {
     if (requestEndpoint.startsWith('/__text-proxy') && response.status === 502) {
-      throw new Error(await createApiErrorMessage(response, '本地文本模型代理请求失败', errorContext));
+      throw new Error(await createApiErrorMessage(response, '本地文本模型代理请求失败'));
     }
-    throw new Error(await createApiErrorMessage(response, '文本模型 API 请求失败', errorContext));
+    throw new Error(await createApiErrorMessage(response, '文本模型 API 请求失败'));
   }
 
   const data = await response.json();
@@ -1026,32 +1069,16 @@ async function callTextApi(settings: AppSettings | undefined, prompt: string, mo
 export async function fetchVendorModels(vendor: Pick<ApiVendor, 'apiUrl' | 'apiKey'>): Promise<string[]> {
   const modelsEndpoint = `${vendor.apiUrl.trim().replace(/\/+$/, '')}/models`;
   if (!vendor.apiUrl.trim()) return [];
-  const requestEndpoint = import.meta.env.DEV ? '/__openai-models' : modelsEndpoint;
 
-  let response: Response;
-  try {
-    response = await fetch(requestEndpoint, {
-      method: import.meta.env.DEV ? 'POST' : 'GET',
-      headers: { 'Content-Type': 'application/json' },
-      body: import.meta.env.DEV
-        ? JSON.stringify({ apiUrl: vendor.apiUrl.trim(), apiKey: vendor.apiKey.trim() })
-        : undefined,
-      ...(import.meta.env.DEV ? {} : {
-        headers: {
-          'Content-Type': 'application/json',
-          ...(vendor.apiKey ? { Authorization: `Bearer ${vendor.apiKey}` } : {})
-        }
-      })
-    });
-  } catch (error) {
-    throw new Error(createNetworkErrorMessage(error, '模型列表网络请求失败', modelsEndpoint, '模型列表请求无法到达供应商。请确认 API Url 可访问、网络没有拦截，并且供应商支持 /models 路径。'));
-  }
+  const response = await fetch(modelsEndpoint, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(vendor.apiKey ? { Authorization: `Bearer ${vendor.apiKey}` } : {})
+    }
+  });
 
   if (!response.ok) {
-    throw new Error(await createApiErrorMessage(response, '模型列表 API 请求失败', {
-      endpoint: modelsEndpoint,
-      method: 'GET'
-    }));
+    throw new Error(await createApiErrorMessage(response, '模型列表 API 请求失败'));
   }
 
   const data = await response.json();
@@ -1073,19 +1100,6 @@ export async function generateOpenAiImage(settings: AppSettings, overrides: Imag
   const prompt = sanitizePrompt(positivePrompt, negativePrompt);
   const model = String(overrides.model ?? resolved.model).trim();
   const size = String(overrides.size ?? resolved.size).trim();
-  const proxiedEndpoint = createOpenAiImageRequestEndpoint(resolved.endpoint);
-  const displayEndpoint = getOpenAiImageDisplayEndpoint(proxiedEndpoint);
-  const requestEndpoint = import.meta.env.DEV ? '/__openai-image-generate' : proxiedEndpoint;
-  const errorContext = {
-    endpoint: displayEndpoint,
-    method: 'POST',
-    request: {
-      model,
-      prompt,
-      ...(size ? { size } : {}),
-      n: 1
-    }
-  };
 
   if (!resolved.endpoint.trim() || !resolved.apiKey.trim()) {
     throw new Error('请先在 OpenAI 图片模块里配置可用的兼容供应商和 API Key。');
@@ -1101,44 +1115,36 @@ export async function generateOpenAiImage(settings: AppSettings, overrides: Imag
 
   let response: Response;
   try {
-    response = await fetch(requestEndpoint, {
+    response = await fetchOpenAiImageWithRetry(resolved.endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(import.meta.env.DEV ? {} : { Authorization: `Bearer ${resolved.apiKey}` })
+        Authorization: `Bearer ${resolved.apiKey}`
       },
-      body: createOpenAiImageRequestBody(displayEndpoint, resolved.apiKey, model, prompt, size)
+      body: JSON.stringify({
+        model,
+        prompt,
+        ...(size ? { size } : {}),
+        n: 1
+      })
     });
   } catch (error) {
-    throw new Error(createNetworkErrorMessage(error, 'OpenAI 图片网络请求失败', displayEndpoint));
+    throw new Error(createNetworkErrorMessage(error, 'OpenAI 图片网络请求失败', resolved.endpoint));
   }
 
   if (!response.ok) {
-    if (requestEndpoint.startsWith('/__openai-image-generate') && response.status === 502) {
-      throw new Error(await createApiErrorMessage(response, '本地 OpenAI 兼容图片生成代理请求失败', errorContext));
-    }
-    if ((requestEndpoint.startsWith('/__openai-image-generate') || requestEndpoint.startsWith('/__image-proxy')) && response.status >= 500) {
-      throw new Error(await createApiErrorMessage(response, 'OpenAI 兼容图片网关生成失败', errorContext));
-    }
-    throw new Error(await createApiErrorMessage(response, 'OpenAI 图片请求失败', errorContext));
+    throw new Error(await createApiErrorMessage(response, getOpenAiImageErrorTitle(response, resolved.endpoint)));
   }
 
-  const rawPayload = await response.text();
-  let data: unknown;
-  try {
-    data = rawPayload ? JSON.parse(rawPayload) : null;
-  } catch {
-    throw new Error(createApiPayloadErrorMessage('OpenAI 图片接口返回的不是 JSON，无法解析图片。', errorContext, rawPayload));
-  }
-
+  const data = await response.json();
   const imageUrl = extractGeneratedImage(data);
 
   if (!imageUrl) {
-    throw new Error(createApiPayloadErrorMessage('OpenAI 图片接口返回成功，但没有可用图片。', errorContext, data));
+    throw new Error('OpenAI 图片接口返回里没有可用图片。');
   }
 
   return {
-    imageUrl: await materializeGeneratedImage(imageUrl, errorContext),
+    imageUrl,
     provider: 'openai'
   };
 }
@@ -1161,53 +1167,41 @@ export async function generateNovelAiImage(settings: AppSettings, overrides: Ima
     throw new Error('请先填写正向提示词。');
   }
 
-  const endpoint = `${endpointBase}/ai/generate-image`;
-  const requestPayload = {
-    action: 'generate',
-    input: positivePrompt.trim(),
-    model: overrides.model ?? config.model,
-    parameters: {
-      negative_prompt: negativePrompt.trim(),
-      width: Math.max(320, Math.floor(overrides.width ?? config.width)),
-      height: Math.max(320, Math.floor(overrides.height ?? config.height)),
-      scale: config.guidance,
-      sampler: config.sampler,
-      steps: config.steps,
-      seed: parseSeed(overrides.seed ?? config.seed),
-      n_samples: 1,
-      ucPreset: config.ucPreset,
-      qualityToggle: config.qualityToggle,
-      sm: config.sm,
-      sm_dyn: config.smDyn,
-      dynamic_thresholding: config.dynamicThresholding,
-      legacy: false,
-      add_original_image: false,
-      uncond_scale: 1,
-      cfg_rescale: config.cfgRescale,
-      noise_schedule: config.noiseSchedule
-    }
-  };
-
-  let response: Response;
-  try {
-    response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey.trim()}`
-      },
-      body: JSON.stringify(requestPayload)
-    });
-  } catch (error) {
-    throw new Error(createNetworkErrorMessage(error, 'NovelAI 网络请求失败', endpoint, 'NovelAI 生图请求无法到达后台。请确认连接方式、网络代理和 Token 可用。'));
-  }
+  const response = await fetch(`${endpointBase}/ai/generate-image`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.apiKey.trim()}`
+    },
+    body: JSON.stringify({
+      action: 'generate',
+      input: positivePrompt.trim(),
+      model: overrides.model ?? config.model,
+      parameters: {
+        negative_prompt: negativePrompt.trim(),
+        width: Math.max(320, Math.floor(overrides.width ?? config.width)),
+        height: Math.max(320, Math.floor(overrides.height ?? config.height)),
+        scale: config.guidance,
+        sampler: config.sampler,
+        steps: config.steps,
+        seed: parseSeed(overrides.seed ?? config.seed),
+        n_samples: 1,
+        ucPreset: config.ucPreset,
+        qualityToggle: config.qualityToggle,
+        sm: config.sm,
+        sm_dyn: config.smDyn,
+        dynamic_thresholding: config.dynamicThresholding,
+        legacy: false,
+        add_original_image: false,
+        uncond_scale: 1,
+        cfg_rescale: config.cfgRescale,
+        noise_schedule: config.noiseSchedule
+      }
+    })
+  });
 
   if (!response.ok) {
-    throw new Error(await createApiErrorMessage(response, 'NovelAI 请求失败', {
-      endpoint,
-      method: 'POST',
-      request: requestPayload
-    }));
+    throw new Error(await createApiErrorMessage(response, 'NovelAI 请求失败'));
   }
 
   const contentType = response.headers.get('content-type') || 'application/octet-stream';
@@ -1263,72 +1257,31 @@ export async function checkNovelAiImageAccess(settings: AppSettings): Promise<vo
     throw new Error('请先填写 NovelAI Token。');
   }
 
-  const endpoint = `${endpointBase}/ai/generate-image`;
-  const requestPayload = {
-    action: 'generate',
-    input: 'link health check, simple small icon, clean line art',
-    model: config.model,
-    parameters: {
-      width: 64,
-      height: 64,
-      scale: config.guidance,
-      sampler: config.sampler,
-      steps: 1,
-      seed: parseSeed(config.seed),
-      n_samples: 1,
-      ucPreset: config.ucPreset,
-      qualityToggle: false,
-      sm: false,
-      sm_dyn: false,
-      dynamic_thresholding: false,
-      legacy: false,
-      add_original_image: false,
-      uncond_scale: 1,
-      cfg_rescale: config.cfgRescale,
-      noise_schedule: config.noiseSchedule
-    }
-  };
-  let response: Response;
-  try {
-    response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey.trim()}`
-      },
-      body: JSON.stringify(requestPayload)
-    });
-  } catch (error) {
-    throw new Error(createNetworkErrorMessage(error, 'NovelAI 生图接口预检网络请求失败', endpoint, 'NovelAI 预检请求无法到达后台。请确认连接方式、网络代理和 Token 可用。'));
-  }
+  const response = await fetch(`${endpointBase}/ai/generate-image`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.apiKey.trim()}`
+    },
+    body: JSON.stringify({
+      action: 'generate',
+      input: '',
+      model: config.model,
+      parameters: {
+        width: 64,
+        height: 64,
+        steps: 0,
+        n_samples: 0
+      }
+    })
+  });
 
+  if (response.status === 400 || response.status === 422) return;
   if (response.status === 401 || response.status === 403) {
     throw new Error('NovelAI Token 无法通过鉴权。');
   }
   if (!response.ok) {
-    throw new Error(await createApiErrorMessage(response, 'NovelAI 生图接口预检失败', {
-      endpoint,
-      method: 'POST',
-      request: requestPayload
-    }));
-  }
-
-  const contentType = response.headers.get('content-type') || 'application/octet-stream';
-  const buffer = await response.arrayBuffer();
-  if (!buffer.byteLength) {
-    throw new Error(createApiPayloadErrorMessage('NovelAI 生图接口预检成功，但输出为空。', {
-      endpoint,
-      method: 'POST',
-      request: requestPayload
-    }, '空响应体'));
-  }
-  if (/json|text/i.test(contentType)) {
-    const payloadText = new TextDecoder().decode(buffer);
-    throw new Error(createApiPayloadErrorMessage('NovelAI 生图接口预检没有返回图片内容。', {
-      endpoint,
-      method: 'POST',
-      request: requestPayload
-    }, payloadText));
+    throw new Error(await createApiErrorMessage(response, 'NovelAI 生图接口预检失败'));
   }
 }
 
@@ -1359,28 +1312,12 @@ export async function generatePollinationsImage(settings: AppSettings, overrides
     url.searchParams.set('negative', negativePrompt.trim());
   }
 
-  let response: Response;
-  try {
-    response = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${config.apiKey.trim()}` }
-    });
-  } catch (error) {
-    throw new Error(createNetworkErrorMessage(error, 'Pollinations 网络请求失败', url.toString(), 'Pollinations 生图请求无法到达后台。请确认网络、API Key 和模型可用。'));
-  }
+  const response = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${config.apiKey.trim()}` }
+  });
 
   if (!response.ok) {
-    throw new Error(await createApiErrorMessage(response, 'Pollinations 请求失败', {
-      endpoint: url.toString(),
-      method: 'GET',
-      request: {
-        model: overrides.model ?? config.model,
-        width: Math.max(320, Math.floor(overrides.width ?? config.width)),
-        height: Math.max(320, Math.floor(overrides.height ?? config.height)),
-        safe: config.safe,
-        quality: config.quality,
-        transparent: config.transparent
-      }
-    }));
+    throw new Error(await createApiErrorMessage(response, 'Pollinations 请求失败'));
   }
 
   const contentType = response.headers.get('content-type') || 'image/jpeg';
@@ -1422,28 +1359,12 @@ export async function checkPollinationsImageAccess(settings: AppSettings): Promi
   url.searchParams.set('quality', config.quality);
   url.searchParams.set('transparent', String(config.transparent));
 
-  let response: Response;
-  try {
-    response = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${config.apiKey.trim()}` }
-    });
-  } catch (error) {
-    throw new Error(createNetworkErrorMessage(error, 'Pollinations 生图接口检测网络请求失败', url.toString(), 'Pollinations 检测请求无法到达后台。请确认网络、API Key 和模型可用。'));
-  }
+  const response = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${config.apiKey.trim()}` }
+  });
 
   if (!response.ok) {
-    throw new Error(await createApiErrorMessage(response, 'Pollinations 生图接口检测失败', {
-      endpoint: url.toString(),
-      method: 'GET',
-      request: {
-        model: config.model || defaultPollinationsModels[0].id,
-        width: 64,
-        height: 64,
-        safe: config.safe,
-        quality: config.quality,
-        transparent: config.transparent
-      }
-    }));
+    throw new Error(await createApiErrorMessage(response, 'Pollinations 生图接口检测失败'));
   }
 
   const contentType = response.headers.get('content-type') || '';
@@ -1465,7 +1386,7 @@ export async function generateImageByProvider(
 export async function generateRoleplayReply(input: GenerateReplyInput): Promise<string> {
   requireTextGenerationConfig(input.settings, input.modelOverride, '角色回复');
   const prompt = buildPrompt(input);
-  const apiReply = await callTextApi(input.settings, prompt, input.modelOverride, getStickerImageParts(input));
+  const apiReply = await callTextApi(input.settings, prompt, input.modelOverride, getVisualImageParts(input));
   if (apiReply) {
     try {
       const parsed = JSON.parse(extractJsonContent(apiReply)) as unknown;
@@ -1478,8 +1399,13 @@ export async function generateRoleplayReply(input: GenerateReplyInput): Promise<
       const narrations = input.mode === 'online' && input.narrationModeEnabled
         ? normalizeNarrationLines(parsedRecordAny.narrations ?? parsedRecordAny.narrationMessages ?? parsedRecordAny.actionNarrations ?? parsedRecordAny.actions)
         : [];
-      const segments = normalizeRoleplaySegments(parsedRecordAny.segments ?? parsedRecordAny.sequence ?? parsedRecordAny.timeline, input.mode === 'online' && Boolean(input.narrationModeEnabled));
+      const segments = normalizeRoleplaySegments(
+        parsedRecordAny.messages ?? parsedRecordAny.items ?? parsedRecordAny.sequence ?? parsedRecordAny.timeline ?? parsedRecordAny.segments,
+        input.mode === 'online' && Boolean(input.narrationModeEnabled)
+      );
       const messageActions = normalizeRoleplayMessageActions(parsedRecordAny);
+      const images = normalizeImageDescriptions(parsedRecordAny.images ?? parsedRecordAny.imageMessages ?? parsedRecordAny.pictures)
+        .map((description) => ({ description }));
       const profileUpdateRecord = parsedRecord.profileUpdate && typeof parsedRecord.profileUpdate === 'object'
         ? parsedRecord.profileUpdate as Record<string, unknown>
         : null;
@@ -1499,6 +1425,7 @@ export async function generateRoleplayReply(input: GenerateReplyInput): Promise<
         replies,
         replyTranslations,
         narrations: narrations.slice(0, 3),
+        images,
         stickers,
         stickerPlacements,
         segments,
@@ -1519,7 +1446,7 @@ export async function generateRoleplayReply(input: GenerateReplyInput): Promise<
       } satisfies RoleplayReplyResult);
     } catch {
       const replies = input.mode === 'online' ? normalizeRawOnlineReply(apiReply) : [apiReply];
-      return JSON.stringify({ reply: replies[0] ?? '', replies, narrations: [], stickers: [], stickerPlacements: [], segments: [], messageActions: { recallMessageIds: [], quotes: [] }, profileUpdate: null } satisfies RoleplayReplyResult);
+      return JSON.stringify({ reply: replies[0] ?? '', replies, narrations: [], images: [], stickers: [], stickerPlacements: [], segments: [], messageActions: { recallMessageIds: [], quotes: [] }, profileUpdate: null } satisfies RoleplayReplyResult);
     }
   }
   throw new Error('角色回复模型没有返回内容。');
@@ -1533,20 +1460,23 @@ export async function generateVoomPost(context: PromptContext, settings?: AppSet
 
   const { content, contentTranslation, imageDescription, likes, comments } = parseVoomMomentPayload(apiReply, context);
   const imagePrompt = buildVoomImagePrompt(context, content, imageDescription);
-  const imageProvider = getPreferredVoomImageProvider(settings);
+  const selectedImageModel = getSelectedImageModelOption(settings, 'voom');
+  const imageProvider = selectedImageModel?.provider ?? null;
   let imageResult: ImageGenerationResult | null = null;
 
-  if (settings && imageProvider) {
+  if (settings && imageProvider && selectedImageModel) {
     let imageSettings = settings;
+    const imageSize = getImageGenerationSize(settings, imageProvider);
     const imageOverrides: ImageGenerationOverrides = {
       positivePrompt: imagePrompt,
-      size: '1024x1024',
-      width: 1024,
-      height: 1024
+      size: imageSize.size,
+      width: imageSize.width,
+      height: imageSize.height,
+      model: selectedImageModel.model
     };
 
     if (imageProvider === 'openai') {
-      const selected = splitImageModelSelection(settings.voomImageModel);
+      const selected = splitImageModelSelection(selectedImageModel.model);
       if (selected.vendorId) {
         imageSettings = {
           ...settings,
@@ -1557,8 +1487,6 @@ export async function generateVoomPost(context: PromptContext, settings?: AppSet
         };
       }
       if (selected.model) imageOverrides.model = selected.model;
-    } else if (settings.voomImageModel.trim()) {
-      imageOverrides.model = settings.voomImageModel.trim();
     }
 
     try {
@@ -1569,6 +1497,9 @@ export async function generateVoomPost(context: PromptContext, settings?: AppSet
   }
 
   const fallbackImage = settings && imageProvider && !imageResult ? '/load.jpg' : undefined;
+  const resolvedImage = imageResult?.imageUrl ?? fallbackImage;
+  const resolvedProvider = imageResult?.provider ?? (fallbackImage ? 'local' : 'mock');
+  const resolvedImageSize = settings && imageProvider ? getImageGenerationSize(settings, imageProvider).size : undefined;
 
   return {
     charId: context.character.id,
@@ -1577,9 +1508,12 @@ export async function generateVoomPost(context: PromptContext, settings?: AppSet
     authorAvatar: context.character.avatar,
     content,
     contentTranslation,
-    image: imageResult?.imageUrl ?? fallbackImage,
+    image: resolvedImage,
     imageDescription,
-    imageProvider: imageResult?.provider ?? (fallbackImage ? 'local' : 'mock'),
+    imageProvider: resolvedProvider,
+    imageCandidates: resolvedImage
+      ? [{ id: createId('voom-image'), image: resolvedImage, description: imageDescription, provider: resolvedProvider, model: selectedImageModel?.label, size: resolvedImageSize, createdAt: Date.now() }]
+      : undefined,
     likes,
     comments: comments.map((comment) => ({
       id: createId('comment'),

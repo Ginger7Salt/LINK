@@ -255,10 +255,24 @@ const FanficTabIcon = defineComponent({
   }
 });
 
+const voomTabHasUnread = computed(() => {
+  const activeUserId = store.user?.id ?? '';
+  if (!activeUserId) return false;
+
+  const activeCharacterIds = new Set(store.charactersForActiveUser.map((character) => character.id));
+  if (!activeCharacterIds.size) return false;
+
+  const readAtByCharacter = store.settings?.voomReadAtByUser[activeUserId] ?? {};
+  return store.sortedVoomPosts.some((post) => {
+    if (post.authorType === 'user' || !post.charId || !activeCharacterIds.has(post.charId)) return false;
+    return post.createdAt > (readAtByCharacter[post.charId] ?? 0);
+  });
+});
+
 const tabs = computed(() => [
   { name: 'home', label: 'Home', to: '/home', icon: HomeTabIcon, hasUnread: false },
   { name: 'chats', label: 'Chats', to: '/chats', icon: ChatsTabIcon, hasUnread: store.unreadConversationCount > 0 },
-  { name: 'voom', label: 'VOOM', to: '/voom', icon: VoomTabIcon, hasUnread: false },
+  { name: 'voom', label: 'VOOM', to: '/voom', icon: VoomTabIcon, hasUnread: voomTabHasUnread.value },
   { name: 'music', label: 'Music', to: '/music', icon: MusicTabIcon, hasUnread: false },
   { name: 'fanfic', label: 'Fanfic', to: '/fanfic', icon: FanficTabIcon, hasUnread: false }
 ]);

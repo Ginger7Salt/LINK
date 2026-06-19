@@ -165,11 +165,13 @@ export default defineConfig({
 
             response.statusCode = upstreamResponse.status;
             response.statusMessage = upstreamResponse.statusText;
+            response.setHeader('X-Link-Proxy-Target-Host', targetUrl.host);
             const upstreamContentType = upstreamResponse.headers.get('content-type');
             if (upstreamContentType) response.setHeader('Content-Type', upstreamContentType);
             response.end(Buffer.from(await upstreamResponse.arrayBuffer()));
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
+            response.setHeader('X-Link-Proxy-Error', 'upstream_unreachable');
             sendProxyError(response, 502, `OpenAI-compatible image proxy request failed: ${message}`);
           }
         });

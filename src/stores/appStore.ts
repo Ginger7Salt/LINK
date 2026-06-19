@@ -2,13 +2,13 @@ import { computed, ref, toRaw } from 'vue';
 import { defineStore } from 'pinia';
 import { deleteEntity, loadSnapshot, putEntity, replaceSnapshot } from '@/data/db';
 import { defaultSettings, defaultStickerGroups } from '@/data/seed';
-import type { AppSettings, AppSnapshot, CharacterProfile, ChatMessage, ChatMessageQuote, ChatMode, Conversation, ConversationMemoryRecord, ConversationSettings, GeneratedImageRecord, ImageModuleId, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, ChatImageCandidate, ChatMessage, ChatMessageQuote, ChatMode, ChatModelScope, Conversation, ConversationMemoryRecord, ConversationSettings, GeneratedImageRecord, ImageModuleId, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
 import { createAccountId, createId } from '@/utils/id';
 import { getCharacterVoomAuthorName, normalizeCharacterMindStateLines, normalizeCharacterProfile } from '@/utils/character';
 import { normalizeUserProfile, normalizeVisualProfile } from '@/utils/profile';
-import { getImagePromptPresetForProvider, getSelectedImageModelOption, mergeVendorModels, normalizeAppSettings } from '@/utils/settings';
+import { getImageGenerationSize, getImagePromptPresetForProvider, getSelectedImageModelOption, mergeVendorModels, normalizeAppSettings } from '@/utils/settings';
 import { normalizeWorldBookEntry, normalizeWorldBooks } from '@/utils/worldBook';
-import { createStickerFromDraft, createStickerGroup, normalizeSticker, normalizeStickerGroup, type StickerImportDraft } from '@/utils/stickers';
+import { createStickerFromDraft, createStickerGroup, localizeStickerImageUrl, localizeStickerImportDrafts, normalizeSticker, normalizeStickerGroup, shouldLocalizeStickerImageUrl, type StickerImportDraft } from '@/utils/stickers';
 import { ageMemoryKind, createMemoryRecord, getConversationFloorCount, getHiddenMessageIds, getMemoryContext, getMessageFloorMap, getMessagesInFloorRange, getNextSummaryRange, getVisibleMessages, normalizeConversationSettings, renderCharacterMemoryPrompt, shouldCompressMemory } from '@/utils/memory';
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
 import { estimateRoleplayReplyInputTokens, fetchVendorModels, generateConversationSummary, generateEmbeddingVector, generateImageByProvider, generateRoleplayReply, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, shouldAutoGenerateMoment, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
@@ -28,6 +28,7 @@ export const useAppStore = defineStore('app', () => {
   const ready = ref(false);
   let hydratePromise: Promise<void> | null = null;
   let githubBackupRunning = false;
+  const generatingMomentConversationIds = new Set<string>();
   const loadingReply = ref(false);
   const replyingVoomCommentPostIds = ref<string[]>([]);
   const configAlert = ref({ open: false, title: '提示', message: '' });
@@ -333,7 +334,7 @@ export const useAppStore = defineStore('app', () => {
       const previousMessages = reversedMessages.slice(0, index);
       return message.sender === 'user' && !previousMessages.some((previous) => previous.sender === 'char');
     }).reverse();
-    const userMessageText = lastUserMessages.map((message) => message.sticker ? `[Sticker] ${message.sticker.description}` : message.content).join('\n');
+    const userMessageText = lastUserMessages.map((message) => messageReadableContent(message)).join('\n');
     return estimateRoleplayReplyInputTokens({
       user: boundUser,
       character,
@@ -353,7 +354,7 @@ export const useAppStore = defineStore('app', () => {
       })),
       userMessage: userMessageText,
       settings: settings.value ?? undefined,
-      modelOverride: chatSettings.modelOverrides[conversation.activeMode]
+      modelOverride: getConversationTextModelOverride(chatSettings, conversation.activeMode)
     });
   }
 
@@ -368,6 +369,26 @@ export const useAppStore = defineStore('app', () => {
 
   function hasConfiguredTextModel(modelOverride = '') {
     return hasTextGenerationConfig(settings.value ?? undefined, modelOverride);
+  }
+
+  function getGlobalTextModelOverride(scope: ChatModelScope) {
+    return settings.value?.modelOverrides[scope]?.trim() ?? '';
+  }
+
+  function getConversationTextModelOverride(chatSettings: ConversationSettings, scope: ChatModelScope, fallbackScope?: ChatModelScope) {
+    const conversationOverride = chatSettings.modelOverrides[scope]?.trim() ?? '';
+    if (conversationOverride) return conversationOverride;
+
+    const globalOverride = getGlobalTextModelOverride(scope);
+    if (globalOverride) return globalOverride;
+
+    if (fallbackScope && fallbackScope !== scope) {
+      const fallbackConversationOverride = chatSettings.modelOverrides[fallbackScope]?.trim() ?? '';
+      if (fallbackConversationOverride) return fallbackConversationOverride;
+      return getGlobalTextModelOverride(fallbackScope);
+    }
+
+    return '';
   }
 
   function isReplyingVoomComments(postId: string) {
@@ -420,9 +441,45 @@ export const useAppStore = defineStore('app', () => {
       ...rawPost,
       conversationIds: rawPost.conversationIds ? [...rawPost.conversationIds] : undefined,
       visibleCharacterIds: rawPost.visibleCharacterIds ? [...rawPost.visibleCharacterIds] : undefined,
+      imageCandidates: rawPost.imageCandidates?.map((candidate) => ({ ...toRaw(candidate) })),
       comments: rawPost.comments.map((comment) => ({ ...toRaw(comment) })),
       likes: [...rawPost.likes]
     };
+  }
+
+  function createVoomImageCandidate(input: Omit<VoomImageCandidate, 'id' | 'createdAt'> & Partial<Pick<VoomImageCandidate, 'id' | 'createdAt'>>): VoomImageCandidate {
+    return {
+      id: input.id || createId('voom-image'),
+      image: input.image,
+      description: input.description,
+      provider: input.provider,
+      model: input.model,
+      size: input.size,
+      createdAt: input.createdAt ?? Date.now()
+    };
+  }
+
+  function createChatImageCandidate(input: Omit<ChatImageCandidate, 'id' | 'createdAt'> & Partial<Pick<ChatImageCandidate, 'id' | 'createdAt'>>): ChatImageCandidate {
+    return {
+      id: input.id || createId('chat-image'),
+      image: input.image,
+      description: input.description,
+      provider: input.provider,
+      model: input.model,
+      size: input.size,
+      createdAt: input.createdAt ?? Date.now()
+    };
+  }
+
+  function imageSizeToDimensions(size = '') {
+    const [width, height] = size.split('x').map((value) => Number.parseInt(value, 10));
+    return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
+      ? { width, height }
+      : {};
+  }
+
+  function normalizeDuplicateKey(value = '') {
+    return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
   }
 
   async function appendConversationEvent(conversationId: string, content: string, options: Partial<Pick<ChatMessage, 'mode' | 'voomPostId' | 'voomCommentId' | 'voomEventType' | 'replyBatchId' | 'createdAt'>> = {}) {
@@ -471,12 +528,15 @@ export const useAppStore = defineStore('app', () => {
       sender: quote.sender,
       authorName: quote.authorName.trim() || '未知',
       content: quote.content.trim(),
-      sticker: quote.sticker ? { ...quote.sticker } : undefined
+      sticker: quote.sticker ? { ...quote.sticker } : undefined,
+      image: quote.image ? { ...quote.image } : undefined
     };
   }
 
   function messageReadableContent(message: ChatMessage) {
-    return (message.sticker ? `[Sticker] ${message.sticker.description}` : message.content).trim();
+    if (message.sticker) return `[Sticker] ${message.sticker.description}`.trim();
+    if (message.image) return `[图片] ${message.image.description}`.trim();
+    return message.content.trim();
   }
 
   function messageAuthorName(message: ChatMessage) {
@@ -501,7 +561,8 @@ export const useAppStore = defineStore('app', () => {
       sender: message.sender,
       authorName: messageAuthorName(message),
       content,
-      sticker: message.sticker ? { ...message.sticker } : undefined
+      sticker: message.sticker ? { ...message.sticker } : undefined,
+      image: message.image ? { ...message.image } : undefined
     };
   }
 
@@ -552,8 +613,13 @@ export const useAppStore = defineStore('app', () => {
     const existingMessage = messages.value[messageIndex];
     const nextMessage: ChatMessage = {
       ...existingMessage,
-      content: existingMessage.sticker ? `[Sticker] ${trimmedContent}` : trimmedContent,
+      content: existingMessage.sticker
+        ? `[Sticker] ${trimmedContent}`
+        : existingMessage.image
+          ? `[图片] ${trimmedContent}`
+          : trimmedContent,
       sticker: existingMessage.sticker ? { ...existingMessage.sticker, description: trimmedContent } : existingMessage.sticker,
+      image: existingMessage.image ? { ...existingMessage.image, description: trimmedContent } : existingMessage.image,
       editedAt: Date.now()
     };
     messages.value[messageIndex] = nextMessage;
@@ -629,8 +695,38 @@ export const useAppStore = defineStore('app', () => {
 
   async function setActiveUser(userId: string) {
     if (!settings.value) return;
-    settings.value = normalizeAppSettings({ ...settings.value, activeUserId: userId });
-    await putEntity('settings', settings.value, 'main');
+    const normalizedSettings = normalizeAppSettings({ ...settings.value, activeUserId: userId });
+    settings.value = normalizedSettings;
+    await putEntity('settings', normalizedSettings, 'main');
+  }
+
+  async function markVoomCharactersRead(characterIds: string[]) {
+    if (!settings.value || !user.value) return;
+    const readableCharacterIds = [...new Set(characterIds.map((id) => id.trim()).filter(Boolean))];
+    if (!readableCharacterIds.length) return;
+
+    const userId = user.value.id;
+    const currentUserReadAt = settings.value.voomReadAtByUser[userId] ?? {};
+    const nextUserReadAt = { ...currentUserReadAt };
+    const now = Date.now();
+    let changed = false;
+
+    for (const characterId of readableCharacterIds) {
+      if ((nextUserReadAt[characterId] ?? 0) >= now) continue;
+      nextUserReadAt[characterId] = now;
+      changed = true;
+    }
+
+    if (!changed) return;
+    const normalizedSettings = normalizeAppSettings({
+      ...settings.value,
+      voomReadAtByUser: {
+        ...settings.value.voomReadAtByUser,
+        [userId]: nextUserReadAt
+      }
+    });
+    settings.value = normalizedSettings;
+    await putEntity('settings', normalizedSettings, 'main');
   }
 
   async function saveVisualProfile(nextProfile: VisualProfile) {
@@ -771,7 +867,10 @@ export const useAppStore = defineStore('app', () => {
 
   async function saveSticker(nextSticker: Sticker) {
     const fallbackGroupId = stickerGroups.value[0]?.id ?? '';
-    const normalizedSticker = normalizeSticker({ ...nextSticker, updatedAt: Date.now() }, fallbackGroupId);
+    const imageUrl = shouldLocalizeStickerImageUrl(nextSticker.imageUrl)
+      ? await localizeStickerImageUrl(nextSticker.imageUrl)
+      : nextSticker.imageUrl;
+    const normalizedSticker = normalizeSticker({ ...nextSticker, imageUrl, updatedAt: Date.now() }, fallbackGroupId);
     if (!normalizedSticker) return;
     const index = stickers.value.findIndex((sticker) => sticker.id === normalizedSticker.id);
     if (index >= 0) stickers.value[index] = normalizedSticker;
@@ -782,8 +881,9 @@ export const useAppStore = defineStore('app', () => {
   async function importStickers(drafts: StickerImportDraft[], groupIds: string[]) {
     const fallbackGroupId = stickerGroups.value[0]?.id ?? '';
     const targetGroupIds = [...new Set((groupIds.length ? groupIds : [fallbackGroupId]).filter(Boolean))];
+    const localizedDrafts = await localizeStickerImportDrafts(drafts);
     const existingKeys = new Set(stickers.value.map((sticker) => `${sticker.description.toLocaleLowerCase()}::${sticker.imageUrl}`));
-    const createdStickers = drafts
+    const createdStickers = localizedDrafts
       .map((draft) => createStickerFromDraft(draft, targetGroupIds))
       .filter((sticker) => {
         const key = `${sticker.description.toLocaleLowerCase()}::${sticker.imageUrl}`;
@@ -1455,17 +1555,88 @@ export const useAppStore = defineStore('app', () => {
   async function appendStickerMessage(conversationId: string, sticker: Sticker, quote?: ChatMessageQuote | null) {
     const conversation = conversationById(conversationId);
     if (!conversation) return;
+    const imageUrl = shouldLocalizeStickerImageUrl(sticker.imageUrl)
+      ? await localizeStickerImageUrl(sticker.imageUrl)
+      : sticker.imageUrl;
+    const resolvedSticker = imageUrl === sticker.imageUrl ? sticker : { ...sticker, imageUrl, updatedAt: Date.now() };
+
+    if (resolvedSticker !== sticker) {
+      const stickerIndex = stickers.value.findIndex((item) => item.id === resolvedSticker.id);
+      if (stickerIndex >= 0) stickers.value[stickerIndex] = resolvedSticker;
+      await putEntity('stickers', resolvedSticker);
+    }
 
     const userMessage: ChatMessage = {
       id: createId('msg'),
       conversationId,
       sender: 'user',
       mode: conversation.activeMode,
-      content: `[Sticker] ${sticker.description}`,
+      content: `[Sticker] ${resolvedSticker.description}`,
       sticker: {
-        stickerId: sticker.id,
-        description: sticker.description,
-        imageUrl: sticker.imageUrl
+        stickerId: resolvedSticker.id,
+        description: resolvedSticker.description,
+        imageUrl: resolvedSticker.imageUrl
+      },
+      quote: cloneMessageQuote(quote),
+      createdAt: Date.now(),
+      status: 'sent'
+    };
+    messages.value.push(userMessage);
+    await putEntity('messages', userMessage);
+    const nextConversation = { ...conversation, updatedAt: userMessage.createdAt, unreadCount: 0 };
+    const conversationIndex = conversations.value.findIndex((item) => item.id === conversationId);
+    if (conversationIndex >= 0) conversations.value[conversationIndex] = nextConversation;
+    await putEntity('conversations', nextConversation);
+    void maybeAutoSummarizeConversation(conversationId);
+    return userMessage;
+  }
+
+  async function localizeRecentStickerMessagesForVision(conversationId: string) {
+    const candidates = messagesForConversation(conversationId)
+      .slice(-12)
+      .filter((message) => message.sender === 'user' && message.sticker?.imageUrl && shouldLocalizeStickerImageUrl(message.sticker.imageUrl))
+      .slice(-4);
+
+    for (const message of candidates) {
+      const sticker = message.sticker;
+      if (!sticker) continue;
+      const imageUrl = await localizeStickerImageUrl(sticker.imageUrl);
+      const nextMessage: ChatMessage = {
+        ...message,
+        sticker: {
+          ...sticker,
+          imageUrl
+        }
+      };
+      const messageIndex = messages.value.findIndex((item) => item.id === nextMessage.id);
+      if (messageIndex >= 0) messages.value[messageIndex] = nextMessage;
+      await putEntity('messages', nextMessage);
+
+      const stickerIndex = stickers.value.findIndex((item) => item.id === sticker.stickerId);
+      if (stickerIndex >= 0 && shouldLocalizeStickerImageUrl(stickers.value[stickerIndex].imageUrl)) {
+        const nextSticker = { ...stickers.value[stickerIndex], imageUrl, updatedAt: Date.now() };
+        stickers.value[stickerIndex] = nextSticker;
+        await putEntity('stickers', nextSticker);
+      }
+    }
+  }
+
+  async function appendUserImageMessage(conversationId: string, content: string, image: ChatImageAttachment, quote?: ChatMessageQuote | null) {
+    const trimmedContent = content.trim();
+    const description = image.description.trim();
+    const conversation = conversationById(conversationId);
+    if (!trimmedContent || !description || !conversation) return;
+
+    const userMessage: ChatMessage = {
+      id: createId('msg'),
+      conversationId,
+      sender: 'user',
+      mode: conversation.activeMode,
+      content: trimmedContent,
+      image: {
+        ...image,
+        description,
+        aiHint: image.aiHint?.trim() || undefined
       },
       quote: cloneMessageQuote(quote),
       createdAt: Date.now(),
@@ -1518,7 +1689,7 @@ export const useAppStore = defineStore('app', () => {
     const characterName = character?.nickname || character?.name || '角色';
     const boundUser = character ? userById(character.boundUserId) ?? user.value : user.value;
     const userSenderName = boundUser?.name || boundUser?.nickname || '我';
-    const modelOverride = chatSettings.memory.summaryModel || chatSettings.modelOverrides[conversation.activeMode];
+    const modelOverride = getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode);
     const floorMap = getMessageFloorMap(conversationMessages);
     const summary = await generateConversationSummary({
       messages: range.sourceMessages.map((message) => {
@@ -1623,7 +1794,7 @@ export const useAppStore = defineStore('app', () => {
     const chatSettings = settingsForConversation(conversationId);
     const character = characterById(conversation.charId);
     const characterName = character?.nickname || character?.name || '角色';
-    const modelOverride = chatSettings.memory.summaryModel || chatSettings.modelOverrides[conversation.activeMode];
+    const modelOverride = getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode);
     const summary = await generateConversationSummary({
       messages: memories.map((memory) => `【${memory.startFloor}-${memory.endFloor}楼】\n${memory.summary}`).join('\n\n'),
       previousSummary: '',
@@ -1704,7 +1875,7 @@ export const useAppStore = defineStore('app', () => {
         messages: memory.summary,
         previousSummary: '',
         settings: settings.value ?? undefined,
-        modelOverride: chatSettings.memory.summaryModel || chatSettings.modelOverrides[memory.mode],
+        modelOverride: getConversationTextModelOverride(chatSettings, 'summary', memory.mode),
         promptOverride: renderCharacterMemoryPrompt(chatSettings.memory.summaryPrompt, characterName)
       });
       await updateMemoryRecord({
@@ -1731,15 +1902,19 @@ export const useAppStore = defineStore('app', () => {
     }).reverse();
 
     if (!lastUserMessages.length) return;
-    const userMessageText = lastUserMessages.map((message) => message.sticker ? `[Sticker] ${message.sticker.description}` : message.content).join('\n');
+    const userMessageText = lastUserMessages.map((message) => messageReadableContent(message)).join('\n');
     const chatSettings = settingsForConversation(conversationId);
-    if (!hasConfiguredTextModel(chatSettings.modelOverrides[conversation.activeMode])) {
+    const modelOverride = getConversationTextModelOverride(chatSettings, conversation.activeMode);
+    if (!hasConfiguredTextModel(modelOverride)) {
       showConfigAlert('请先在设置或聊天菜单里配置可用的线上/线下聊天 API 模型，再让角色回复。', '需要配置 API 模型');
       return;
     }
 
     loadingReply.value = true;
     try {
+      if (chatSettings.stickerVisionEnabled) {
+        await localizeRecentStickerMessagesForVision(conversationId);
+      }
       const availableCharacterStickers = stickersForGroups(chatSettings.characterStickerGroupIds);
       const replyPayload = await generateRoleplayReply({
         user: boundUser,
@@ -1760,7 +1935,7 @@ export const useAppStore = defineStore('app', () => {
         })),
         userMessage: userMessageText,
         settings: settings.value ?? undefined,
-        modelOverride: chatSettings.modelOverrides[conversation.activeMode]
+        modelOverride
       });
       const parsedReply = JSON.parse(replyPayload) as RoleplayReplyResult;
       const replyBatchId = createId('reply');
@@ -1790,10 +1965,18 @@ export const useAppStore = defineStore('app', () => {
               const stickers = Array.isArray(segment.stickers) ? segment.stickers.map((sticker) => String(sticker ?? '').trim()).filter(Boolean) : [];
               return stickers.length ? [{ type: 'sticker', stickers }] : [];
             }
+            if (segment.type === 'image') {
+              const description = String(segment.description ?? '').trim();
+              return description ? [{ type: 'image', description }] : [];
+            }
             return [];
           })
           .slice(0, 12)
         : [];
+      const replyImages = (parsedReply.images ?? [])
+        .map((image) => String(image.description ?? '').trim())
+        .filter(Boolean)
+        .slice(0, 3);
       const narrationMessages = conversation.activeMode === 'online' && chatSettings.narrationModeEnabled
         ? (parsedReply.narrations ?? [])
           .map((narration) => String(narration ?? '').trim())
@@ -1817,6 +2000,7 @@ export const useAppStore = defineStore('app', () => {
       const hasOrderedSticker = orderedSegments.some((segment) => segment.type === 'sticker'
         && resolveCharacterStickerSelections(segment.stickers, availableCharacterStickers).length);
       const hasOrderedNarration = orderedSegments.some((segment) => segment.type === 'narration');
+      const hasOrderedImage = orderedSegments.some((segment) => segment.type === 'image' && segment.description.trim());
       const recallMessageIds = parsedReply.messageActions?.recallMessageIds ?? [];
       const validRecallMessageIds = recallMessageIds.filter((messageId) => messages.value.some((message) => message.id === messageId && message.conversationId === conversationId && message.sender === 'char'));
       const quoteByReplyIndex = new Map<number, ChatMessageQuote>();
@@ -1825,7 +2009,7 @@ export const useAppStore = defineStore('app', () => {
         const quote = targetMessage ? createMessageQuoteSnapshot(targetMessage) : null;
         if (quote) quoteByReplyIndex.set(Math.max(0, Math.floor(quoteAction.replyIndex)), quote);
       }
-      if (!effectiveReplyMessages.length && !replyStickers.length && !narrationMessages.length && !hasOrderedSticker && !hasOrderedNarration && !validRecallMessageIds.length) {
+      if (!effectiveReplyMessages.length && !replyStickers.length && !replyImages.length && !narrationMessages.length && !hasOrderedSticker && !hasOrderedNarration && !hasOrderedImage && !validRecallMessageIds.length) {
         showConfigAlert('AI 返回内容中没有可显示的聊天文本，请重试或检查模型输出格式。', '回复异常');
         return;
       }
@@ -1897,6 +2081,29 @@ export const useAppStore = defineStore('app', () => {
       const appendOrderedStickerMessages = (stickersToSend: Sticker[]) => {
         orderedCharMessages.push(...createStickerMessages(stickersToSend));
       };
+      const createImageMessage = async (description: string) => {
+        const image = await createCharacterImageAttachment(description);
+        if (!image) return null;
+        return {
+          id: createId('msg'),
+          conversationId,
+          sender: 'char' as const,
+          mode: conversation.activeMode,
+          content: `[图片] ${image.description}`,
+          image,
+          replyBatchId,
+          createdAt: createdAt + charMessageOffset++,
+          status: 'sent' as const
+        } satisfies ChatMessage;
+      };
+      const sentImageDescriptionKeys = new Set<string>();
+      const appendImageMessage = async (description: string, targetMessages: ChatMessage[]) => {
+        const imageKey = normalizeDuplicateKey(description);
+        if (!imageKey || sentImageDescriptionKeys.has(imageKey)) return;
+        sentImageDescriptionKeys.add(imageKey);
+        const imageMessage = await createImageMessage(description);
+        if (imageMessage) targetMessages.push(imageMessage);
+      };
       const appendPlacedStickers = (replyIndex: number, position: 'before' | 'after') => {
         for (const placement of replyStickerPlacements) {
           if (placement.replyIndex === replyIndex && placement.position === position) appendStickerMessages(placement.stickers);
@@ -1930,8 +2137,10 @@ export const useAppStore = defineStore('app', () => {
               status: 'sent' as const
             } satisfies ChatMessage);
             orderedReplyIndex += 1;
-          } else {
+          } else if (segment.type === 'sticker') {
             appendOrderedStickerMessages(resolveCharacterStickerSelections(segment.stickers, availableCharacterStickers));
+          } else {
+            await appendImageMessage(segment.description, orderedCharMessages);
           }
         }
       } else if (replyMessages.length) {
@@ -1953,6 +2162,9 @@ export const useAppStore = defineStore('app', () => {
         });
       } else {
         replyStickerPlacements.forEach((placement) => appendStickerMessages(placement.stickers));
+      }
+      for (const imageDescription of replyImages) {
+        await appendImageMessage(imageDescription, charMessagesAfterNarration);
       }
       appendStickerMessages(replyStickers);
       const charMessages = orderedSegments.length ? orderedCharMessages : [...charNarrationMessages, ...charMessagesAfterNarration];
@@ -2060,11 +2272,12 @@ export const useAppStore = defineStore('app', () => {
   function resolveUserVoomCommentModelOverride(targetConversations: Conversation[]) {
     for (const targetConversation of targetConversations) {
       const chatSettings = settingsForConversation(targetConversation.id);
-      if (chatSettings.modelOverrides.voom && hasConfiguredTextModel(chatSettings.modelOverrides.voom)) return chatSettings.modelOverrides.voom;
+      const modelOverride = getConversationTextModelOverride(chatSettings, 'voom');
+      if (modelOverride && hasConfiguredTextModel(modelOverride)) return modelOverride;
     }
     for (const targetConversation of targetConversations) {
       const chatSettings = settingsForConversation(targetConversation.id);
-      const modelOverride = chatSettings.modelOverrides[targetConversation.activeMode];
+      const modelOverride = getConversationTextModelOverride(chatSettings, targetConversation.activeMode);
       if (modelOverride && hasConfiguredTextModel(modelOverride)) return modelOverride;
     }
     return hasConfiguredTextModel('') ? '' : null;
@@ -2151,6 +2364,7 @@ export const useAppStore = defineStore('app', () => {
       image: image || undefined,
       imageDescription: imageDescription || undefined,
       imageProvider: image ? 'local' : imageDescription ? 'mock' : undefined,
+      imageCandidates: image ? [createVoomImageCandidate({ image, description: imageDescription || content, provider: 'local' })] : undefined,
       createdAt,
       comments: [],
       likes: []
@@ -2165,66 +2379,192 @@ export const useAppStore = defineStore('app', () => {
 
   async function createMomentFromConversation(conversationId: string) {
     const conversation = conversationById(conversationId);
+    if (generatingMomentConversationIds.has(conversationId)) return;
     if (!conversation) return;
     const character = characterById(conversation.charId);
     if (!character) return;
     const boundUser = userById(character.boundUserId) ?? user.value;
     if (!boundUser) return;
     const chatSettings = settingsForConversation(conversationId);
-    if (!hasConfiguredTextModel(chatSettings.modelOverrides.voom)) {
+    const modelOverride = getConversationTextModelOverride(chatSettings, 'voom');
+    if (!hasConfiguredTextModel(modelOverride)) {
       showConfigAlert('请先在聊天菜单里配置 VOOM 模型，或在设置里配置全局默认 API 模型。', '需要配置 API 模型');
       return;
     }
-    const moment = await generateVoomPost(
-      {
-        user: boundUser,
-        character,
-        boundUser,
-        mode: conversation.activeMode,
-        messages: visibleMessagesForConversation(conversationId),
-        worldBooks: worldBooks.value,
-        conversationSummary: conversation.summary,
-        memorySummary: memoryContextForConversation(conversationId),
-        stickerVisionEnabled: chatSettings.stickerVisionEnabled,
-        timeAwareness: chatSettings.timeAwareness
-      },
-      settings.value ?? undefined,
-      chatSettings.modelOverrides.voom
-    );
-    const post: VoomPost = { ...moment, id: createId('voom'), conversationId: conversation.id, authorName: getCharacterVoomAuthorName(character), authorAvatar: character.avatar, createdAt: Date.now() };
-    post.comments = post.comments.map((comment, index) => ({
-      ...comment,
-      createdAt: post.createdAt + post.likes.length + index + 1
-    }));
-    voomPosts.value.unshift(post);
-    await putEntity('voomPosts', post);
-    if (post.image && ['openai', 'novelai', 'pollinations'].includes(post.imageProvider ?? '')) {
-      await addGeneratedImage({
-        provider: post.imageProvider as ImageModuleId,
-        imageUrl: post.image,
-        title: `${post.authorName} 的 VOOM 配图`,
-        prompt: post.imageDescription || post.content,
-        negativePrompt: '',
-        model: settings.value?.voomImageModel || '',
-        size: '1024x1024',
-        source: 'voom',
-        createdAt: post.createdAt
-      });
+    generatingMomentConversationIds.add(conversationId);
+    try {
+      const moment = await generateVoomPost(
+        {
+          user: boundUser,
+          character,
+          boundUser,
+          mode: conversation.activeMode,
+          messages: visibleMessagesForConversation(conversationId),
+          worldBooks: worldBooks.value,
+          conversationSummary: conversation.summary,
+          memorySummary: memoryContextForConversation(conversationId),
+          stickerVisionEnabled: chatSettings.stickerVisionEnabled,
+          timeAwareness: chatSettings.timeAwareness
+        },
+        settings.value ?? undefined,
+        modelOverride
+      );
+      const post: VoomPost = { ...moment, id: createId('voom'), conversationId: conversation.id, authorName: getCharacterVoomAuthorName(character), authorAvatar: character.avatar, createdAt: Date.now() };
+      post.comments = post.comments.map((comment, index) => ({
+        ...comment,
+        createdAt: post.createdAt + post.likes.length + index + 1
+      }));
+      voomPosts.value.unshift(post);
+      await putEntity('voomPosts', post);
+      if (post.image && ['openai', 'novelai', 'pollinations'].includes(post.imageProvider ?? '')) {
+        const imageCandidate = post.imageCandidates?.find((candidate) => candidate.image === post.image);
+        await addGeneratedImage({
+          provider: post.imageProvider as ImageModuleId,
+          imageUrl: post.image,
+          title: `${post.authorName} 的 VOOM 配图`,
+          prompt: post.imageDescription || post.content,
+          negativePrompt: '',
+          model: imageCandidate?.model || '',
+          size: imageCandidate?.size || getVoomImageSizeLabel(post.imageProvider as ImageModuleId),
+          source: 'voom',
+          createdAt: post.createdAt
+        });
+      }
+      await recordVoomPostEvents(post, conversation.activeMode);
+      return post;
+    } finally {
+      generatingMomentConversationIds.delete(conversationId);
     }
-    await recordVoomPostEvents(post, conversation.activeMode);
-    return post;
   }
 
   function getVoomImageSizeLabel(provider: ImageModuleId) {
-    if (!settings.value) return '1024x1024';
-    if (provider === 'novelai') return `${settings.value.imageNovelAi.width}x${settings.value.imageNovelAi.height}`;
-    if (provider === 'pollinations') return `${settings.value.imagePollinations.width}x${settings.value.imagePollinations.height}`;
-    return settings.value.imageOpenAi.size || settings.value.imageSize || '1024x1024';
+    if (!settings.value) return '720x1280';
+    return getImageGenerationSize(settings.value, provider).size;
+  }
+
+  async function generateChatImageCandidate(description: string) {
+    const imageDescription = description.trim();
+    const selectedModel = getSelectedImageModelOption(settings.value, 'onlineChat');
+    if (!imageDescription || !settings.value || !selectedModel) return null;
+
+    const provider = selectedModel.provider;
+    const promptPreset = getImagePromptPresetForProvider(settings.value, provider);
+    const positivePrompt = [promptPreset.positivePrompt, imageDescription].filter(Boolean).join(', ');
+    const imageSize = getImageGenerationSize(settings.value, provider);
+    let imageSettings = settings.value;
+    const imageOverrides = {
+      positivePrompt,
+      negativePrompt: promptPreset.negativePrompt,
+      size: imageSize.size,
+      width: imageSize.width,
+      height: imageSize.height,
+      model: selectedModel.model
+    };
+
+    if (provider === 'openai') {
+      const [vendorId, ...modelParts] = selectedModel.model.split('::');
+      imageSettings = {
+        ...settings.value,
+        imageOpenAi: {
+          ...settings.value.imageOpenAi,
+          activeVendorId: vendorId || settings.value.imageOpenAi.activeVendorId
+        }
+      };
+      imageOverrides.model = modelParts.join('::') || settings.value.imageModel;
+    }
+
+    const result = await generateImageByProvider(provider, imageSettings, imageOverrides);
+    return createChatImageCandidate({
+      image: result.imageUrl,
+      description: imageDescription,
+      provider: result.provider,
+      model: selectedModel.label,
+      size: getVoomImageSizeLabel(result.provider)
+    });
+  }
+
+  function imageAttachmentFromCandidate(candidate: ChatImageCandidate): ChatImageAttachment {
+    return {
+      kind: 'generated',
+      description: candidate.description,
+      url: candidate.image,
+      provider: candidate.provider,
+      model: candidate.model,
+      size: candidate.size,
+      candidates: [candidate],
+      ...imageSizeToDimensions(candidate.size)
+    };
+  }
+
+  function createChatImageDescriptionAttachment(description: string): ChatImageAttachment {
+    return {
+      kind: 'description',
+      description,
+      provider: 'mock'
+    };
+  }
+
+  async function createCharacterImageAttachment(description: string) {
+    const imageDescription = description.trim();
+    if (!imageDescription) return null;
+    try {
+      const candidate = await generateChatImageCandidate(imageDescription);
+      return candidate ? imageAttachmentFromCandidate(candidate) : createChatImageDescriptionAttachment(imageDescription);
+    } catch (error) {
+      showConfigAlert(error instanceof Error ? error.message : '聊天图片生成失败，已改为文字描述卡片。', '无法生成聊天图片');
+      return createChatImageDescriptionAttachment(imageDescription);
+    }
+  }
+
+  async function updateChatMessageImage(messageId: string, image: ChatImageAttachment) {
+    const messageIndex = messages.value.findIndex((message) => message.id === messageId);
+    if (messageIndex < 0) return null;
+    const existingMessage = messages.value[messageIndex];
+    const nextMessage: ChatMessage = {
+      ...existingMessage,
+      content: `[图片] ${image.description}`,
+      image
+    };
+    messages.value[messageIndex] = nextMessage;
+    await putEntity('messages', nextMessage);
+    return nextMessage;
+  }
+
+  async function regenerateChatMessageImage(messageId: string, description: string) {
+    const imageDescription = description.trim();
+    const existingMessage = messages.value.find((message) => message.id === messageId);
+    if (!existingMessage?.image || !imageDescription) return null;
+    if (!getSelectedImageModelOption(settings.value, 'onlineChat')) {
+      showConfigAlert('请先在顶部切换按钮里选择一个已配置的生图模型。', '无法生成图片');
+      return null;
+    }
+    try {
+      const candidate = await generateChatImageCandidate(imageDescription);
+      if (!candidate) return null;
+      const candidates = [...(existingMessage.image.candidates ?? []), candidate];
+      return updateChatMessageImage(messageId, {
+        ...imageAttachmentFromCandidate(candidate),
+        candidates
+      });
+    } catch (error) {
+      showConfigAlert(error instanceof Error ? error.message : '聊天图片生成失败。', '无法生成图片');
+      return null;
+    }
+  }
+
+  async function applyChatMessageImageCandidate(messageId: string, candidateId: string) {
+    const existingMessage = messages.value.find((message) => message.id === messageId);
+    const candidate = existingMessage?.image?.candidates?.find((entry) => entry.id === candidateId);
+    if (!existingMessage?.image || !candidate) return null;
+    return updateChatMessageImage(messageId, {
+      ...imageAttachmentFromCandidate(candidate),
+      candidates: existingMessage.image.candidates
+    });
   }
 
   async function regenerateVoomPostImage(postId: string, description: string) {
     const post = voomPosts.value.find((entry) => entry.id === postId);
-    const selectedModel = getSelectedImageModelOption(settings.value);
+    const selectedModel = getSelectedImageModelOption(settings.value, 'voom');
     const imageDescription = description.trim();
     if (!post || !settings.value) return null;
     if (!imageDescription) {
@@ -2239,13 +2579,14 @@ export const useAppStore = defineStore('app', () => {
     const provider = selectedModel.provider;
     const promptPreset = getImagePromptPresetForProvider(settings.value, provider);
     const positivePrompt = [promptPreset.positivePrompt, imageDescription].filter(Boolean).join(', ');
+    const imageSize = getImageGenerationSize(settings.value, provider);
     let imageSettings = settings.value;
     const imageOverrides = {
       positivePrompt,
       negativePrompt: promptPreset.negativePrompt,
-      size: '1024x1024',
-      width: 1024,
-      height: 1024,
+      size: imageSize.size,
+      width: imageSize.width,
+      height: imageSize.height,
       model: selectedModel.model
     };
 
@@ -2263,11 +2604,20 @@ export const useAppStore = defineStore('app', () => {
 
     try {
       const result = await generateImageByProvider(provider, imageSettings, imageOverrides);
+      if (!hasVoomPost(postId)) return null;
+      const nextCandidate = createVoomImageCandidate({
+        image: result.imageUrl,
+        description: imageDescription,
+        provider: result.provider,
+        model: selectedModel.label,
+        size: getVoomImageSizeLabel(result.provider)
+      });
       const nextPost = {
         ...post,
         image: result.imageUrl,
         imageDescription,
-        imageProvider: result.provider
+        imageProvider: result.provider,
+        imageCandidates: [...(post.imageCandidates ?? []), nextCandidate]
       };
       await saveVoomPost(nextPost);
       await addGeneratedImage({
@@ -2277,20 +2627,27 @@ export const useAppStore = defineStore('app', () => {
         prompt: positivePrompt,
         negativePrompt: promptPreset.negativePrompt,
         model: selectedModel.label,
-        size: getVoomImageSizeLabel(result.provider),
+        size: nextCandidate.size || getVoomImageSizeLabel(result.provider),
         source: 'voom'
       });
       return nextPost;
     } catch (error) {
-      await saveVoomPost({
-        ...post,
-        image: '/load.jpg',
-        imageDescription,
-        imageProvider: 'local'
-      });
-      showConfigAlert(error instanceof Error ? error.message : 'VOOM 配图生成失败：没有返回错误详情。', '无法生成配图');
+      if (!hasVoomPost(postId)) return null;
+      if (!post.image) {
+        await saveVoomPost({
+          ...post,
+          image: '/load.jpg',
+          imageDescription,
+          imageProvider: 'local'
+        });
+      }
+      showConfigAlert(error instanceof Error ? error.message : 'VOOM 配图生成失败。', '无法生成配图');
       return null;
     }
+  }
+
+  function hasVoomPost(postId: string) {
+    return voomPosts.value.some((entry) => entry.id === postId);
   }
 
   async function saveVoomPost(nextPost: VoomPost) {
@@ -2299,6 +2656,25 @@ export const useAppStore = defineStore('app', () => {
     if (index >= 0) voomPosts.value[index] = persistablePost;
     else voomPosts.value.unshift(persistablePost);
     await putEntity('voomPosts', persistablePost);
+  }
+
+  async function deleteVoomPost(postId: string) {
+    const normalizedPostId = postId.trim();
+    const post = voomPosts.value.find((entry) => entry.id === normalizedPostId);
+    if (!post) return false;
+
+    const relatedMessageIds = messages.value
+      .filter((message) => message.voomPostId === normalizedPostId)
+      .map((message) => message.id);
+
+    voomPosts.value = voomPosts.value.filter((entry) => entry.id !== normalizedPostId);
+    replyingVoomCommentPostIds.value = replyingVoomCommentPostIds.value.filter((id) => id !== normalizedPostId);
+
+    await Promise.all([
+      deleteEntity('voomPosts', normalizedPostId),
+      relatedMessageIds.length ? deleteMessages(relatedMessageIds) : Promise.resolve(0)
+    ]);
+    return true;
   }
 
   async function addVoomComment(postId: string, content: string, parentId = '') {
@@ -2378,7 +2754,7 @@ export const useAppStore = defineStore('app', () => {
     const boundUser = userById(character.boundUserId) ?? user.value;
     if (!boundUser) return;
     const chatSettings = settingsForConversation(conversation.id);
-    const modelOverride = chatSettings.modelOverrides.voom || chatSettings.modelOverrides[conversation.activeMode];
+    const modelOverride = getConversationTextModelOverride(chatSettings, 'voom', conversation.activeMode);
     if (!hasConfiguredTextModel(modelOverride)) {
       showConfigAlert('请先配置 VOOM 或当前聊天模式的 API 模型，再让角色回复评论区。', '需要配置 API 模型');
       return;
@@ -2409,6 +2785,7 @@ export const useAppStore = defineStore('app', () => {
       });
 
       const createdAt = Date.now();
+      if (!hasVoomPost(postId)) return;
       const existingCommentIds = new Set(post.comments.map((comment) => comment.id));
       const generatedIds = replies.map(() => createId('comment'));
       const generatedIdByDraftId = new Map(replies.flatMap((reply, index) => reply.draftId ? [[reply.draftId, generatedIds[index]]] : []));
@@ -2503,6 +2880,7 @@ export const useAppStore = defineStore('app', () => {
     deleteCharacterProfile,
     clearCharacterHistory,
     setActiveUser,
+    markVoomCharactersRead,
     saveVisualProfile,
     saveCharacter,
     markCharacterMindStateRead,
@@ -2533,6 +2911,7 @@ export const useAppStore = defineStore('app', () => {
     markConversationRead,
     appendUserMessage,
     appendStickerMessage,
+    appendUserImageMessage,
     deleteMessages,
     updateMessageContent,
     recallMessage,
@@ -2547,11 +2926,14 @@ export const useAppStore = defineStore('app', () => {
     regenerateLatestReply,
     sendMessage,
     sendStickerMessage,
+    regenerateChatMessageImage,
+    applyChatMessageImageCandidate,
     createUserVoomPost,
     createMomentFromConversation,
     regenerateVoomPostImage,
     addVoomComment,
     toggleVoomLike,
     replyToVoomComments,
+    deleteVoomPost,
   };
 });

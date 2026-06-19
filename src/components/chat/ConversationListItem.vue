@@ -26,7 +26,11 @@ const props = defineProps<{
   lastMessage?: ChatMessage;
 }>();
 
-const preview = computed(() => props.lastMessage?.sticker ? `[Sticker] ${props.lastMessage.sticker.description}` : props.lastMessage?.content || props.character.subtitle || '开始聊天');
+const preview = computed(() => {
+  if (props.lastMessage?.sticker) return `[Sticker] ${props.lastMessage.sticker.description}`;
+  if (props.lastMessage?.image) return `[图片] ${props.lastMessage.image.description}`;
+  return props.lastMessage?.content || props.character.subtitle || '开始聊天';
+});
 const displayName = computed(() => getCharacterDisplayName(props.character));
 </script>
 

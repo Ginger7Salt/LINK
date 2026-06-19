@@ -17,9 +17,15 @@
         @pointermove="trackPointerMove"
         @pointerup="cancelLongPress"
       >
-        <div class="bubble" :class="{ narration: message.displayStyle === 'narration', sticker: message.sticker }" :style="bubbleStyle">
+        <div class="bubble" :class="{ narration: message.displayStyle === 'narration', sticker: message.sticker, image: message.image }" :style="bubbleStyle">
           <template v-if="message.sticker">
             <img class="sticker-image" :src="message.sticker.imageUrl" :alt="message.sticker.description" />
+          </template>
+          <template v-else-if="message.image">
+            <figure class="chat-image-card" :class="[`chat-image-card--${message.image.kind}`, { interactive: message.sender === 'char' }]" :style="imageCardStyle" @click="handleImageCardClick">
+              <img v-if="message.image.url" :src="message.image.url" :alt="message.image.description" />
+              <figcaption v-if="message.image.kind === 'description'">{{ message.image.description }}</figcaption>
+            </figure>
           </template>
           <template v-else>
             <span>{{ displayContent }}</span>
@@ -34,7 +40,7 @@
             <strong>{{ quoteAuthorLabel }}</strong>
             <span>{{ quoteText }}</span>
           </p>
-          <img v-if="message.quote.sticker" class="quote-thumbnail" :src="message.quote.sticker.imageUrl" :alt="message.quote.sticker.description" />
+          <img v-if="quoteThumbnail" class="quote-thumbnail" :src="quoteThumbnail" :alt="quoteText" />
         </div>
       </div>
         <div v-if="showMessageMeta" class="message-meta">
@@ -43,11 +49,63 @@
         </div>
     </div>
   </article>
+
+  <AppModal v-if="message.image && message.sender === 'char'" v-model="showImageModal" title="聊天图片" variant="ins">
+    <section class="image-viewer" :class="{ flipped: imageFlipped }" :style="imageViewerStyle">
+      <button class="image-flip-card" type="button" @click="toggleImageFlip">
+        <span class="image-face image-picture-face">
+          <img v-if="modalImageSrc" :src="modalImageSrc" :alt="selectedImageDescription" />
+          <span v-else>{{ selectedImageDescription }}</span>
+        </span>
+        <span class="image-face image-text-face">
+          <span>{{ imageDescriptionDraft || selectedImageDescription }}</span>
+        </span>
+      </button>
+
+      <div v-if="imageCandidates.length" class="image-history" aria-label="聊天图片历史">
+        <button
+          v-for="(candidate, index) in imageCandidates"
+          :key="candidate.id"
+          class="image-thumb"
+          :class="{ active: candidate.id === selectedCandidateId }"
+          type="button"
+          :aria-label="`查看图片 ${index + 1}`"
+          @click="selectCandidate(candidate.id)"
+        >
+          <img :src="candidate.image" :alt="candidate.description || '聊天图片'" />
+        </button>
+      </div>
+
+      <label v-if="canRegenerateImage" class="image-description-field">
+        <span>Description</span>
+        <textarea v-model="imageDescriptionDraft" maxlength="500" placeholder="修改图片描述后重新生成。"></textarea>
+      </label>
+
+      <div class="image-actions">
+        <button class="image-secondary" type="button" @click="toggleImageFlip">翻转</button>
+        <button v-if="imageCandidates.length" class="image-secondary" type="button" :disabled="!canApplySelectedCandidate" @click="applySelectedCandidate">应用</button>
+        <button
+          v-if="canRegenerateImage"
+          class="image-primary"
+          type="button"
+          :class="{ busy: regeneratingImage }"
+          :aria-disabled="regeneratingImage"
+          :disabled="!imageDescriptionDraft.trim()"
+          @click="regenerateImage"
+        >
+          <LoaderCircle v-if="regeneratingImage" class="loading-icon" :size="15" />
+          <span>{{ regeneratingImage ? '生成中' : '重新生成' }}</span>
+        </button>
+      </div>
+    </section>
+  </AppModal>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import type { CharacterProfile, ChatAppearanceSettings, ChatMessage } from '@/types/domain';
+import { computed, ref, watch } from 'vue';
+import { LoaderCircle } from 'lucide-vue-next';
+import AppModal from '@/components/common/AppModal.vue';
+import type { CharacterProfile, ChatAppearanceSettings, ChatImageCandidate, ChatMessage } from '@/types/domain';
 import { getCharacterDisplayName } from '@/utils/character';
 import { formatChatTime } from '@/utils/time';
 import { defaultConversationSettings } from '@/utils/memory';
@@ -59,12 +117,16 @@ const props = withDefaults(defineProps<{
   appearance?: ChatAppearanceSettings;
   hideAvatar?: boolean;
   profileAlert?: boolean;
+  canRegenerateImage?: boolean;
+  regeneratingImage?: boolean;
   selectionMode?: boolean;
   selected?: boolean;
 }>(), {
   appearance: () => defaultConversationSettings.appearance,
+  canRegenerateImage: false,
   hideAvatar: false,
   profileAlert: false,
+  regeneratingImage: false,
   selectionMode: false,
   selected: false
 });
@@ -73,11 +135,18 @@ const emit = defineEmits<{
   'open-profile': [];
   'long-press': [message: ChatMessage];
   'toggle-select': [];
+  'regenerate-image': [messageId: string, description: string];
+  'apply-image': [messageId: string, candidateId: string];
+  'busy-action': [message: string, title: string];
 }>();
 
 let longPressTimer: number | undefined;
 let longPressStart: { x: number; y: number } | null = null;
 let longPressTriggered = false;
+const showImageModal = ref(false);
+const imageFlipped = ref(false);
+const imageDescriptionDraft = ref('');
+const selectedCandidateId = ref('');
 
 function extractJsonContent(content: string) {
   const trimmed = content.trim();
@@ -169,11 +238,14 @@ const characterDisplayName = computed(() => getCharacterDisplayName(props.charac
 const showProfileAlert = computed(() => props.profileAlert && props.message.sender === 'char');
 const quoteText = computed(() => props.message.quote?.sticker
   ? props.message.quote.sticker.description
+  : props.message.quote?.image
+    ? props.message.quote.image.description
   : props.message.quote?.content ?? '');
+const quoteThumbnail = computed(() => props.message.quote?.sticker?.imageUrl ?? props.message.quote?.image?.url ?? '');
 const quoteAuthorLabel = computed(() => (props.message.quote?.authorName ? `${props.message.quote.authorName}：` : ''));
 
 const bubbleStyle = computed(() => {
-  if (props.message.sticker) return {};
+  if (props.message.sticker || props.message.image) return {};
   if (props.message.sender === 'user') {
     return {
       background: props.appearance.userBubbleColor,
@@ -188,6 +260,41 @@ const bubbleStyle = computed(() => {
   }
   return {};
 });
+
+const imageCardStyle = computed(() => {
+  const image = props.message.image;
+  if (!image?.width || !image.height) return { '--chat-image-ratio': '1 / 1' };
+  return { '--chat-image-ratio': `${image.width} / ${image.height}` };
+});
+
+const imageCandidates = computed<ChatImageCandidate[]>(() => {
+  const image = props.message.image;
+  const candidates = [...(image?.candidates ?? [])].filter((candidate) => candidate.image);
+  if (image?.url && !candidates.some((candidate) => candidate.image === image.url)) {
+    candidates.unshift({
+      id: `${props.message.id}-current-image`,
+      image: image.url,
+      description: image.description,
+      provider: image.provider || 'local',
+      model: image.model,
+      size: image.size,
+      createdAt: props.message.createdAt
+    });
+  }
+  return candidates;
+});
+const selectedCandidate = computed(() => imageCandidates.value.find((candidate) => candidate.id === selectedCandidateId.value) ?? imageCandidates.value.find((candidate) => candidate.image === props.message.image?.url));
+const selectedImageDescription = computed(() => selectedCandidate.value?.description || props.message.image?.description || '图片描述暂未保存。');
+const modalImageSrc = computed(() => selectedCandidate.value?.image || props.message.image?.url || '');
+const canApplySelectedCandidate = computed(() => Boolean(selectedCandidate.value && selectedCandidate.value.image !== props.message.image?.url && !selectedCandidate.value.id.endsWith('-current-image')));
+const imageViewerAspectRatio = computed(() => {
+  const size = selectedCandidate.value?.size || props.message.image?.size || '';
+  const [width, height] = size.split('x').map((value) => Number.parseInt(value, 10));
+  if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) return `${width} / ${height}`;
+  if (props.message.image?.width && props.message.image.height) return `${props.message.image.width} / ${props.message.image.height}`;
+  return '1 / 1';
+});
+const imageViewerStyle = computed(() => ({ '--chat-viewer-ratio': imageViewerAspectRatio.value }));
 
 const isSystemNarration = computed(() => props.message.sender === 'system' && props.message.displayStyle === 'narration');
 const showMessageTime = computed(() => props.appearance.showMessageTime && !isSystemNarration.value && !props.message.voomEventType && !props.message.voomPostId);
@@ -249,6 +356,55 @@ function handleBubbleClick(event: MouseEvent) {
   }
   if (props.selectionMode) emit('toggle-select');
 }
+
+function openImageModal() {
+  if (!props.message.image || props.message.sender !== 'char') return;
+  if (props.selectionMode) {
+    emit('toggle-select');
+    return;
+  }
+  imageDescriptionDraft.value = props.message.image.description;
+  selectedCandidateId.value = imageCandidates.value.find((candidate) => candidate.image === props.message.image?.url)?.id ?? imageCandidates.value[0]?.id ?? '';
+  imageFlipped.value = !props.message.image.url;
+  showImageModal.value = true;
+}
+
+function handleImageCardClick(event: MouseEvent) {
+  if (props.message.sender !== 'char') return;
+  event.stopPropagation();
+  openImageModal();
+}
+
+function selectCandidate(candidateId: string) {
+  selectedCandidateId.value = candidateId;
+  imageFlipped.value = false;
+}
+
+function toggleImageFlip() {
+  imageFlipped.value = !imageFlipped.value;
+}
+
+function regenerateImage() {
+  const description = imageDescriptionDraft.value.trim();
+  if (!description) return;
+  if (props.regeneratingImage) {
+    emit('busy-action', '正在重新生成聊天图片，请等待当前生成完成。', '正在生成');
+    return;
+  }
+  emit('regenerate-image', props.message.id, description);
+  imageFlipped.value = false;
+}
+
+function applySelectedCandidate() {
+  if (!selectedCandidate.value || !canApplySelectedCandidate.value) return;
+  emit('apply-image', props.message.id, selectedCandidate.value.id);
+}
+
+watch(() => props.message.image?.url, () => {
+  if (!showImageModal.value) return;
+  selectedCandidateId.value = imageCandidates.value.find((candidate) => candidate.image === props.message.image?.url)?.id ?? selectedCandidateId.value;
+  imageFlipped.value = false;
+});
 </script>
 
 <style scoped>
@@ -426,6 +582,14 @@ function handleBubbleClick(event: MouseEvent) {
   box-shadow: none;
 }
 
+.bubble.image {
+  min-width: 0;
+  padding: 0;
+  border-radius: 16px;
+  background: transparent;
+  box-shadow: none;
+}
+
 .quote-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -494,6 +658,227 @@ function handleBubbleClick(event: MouseEvent) {
   border-radius: 10px;
   object-fit: cover;
   background: transparent;
+}
+
+.chat-image-card {
+  display: grid;
+  width: min(154px, 44vw);
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid #edf0f2;
+  border-radius: 16px;
+  background: #ffffff;
+  color: #222222;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+}
+
+.chat-image-card.interactive {
+  cursor: zoom-in;
+}
+
+.chat-image-card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: var(--chat-image-ratio, 1 / 1);
+  object-fit: contain;
+  background: #f4f5f6;
+}
+
+.chat-image-card figcaption {
+  margin: 0;
+  padding: 10px 11px;
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.chat-image-card--description {
+  aspect-ratio: 1 / 1;
+  place-items: center;
+  padding: 12px;
+  background: #ffffff;
+  transform-style: preserve-3d;
+}
+
+.chat-image-card--description figcaption {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 820;
+  line-height: 1.45;
+  text-align: center;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.image-viewer {
+  display: grid;
+  gap: 12px;
+}
+
+.image-flip-card {
+  position: relative;
+  width: 100%;
+  aspect-ratio: var(--chat-viewer-ratio, 1 / 1);
+  padding: 0;
+  border-radius: 18px;
+  background: transparent;
+  perspective: 1000px;
+}
+
+.image-face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid #edf0f2;
+  border-radius: 18px;
+  background: #ffffff;
+  backface-visibility: hidden;
+  transition: transform 0.28s ease;
+}
+
+.image-picture-face {
+  transform: rotateY(0deg);
+}
+
+.image-text-face {
+  padding: 20px;
+  transform: rotateY(180deg);
+  color: #222222;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.65;
+  text-align: center;
+  white-space: pre-wrap;
+}
+
+.image-viewer.flipped .image-picture-face {
+  transform: rotateY(180deg);
+}
+
+.image-viewer.flipped .image-text-face {
+  transform: rotateY(360deg);
+}
+
+.image-picture-face img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #f4f5f6;
+}
+
+.image-picture-face > span {
+  padding: 20px;
+  color: #222222;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.65;
+  text-align: center;
+  white-space: pre-wrap;
+}
+
+.image-history {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.image-thumb {
+  flex: 0 0 54px;
+  width: 54px;
+  height: 54px;
+  padding: 2px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: #f1f3f5;
+}
+
+.image-thumb.active {
+  border-color: #171717;
+  background: #ffffff;
+}
+
+.image-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 7px;
+  object-fit: cover;
+}
+
+.image-description-field {
+  display: grid;
+  gap: 6px;
+}
+
+.image-description-field > span {
+  color: #686b70;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.image-description-field textarea {
+  min-height: 86px;
+  padding: 10px;
+  border: 1px solid #edf0f2;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #171717;
+  font: inherit;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.image-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 10px;
+}
+
+.image-secondary,
+.image-primary {
+  display: inline-grid;
+  grid-auto-flow: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  border-radius: 10px;
+  font-weight: 900;
+}
+
+.image-secondary {
+  background: #ffffff;
+  color: #2b3036;
+}
+
+.image-primary {
+  background: #171717;
+  color: #ffffff;
+}
+
+.image-secondary:disabled,
+.image-primary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.loading-icon {
+  animation: chat-image-spin 0.8s linear infinite;
+}
+
+@keyframes chat-image-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .message-meta {

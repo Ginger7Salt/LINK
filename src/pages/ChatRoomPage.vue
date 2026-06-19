@@ -17,10 +17,15 @@
         :appearance="chatSettings.appearance"
         :hide-avatar="shouldHideAvatar(index)"
         :profile-alert="hasUnreadMindState"
+        :can-regenerate-image="canRegenerateChatImage"
+        :regenerating-image="regeneratingChatImageMessageIds.includes(message.id)"
         :selection-mode="selectionMode"
         :selected="isMessageSelected(message)"
+        @apply-image="applyChatImageCandidate"
+        @busy-action="store.showConfigAlert"
         @long-press="openMessageActions"
         @open-profile="openCharacterProfile"
+        @regenerate-image="regenerateChatImage"
         @toggle-select="toggleMessageSelection(message)"
       />
       <div v-if="store.loadingReply" class="typing-indicator">
@@ -50,11 +55,55 @@
       @prepare-focus="captureKeyboardScrollAnchor"
       @focus="startKeyboardScrollGuard"
       @blur="stopKeyboardScrollGuard"
+      @capture-photo="sendCapturedPhoto"
+      @open-image-panel="openImagePanel"
       @open-menu="showActionMenu = true"
       @open-stickers="showStickers = true"
       @reply="sendAndReply"
       @send="sendBubble"
     />
+
+    <input ref="localImageInputRef" class="hidden-file-input" type="file" accept="image/*" @change="sendLocalImageFromInput" />
+
+    <AppModal v-model="showImagePanel" title="发送图片" :show-header="false" variant="ins">
+      <section class="image-send-panel">
+        <div class="image-panel-head">
+          <div>
+            <p>Image</p>
+            <h3>发送图片给 {{ characterDisplayName }}</h3>
+          </div>
+        </div>
+        <nav class="image-tabs" aria-label="图片发送方式">
+          <button type="button" :class="{ active: imageSendTab === 'local' }" @click="imageSendTab = 'local'">本地图片发送</button>
+          <button type="button" :class="{ active: imageSendTab === 'description' }" @click="imageSendTab = 'description'">文字描述卡片</button>
+        </nav>
+
+        <section v-if="imageSendTab === 'local'" class="local-image-tab">
+          <label class="description-field local-image-hint-field">
+            <span>图片补充描述（可选）</span>
+            <textarea v-model="localImageHintDraft" maxlength="500" rows="3" placeholder="可以写画面重点、场景、人物或你希望 AI 理解到的细节。"></textarea>
+          </label>
+          <button class="local-image-button" type="button" :disabled="sendingImage" @click="localImageInputRef?.click()">
+            <FileImage :size="22" />
+            <span>{{ sendingImage ? '处理中' : '选择本地图片' }}</span>
+          </button>
+          <p>图片会以真实图片发送，支持后续模型识图。</p>
+        </section>
+
+        <section v-else class="description-image-tab">
+          <figure class="description-preview">
+            <figcaption>{{ imageDescriptionDraft.trim() || '写一段画面描述，发送后会显示成模拟图片卡片。' }}</figcaption>
+          </figure>
+          <label class="description-field">
+            <span>图片描述</span>
+            <textarea v-model="imageDescriptionDraft" maxlength="500" rows="5" placeholder="例如：傍晚便利店门口的自拍，玻璃上有暖色灯光反射，手里拿着一瓶冰咖啡。"></textarea>
+          </label>
+          <button class="description-send-button" type="button" :disabled="sendingImage || !imageDescriptionDraft.trim()" @click="sendDescriptionImage">
+            {{ sendingImage ? '发送中' : '发送描述卡片' }}
+          </button>
+        </section>
+      </section>
+    </AppModal>
 
     <AppModal v-model="showActionMenu" title="更多操作" :show-header="false" variant="ins">
       <section class="action-menu">
@@ -78,7 +127,7 @@
           <SlidersHorizontal :size="20" />
           <span>模型切换</span>
         </button>
-        <button type="button" :disabled="store.loadingReply" @click="regenerateReply">
+        <button type="button" :class="{ busy: store.loadingReply }" :aria-disabled="store.loadingReply" @click="regenerateReply">
           <RefreshCw :size="20" />
           <span>重新回复</span>
         </button>
@@ -86,7 +135,7 @@
           <Grid3X3 :size="20" />
           <span>五子棋</span>
         </button>
-        <button type="button" :disabled="generatingVoom" @click="generateVoomPost">
+        <button type="button" :class="{ busy: generatingVoom }" :aria-disabled="generatingVoom" @click="generateVoomPost">
           <Sparkles :size="20" />
           <span>{{ generatingVoom ? '生成中' : '生成 VOOM' }}</span>
         </button>
@@ -192,7 +241,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { ArchiveX, CheckSquare, ContactRound, Copy, Grid3X3, Pencil, Quote, RefreshCw, RotateCcw, SlidersHorizontal, Sparkles, Trash2, UserMinus, UserRound, X } from 'lucide-vue-next';
+import { ArchiveX, CheckSquare, ContactRound, Copy, FileImage, Grid3X3, Pencil, Quote, RefreshCw, RotateCcw, SlidersHorizontal, Sparkles, Trash2, UserMinus, UserRound, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import ChatHeader from '@/components/chat/ChatHeader.vue';
 import ChatModelSwitchPanel from '@/components/chat/ChatModelSwitchPanel.vue';
@@ -202,8 +251,10 @@ import MessageComposer from '@/components/chat/MessageComposer.vue';
 import UserProfileSheet from '@/components/chat/UserProfileSheet.vue';
 import StickerLibraryModal from '@/components/stickers/StickerLibraryModal.vue';
 import { useAppStore } from '@/stores/appStore';
-import type { CharacterProfile, ChatMessage, ChatMessageQuote, UserProfile } from '@/types/domain';
+import type { CharacterProfile, ChatImageAttachment, ChatMessage, ChatMessageQuote, UserProfile } from '@/types/domain';
+import { readChatImageFile } from '@/utils/imageFile';
 import { useKeyboardScrollGuard } from '@/utils/keyboardScrollGuard';
+import { getSelectedImageModelOption } from '@/utils/settings';
 import { isVoomNarrationMessage, mergeVoomLikeMessages } from '@/utils/voomMessages';
 
 const props = defineProps<{
@@ -218,6 +269,7 @@ const showActionMenu = ref(false);
 const showModelSwitch = ref(false);
 const showOfflineConfirm = ref(false);
 const showStickers = ref(false);
+const showImagePanel = ref(false);
 const showMessageMenu = ref(false);
 const showEditModal = ref(false);
 const showDeleteConfirm = ref(false);
@@ -226,7 +278,9 @@ const showClearHistoryConfirm = ref(false);
 const generatingVoom = ref(false);
 const deletingFriend = ref(false);
 const clearingHistory = ref(false);
+const regeneratingChatImageMessageIds = ref<string[]>([]);
 const messageListRef = ref<HTMLElement | null>(null);
+const localImageInputRef = ref<HTMLInputElement | null>(null);
 const activeMessage = ref<ChatMessage | null>(null);
 const selectionMode = ref(false);
 const selectedMessageIds = ref<string[]>([]);
@@ -236,6 +290,10 @@ const pendingDeleteIds = ref<string[]>([]);
 const pendingDeleteFromSelection = ref(false);
 const visibleMessageLimit = ref(60);
 const loadingEarlierMessages = ref(false);
+const imageSendTab = ref<'local' | 'description'>('local');
+const localImageHintDraft = ref('');
+const imageDescriptionDraft = ref('');
+const sendingImage = ref(false);
 
 const initialMessageLimit = 60;
 const messageLoadStep = 30;
@@ -278,6 +336,7 @@ const activeMessageIsSynthetic = computed(() => Boolean(activeMessage.value?.id.
 const canRecallActiveMessage = computed(() => Boolean(activeMessage.value && activeMessage.value.sender === 'user' && !activeMessageIsSynthetic.value));
 const canQuoteActiveMessage = computed(() => Boolean(activeMessage.value && activeMessage.value.sender === 'char' && !activeMessageIsSynthetic.value));
 const canEditActiveMessage = computed(() => Boolean(activeMessage.value && !activeMessageIsSynthetic.value));
+const canRegenerateChatImage = computed(() => Boolean(getSelectedImageModelOption(store.settings, 'onlineChat')));
 const { captureKeyboardScrollAnchor, releaseKeyboardScrollGuard, startKeyboardScrollGuard, stopKeyboardScrollGuard } = useKeyboardScrollGuard(messageListRef);
 
 async function syncConversationState(id: string) {
@@ -352,16 +411,101 @@ async function sendAndReply(content: string) {
   await store.requestRoleplayReply(props.id);
 }
 
+function openImagePanel() {
+  imageSendTab.value = 'local';
+  showImagePanel.value = true;
+}
+
+async function appendImageMessage(image: ChatImageAttachment, content: string) {
+  releaseKeyboardScrollGuard();
+  const userMessage = await store.appendUserImageMessage(props.id, content, image, quoteTarget.value);
+  if (!userMessage) return;
+  quoteTarget.value = null;
+}
+
+async function sendImageFile(file: File, kind: 'photo' | 'local') {
+  if (sendingImage.value || store.loadingReply) return;
+  sendingImage.value = true;
+  try {
+    const image = await readChatImageFile(file);
+    const isPhoto = kind === 'photo';
+    const description = isPhoto ? '相机照片' : '本地图片';
+    await appendImageMessage({
+      kind,
+      description,
+      aiHint: kind === 'local' ? localImageHintDraft.value.trim() || undefined : undefined,
+      url: image.dataUrl,
+      fileName: file.name,
+      mimeType: image.mimeType,
+      width: image.width,
+      height: image.height
+    }, '[图片]');
+    if (kind === 'local') localImageHintDraft.value = '';
+    showImagePanel.value = false;
+  } catch (error) {
+    store.showConfigAlert(error instanceof Error ? error.message : '图片读取失败。', '无法发送图片');
+  } finally {
+    sendingImage.value = false;
+  }
+}
+
+async function sendCapturedPhoto(file: File) {
+  await sendImageFile(file, 'photo');
+}
+
+async function sendLocalImageFromInput(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file?.type.startsWith('image/')) return;
+  await sendImageFile(file, 'local');
+}
+
+async function sendDescriptionImage() {
+  const description = imageDescriptionDraft.value.trim();
+  if (!description || sendingImage.value || store.loadingReply) return;
+  sendingImage.value = true;
+  try {
+    await appendImageMessage({
+      kind: 'description',
+      description
+    }, `[图片描述卡片] ${description}`);
+    imageDescriptionDraft.value = '';
+    showImagePanel.value = false;
+  } finally {
+    sendingImage.value = false;
+  }
+}
+
+async function regenerateChatImage(messageId: string, description: string) {
+  if (regeneratingChatImageMessageIds.value.includes(messageId)) {
+    store.showConfigAlert('正在重新生成聊天图片，请等待当前生成完成。', '正在生成');
+    return;
+  }
+  regeneratingChatImageMessageIds.value = [...regeneratingChatImageMessageIds.value, messageId];
+  try {
+    await store.regenerateChatMessageImage(messageId, description);
+  } finally {
+    regeneratingChatImageMessageIds.value = regeneratingChatImageMessageIds.value.filter((id) => id !== messageId);
+  }
+}
+
+async function applyChatImageCandidate(messageId: string, candidateId: string) {
+  await store.applyChatMessageImageCandidate(messageId, candidateId);
+}
+
 function messageIdsForAction(message: ChatMessage) {
   return message.id.split('__').map((id) => id.trim()).filter(Boolean);
 }
 
 function messageActionText(message: ChatMessage) {
-  return message.sticker ? `[Sticker] ${message.sticker.description}` : message.content;
+  if (message.sticker) return `[Sticker] ${message.sticker.description}`;
+  if (message.image) return `[图片] ${message.image.description}`;
+  return message.content;
 }
 
 function editableMessageText(message: ChatMessage) {
-  return message.sticker?.description ?? message.content;
+  return message.sticker?.description ?? message.image?.description ?? message.content;
 }
 
 function isMessageSelected(message: ChatMessage) {
@@ -545,6 +689,10 @@ function openChatSettings() {
 }
 
 async function regenerateReply() {
+  if (store.loadingReply) {
+    store.showConfigAlert('正在生成回复，请等待当前生成完成。', '正在生成');
+    return;
+  }
   showActionMenu.value = false;
   await store.regenerateLatestReply(props.id);
 }
@@ -555,7 +703,10 @@ function openGobangPlaceholder() {
 }
 
 async function generateVoomPost() {
-  if (generatingVoom.value) return;
+  if (generatingVoom.value) {
+    store.showConfigAlert('正在生成 VOOM，请等待当前生成完成。', '正在生成');
+    return;
+  }
   showActionMenu.value = false;
   generatingVoom.value = true;
   try {
@@ -615,6 +766,160 @@ async function enterOffline() {
   color: #7b828a;
   font-size: 12px;
   line-height: 1.2;
+}
+
+.hidden-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.image-send-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.image-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.image-panel-head p {
+  margin: 0 0 3px;
+  color: #8a6672;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.image-panel-head h3 {
+  margin: 0;
+  color: #211f24;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.image-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.image-tabs button {
+  min-height: 34px;
+  border-radius: 8px;
+  color: #59606a;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.image-tabs button.active {
+  background: #ffffff;
+  color: #171717;
+  box-shadow: 0 1px 8px rgba(37, 31, 37, 0.08);
+}
+
+.local-image-tab,
+.description-image-tab {
+  display: grid;
+  gap: 10px;
+}
+
+.local-image-button {
+  display: inline-grid;
+  grid-auto-flow: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  border-radius: 10px;
+  background: #171717;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.local-image-tab p {
+  margin: 0;
+  color: #737983;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.description-preview {
+  display: grid;
+  place-items: center;
+  width: min(100%, 220px);
+  margin: 0 auto;
+  aspect-ratio: 1 / 1;
+  padding: 20px;
+  border: 1px solid #edf0f2;
+  border-radius: 18px;
+  background: #ffffff;
+  color: #222222;
+  box-shadow: 0 8px 26px rgba(37, 31, 37, 0.08);
+}
+
+.description-preview figcaption {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 820;
+  line-height: 1.65;
+  text-align: center;
+  white-space: pre-wrap;
+}
+
+.description-field {
+  display: grid;
+  gap: 6px;
+}
+
+.description-field span {
+  color: #686b70;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.description-field textarea {
+  width: 100%;
+  min-height: 112px;
+  resize: vertical;
+  border: 1px solid #edf0f2;
+  border-radius: 10px;
+  padding: 10px;
+  background: #ffffff;
+  color: #171717;
+  font: inherit;
+  line-height: 1.55;
+}
+
+.local-image-hint-field textarea {
+  min-height: 78px;
+}
+
+.description-send-button {
+  min-height: 42px;
+  border-radius: 10px;
+  background: var(--link-green);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.local-image-button:disabled,
+.description-send-button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .typing-indicator {
@@ -803,8 +1108,13 @@ async function enterOffline() {
   background: rgba(6, 199, 85, 0.12);
 }
 
-.action-menu button:disabled {
+.action-menu button:disabled,
+.action-menu button.busy {
   opacity: 0.5;
+}
+
+.action-menu button.busy {
+  cursor: progress;
 }
 
 .action-menu .danger-menu-action {

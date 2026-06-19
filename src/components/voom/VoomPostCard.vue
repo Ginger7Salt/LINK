@@ -8,20 +8,25 @@
           <time>{{ formatRelativeDate(post.createdAt) }}</time>
         </div>
       </div>
-      <button
-        class="header-action"
-        type="button"
-        :aria-label="replyingThread ? '正在生成评论回复' : 'AI 回复评论区'"
-        :title="replyingThread ? '正在生成评论回复' : 'AI 回复评论区'"
-        :disabled="replyingThread"
-        @click="emit('reply-thread', post.id)"
-      >
-        <LoaderCircle v-if="replyingThread" class="loading-icon" :size="18" />
-        <BotMessageSquare v-else :size="18" />
-      </button>
+      <div class="header-actions">
+        <button
+          class="header-action"
+          type="button"
+          :aria-label="replyingThread ? '正在生成评论回复' : 'AI 回复评论区'"
+          :title="replyingThread ? '正在生成评论回复' : 'AI 回复评论区'"
+          :disabled="replyingThread"
+          @click="emit('reply-thread', post.id)"
+        >
+          <LoaderCircle v-if="replyingThread" class="loading-icon" :size="18" />
+          <BotMessageSquare v-else :size="18" />
+        </button>
+        <button class="header-action delete-action" type="button" aria-label="删除 VOOM 动态" title="删除 VOOM 动态" @click="emit('delete-post', post.id)">
+          <X :size="18" />
+        </button>
+      </div>
     </header>
     <p>{{ postDisplayContent }}</p>
-    <figure class="post-visual" :class="{ mock: !post.image }" @click="openVisualModal">
+    <figure class="post-visual" :class="{ mock: !post.image }" :style="visualStyle" @click="openVisualModal">
       <img v-if="post.image" :src="post.image" :alt="post.imageDescription || post.content" />
       <figcaption v-else>{{ visualDescription }}</figcaption>
     </figure>
@@ -56,15 +61,29 @@
     </form>
 
     <AppModal v-model="showVisualModal" title="VOOM 配图" variant="ins">
-      <section class="visual-viewer" :class="{ flipped: visualFlipped }">
+      <section class="visual-viewer" :class="{ flipped: visualFlipped }" :style="visualStyle">
         <button class="visual-flip-card" type="button" @click="toggleVisualFlip">
           <span class="visual-face visual-image-face">
-            <img :src="modalImageSrc" :alt="visualDescription" />
+            <img :src="modalImageSrc" :alt="selectedVisualDescription" />
           </span>
           <span class="visual-face visual-text-face">
-            <span>{{ descriptionDraft || visualDescription }}</span>
+            <span>{{ descriptionDraft || selectedVisualDescription }}</span>
           </span>
         </button>
+
+        <div v-if="visualCandidates.length" class="visual-history" aria-label="VOOM 配图历史">
+          <button
+            v-for="(candidate, index) in visualCandidates"
+            :key="candidate.id"
+            class="visual-thumb"
+            :class="{ active: candidate.id === selectedCandidateId }"
+            type="button"
+            :aria-label="`查看配图 ${index + 1}`"
+            @click="selectCandidate(candidate.id)"
+          >
+            <img :src="candidate.image" :alt="candidate.description || 'VOOM 配图'" />
+          </button>
+        </div>
 
         <label v-if="canRegenerateImage" class="visual-description-field">
           <span>Description</span>
@@ -73,11 +92,14 @@
 
         <div class="visual-actions">
           <button class="visual-secondary" type="button" @click="toggleVisualFlip">翻转</button>
+          <button v-if="visualCandidates.length" class="visual-secondary" type="button" :disabled="!canApplySelectedCandidate" @click="applySelectedCandidate">应用</button>
           <button
             v-if="canRegenerateImage"
             class="visual-primary"
             type="button"
-            :disabled="regeneratingImage || !descriptionDraft.trim()"
+            :class="{ busy: regeneratingImage }"
+            :aria-disabled="regeneratingImage"
+            :disabled="!descriptionDraft.trim()"
             @click="regenerateImage"
           >
             <LoaderCircle v-if="regeneratingImage" class="loading-icon" :size="15" />
@@ -91,7 +113,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { BotMessageSquare, Heart, LoaderCircle, MessageCircle } from 'lucide-vue-next';
+import { BotMessageSquare, Heart, LoaderCircle, MessageCircle, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import type { VoomPost } from '@/types/domain';
 import { formatRelativeDate } from '@/utils/time';
@@ -111,6 +133,9 @@ const emit = defineEmits<{
   comment: [postId: string, content: string, parentId?: string];
   'reply-thread': [postId: string];
   'regenerate-image': [postId: string, description: string];
+  'apply-image': [postId: string, candidateId: string];
+  'busy-action': [message: string, title: string];
+  'delete-post': [postId: string];
 }>();
 
 const showComposer = ref(false);
@@ -119,6 +144,9 @@ const replyParentId = ref('');
 const showVisualModal = ref(false);
 const visualFlipped = ref(false);
 const descriptionDraft = ref('');
+const selectedCandidateId = ref('');
+const lastCandidateCount = ref(0);
+const busyReminderShown = ref(false);
 const composerRef = ref<HTMLElement | null>(null);
 const likeSummaryRef = ref<HTMLElement | null>(null);
 const likeMeasureRef = ref<HTMLElement | null>(null);
@@ -131,7 +159,29 @@ const likedByMe = computed(() => Boolean(props.currentUserName && props.post.lik
 const replyTarget = computed(() => props.post.comments.find((comment) => comment.id === replyParentId.value));
 const commentPlaceholder = computed(() => replyTarget.value ? `回复 ${replyTarget.value.authorName}` : '评论这条 VOOM');
 const visualDescription = computed(() => props.post.imageDescription || '配图描述暂未保存。');
-const modalImageSrc = computed(() => props.post.image || '/load.jpg');
+const visualCandidates = computed(() => {
+  const candidates = [...(props.post.imageCandidates ?? [])].filter((candidate) => candidate.image && candidate.image !== '/load.jpg');
+  if (props.post.image && props.post.image !== '/load.jpg' && !candidates.some((candidate) => candidate.image === props.post.image)) {
+    candidates.unshift({
+      id: `${props.post.id}-current-image`,
+      image: props.post.image,
+      description: props.post.imageDescription || props.post.content,
+      provider: props.post.imageProvider || 'local',
+      createdAt: props.post.createdAt
+    });
+  }
+  return candidates;
+});
+const selectedCandidate = computed(() => visualCandidates.value.find((candidate) => candidate.id === selectedCandidateId.value) ?? visualCandidates.value.find((candidate) => candidate.image === props.post.image));
+const selectedVisualDescription = computed(() => selectedCandidate.value?.description || visualDescription.value);
+const modalImageSrc = computed(() => props.post.image === '/load.jpg' ? '/load.jpg' : selectedCandidate.value?.image || props.post.image || '/load.jpg');
+const canApplySelectedCandidate = computed(() => Boolean(selectedCandidate.value && selectedCandidate.value.image !== props.post.image && !selectedCandidate.value.id.endsWith('-current-image')));
+const visualAspectRatio = computed(() => {
+  const size = selectedCandidate.value?.size || props.post.imageCandidates?.find((candidate) => candidate.image === props.post.image)?.size || '';
+  const [width, height] = size.split('x').map((value) => Number.parseInt(value, 10));
+  return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 ? `${width} / ${height}` : '1 / 1';
+});
+const visualStyle = computed(() => ({ '--voom-image-ratio': visualAspectRatio.value }));
 const postDisplayContent = computed(() => formatContentWithChineseTranslation(props.post.content, props.post.contentTranslation));
 const fullLikeSummary = computed(() => props.post.likes.length ? `${props.post.likes.join('、')} 赞了` : '还没有点赞');
 const shortLikeSummary = computed(() => {
@@ -155,8 +205,20 @@ function openCommentComposer(parentId = '') {
 
 function openVisualModal() {
   descriptionDraft.value = visualDescription.value;
+  lastCandidateCount.value = visualCandidates.value.length;
+  selectedCandidateId.value = visualCandidates.value.find((candidate) => candidate.image === props.post.image)?.id ?? visualCandidates.value[0]?.id ?? '';
   visualFlipped.value = !props.post.image;
   showVisualModal.value = true;
+}
+
+function selectCandidate(candidateId: string) {
+  selectedCandidateId.value = candidateId;
+  visualFlipped.value = false;
+}
+
+function applySelectedCandidate() {
+  if (!selectedCandidate.value || !canApplySelectedCandidate.value) return;
+  emit('apply-image', props.post.id, selectedCandidate.value.id);
 }
 
 function toggleVisualFlip() {
@@ -165,10 +227,21 @@ function toggleVisualFlip() {
 
 function regenerateImage() {
   const description = descriptionDraft.value.trim();
-  if (!description || props.regeneratingImage) return;
+  if (props.regeneratingImage) {
+    if (!busyReminderShown.value) {
+      busyReminderShown.value = true;
+      emit('busy-action', '正在重新生成 VOOM 配图，请等待当前生成完成。', '正在生成');
+    }
+    return;
+  }
+  if (!description) return;
   emit('regenerate-image', props.post.id, description);
   visualFlipped.value = false;
 }
+
+watch(() => props.regeneratingImage, (isRegenerating) => {
+  if (!isRegenerating) busyReminderShown.value = false;
+});
 
 function submitComment() {
   const content = commentDraft.value.trim();
@@ -222,6 +295,23 @@ function updateLikeSummaryMode() {
 
 watch(fullLikeSummary, scheduleLikeSummaryMeasure, { immediate: true });
 
+watch(() => visualCandidates.value.length, (count, previousCount) => {
+  if (!showVisualModal.value) {
+    lastCandidateCount.value = count;
+    return;
+  }
+  if (count > previousCount && count > lastCandidateCount.value) {
+    selectedCandidateId.value = visualCandidates.value[count - 1]?.id ?? selectedCandidateId.value;
+    visualFlipped.value = false;
+  }
+  lastCandidateCount.value = count;
+});
+watch(() => props.post.image, () => {
+  if (!showVisualModal.value) return;
+  selectedCandidateId.value = visualCandidates.value.find((candidate) => candidate.image === props.post.image)?.id ?? '';
+  visualFlipped.value = false;
+});
+
 onMounted(() => {
   if (likeSummaryRef.value) {
     likeResizeObserver = new ResizeObserver(scheduleLikeSummaryMeasure);
@@ -240,7 +330,6 @@ onBeforeUnmount(() => {
 <style scoped>
 .voom-post {
   padding: 14px 16px;
-  border-bottom: 1px solid var(--hairline);
   background: #ffffff;
 }
 
@@ -267,6 +356,13 @@ header {
   font-size: 15px;
 }
 
+.header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
 .header-action,
 .action-button {
   display: grid;
@@ -287,6 +383,14 @@ header {
 .header-action:disabled {
   color: var(--link-green);
   cursor: progress;
+}
+
+.delete-action {
+  color: #8b929a;
+}
+
+.delete-action:active {
+  color: var(--danger);
 }
 
 .loading-icon {
@@ -322,7 +426,7 @@ time {
   width: min(56vw, 216px);
   max-width: 100%;
   margin: 10px 0 12px;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: var(--voom-image-ratio, 1 / 1);
   overflow: hidden;
   border-radius: 18px;
   background: #eff1f3;
@@ -363,11 +467,41 @@ time {
 .visual-flip-card {
   position: relative;
   width: 100%;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: var(--voom-image-ratio, 1 / 1);
   padding: 0;
   border-radius: 18px;
   background: transparent;
   perspective: 1000px;
+}
+
+.visual-history {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.visual-thumb {
+  flex: 0 0 54px;
+  width: 54px;
+  height: 54px;
+  padding: 2px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: #f1f3f5;
+}
+
+.visual-thumb.active {
+  border-color: #171717;
+  background: #ffffff;
+}
+
+.visual-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 7px;
+  object-fit: cover;
 }
 
 .visual-face {
@@ -437,7 +571,7 @@ time {
 
 .visual-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
   gap: 10px;
 }
 
@@ -467,7 +601,8 @@ time {
   color: #ffffff;
 }
 
-.visual-primary:disabled {
+.visual-primary:disabled,
+.visual-primary.busy {
   cursor: progress;
   opacity: 0.68;
 }

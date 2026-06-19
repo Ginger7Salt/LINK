@@ -138,6 +138,12 @@ export const defaultSettings: AppSettings = {
   apiEndpoint: '',
   apiKey: '',
   model: 'gpt-compatible-model',
+  modelOverrides: {
+    online: '',
+    offline: '',
+    summary: '',
+    voom: ''
+  },
   autoGenerateVoom: true,
   disclaimerAccepted: false,
   ttsEnabled: false,
@@ -220,8 +226,14 @@ export const defaultSettings: AppSettings = {
     private: true,
     lastImageUrl: ''
   },
+  imageModelOverrides: {
+    worldBook: { provider: '', model: '' },
+    voom: { provider: '', model: '' },
+    onlineChat: { provider: '', model: '' }
+  },
   voomImageProvider: '',
   voomImageModel: '',
+  voomReadAtByUser: {},
   imagePrivateOnly: true,
   githubBackup: {
     enabled: false,
