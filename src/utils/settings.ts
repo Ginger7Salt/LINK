@@ -1,4 +1,4 @@
-import type { ApiVendor, ApiVendorModel, AppSettings, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, NovelAiImageSettings, OpenAiImageSettings, PollinationsImageSettings } from '@/types/domain';
+import type { ApiVendor, ApiVendorModel, AppSettings, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, PollinationsImageSettings } from '@/types/domain';
 import { createId } from './id';
 
 export const novelAiOfficialApiUrl = 'https://image.novelai.net';
@@ -110,6 +110,21 @@ export const defaultAppSettings: AppSettings = {
   ttsEnabled: false,
   ttsVoice: 'alloy',
   ttsPlaybackMode: 'manual',
+  ttsMinimax: {
+    enabled: false,
+    apiKey: '',
+    groupId: '',
+    apiUrl: 'https://api.minimax.io/v1/t2a_v2',
+    model: 'speech-02-hd',
+    voiceId: 'male-qn-qingse',
+    speed: 1,
+    volume: 1,
+    pitch: 0,
+    sampleRate: 32000,
+    bitrate: 128000,
+    audioFormat: 'mp3',
+    channel: 1
+  },
   imageModel: 'gpt-image-1',
   imageSize: '1024x1024',
   imagePromptPrefix: '',
@@ -248,6 +263,30 @@ function normalizeVoomReadAtByUser(input: unknown): Record<string, Record<string
   }
 
   return normalized;
+}
+
+function normalizeMinimaxTtsSettings(settings: Partial<MinimaxTtsSettings> | null | undefined, legacy: { enabled?: boolean; voiceId?: string } = {}): MinimaxTtsSettings {
+  const audioFormat = String(settings?.audioFormat ?? defaultAppSettings.ttsMinimax.audioFormat).trim().toLowerCase();
+  const normalizedAudioFormat: MinimaxTtsAudioFormat = ['mp3', 'wav', 'pcm'].includes(audioFormat)
+    ? audioFormat as MinimaxTtsAudioFormat
+    : defaultAppSettings.ttsMinimax.audioFormat;
+  const channel = Number(settings?.channel ?? defaultAppSettings.ttsMinimax.channel) === 2 ? 2 : 1;
+
+  return {
+    enabled: Boolean(settings?.enabled ?? legacy.enabled),
+    apiKey: String(settings?.apiKey ?? '').trim(),
+    groupId: String(settings?.groupId ?? '').trim(),
+    apiUrl: String(settings?.apiUrl ?? defaultAppSettings.ttsMinimax.apiUrl).trim() || defaultAppSettings.ttsMinimax.apiUrl,
+    model: String(settings?.model ?? defaultAppSettings.ttsMinimax.model).trim() || defaultAppSettings.ttsMinimax.model,
+    voiceId: String(settings?.voiceId ?? legacy.voiceId ?? defaultAppSettings.ttsMinimax.voiceId).trim() || defaultAppSettings.ttsMinimax.voiceId,
+    speed: Math.min(2, Math.max(0.5, Number(settings?.speed ?? defaultAppSettings.ttsMinimax.speed) || defaultAppSettings.ttsMinimax.speed)),
+    volume: Math.min(10, Math.max(0.1, Number(settings?.volume ?? defaultAppSettings.ttsMinimax.volume) || defaultAppSettings.ttsMinimax.volume)),
+    pitch: Math.min(12, Math.max(-12, Number(settings?.pitch ?? defaultAppSettings.ttsMinimax.pitch) || 0)),
+    sampleRate: Math.round(Number(settings?.sampleRate ?? defaultAppSettings.ttsMinimax.sampleRate) || defaultAppSettings.ttsMinimax.sampleRate),
+    bitrate: Math.round(Number(settings?.bitrate ?? defaultAppSettings.ttsMinimax.bitrate) || defaultAppSettings.ttsMinimax.bitrate),
+    audioFormat: normalizedAudioFormat,
+    channel
+  };
 }
 
 function normalizePromptPreset(preset: Partial<ImagePromptPreset> | null | undefined, fallbackName: string): ImagePromptPreset | null {
@@ -838,6 +877,12 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
     }),
     imageNovelAi: normalizeNovelAiImageSettings(settings?.imageNovelAi),
     imagePollinations: normalizePollinationsImageSettings(settings?.imagePollinations),
+    ttsMinimax: normalizeMinimaxTtsSettings(settings?.ttsMinimax, {
+      enabled: Boolean(merged.ttsEnabled),
+      voiceId: String(settings?.ttsVoice ?? '').trim() && String(settings?.ttsVoice ?? '').trim() !== defaultAppSettings.ttsVoice
+        ? String(settings?.ttsVoice ?? '').trim()
+        : ''
+    }),
     voomReadAtByUser: normalizeVoomReadAtByUser(settings?.voomReadAtByUser),
     githubBackup: normalizeGitHubBackupSettings(settings?.githubBackup)
   };
@@ -848,6 +893,9 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
   return {
     ...normalized,
     activeUserId: String(normalized.activeUserId ?? '').trim(),
+    ttsEnabled: normalized.ttsMinimax.enabled,
+    ttsVoice: normalized.ttsMinimax.voiceId,
+    ttsPlaybackMode: normalized.ttsPlaybackMode === 'auto' ? 'auto' : 'manual',
     apiEndpoint: resolvedApiConfig.endpoint,
     apiKey: resolvedApiConfig.apiKey,
     model: resolvedApiConfig.model || normalized.model,

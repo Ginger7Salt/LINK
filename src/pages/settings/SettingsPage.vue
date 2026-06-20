@@ -14,6 +14,18 @@
         </button>
       </div>
       <ImageModelPickerButton v-else-if="activeTab === 'image'" />
+      <button
+        v-else-if="activeTab === 'tts'"
+        class="tts-top-switch"
+        :class="{ enabled: currentSettings.ttsMinimax.enabled }"
+        type="button"
+        role="switch"
+        :aria-checked="currentSettings.ttsMinimax.enabled"
+        :aria-label="currentSettings.ttsMinimax.enabled ? '关闭 MiniMax TTS' : '启用 MiniMax TTS'"
+        @click="toggleTtsEnabled"
+      >
+        {{ currentSettings.ttsMinimax.enabled ? '已启用' : '未启用' }}
+      </button>
     </header>
 
     <main class="settings-main">
@@ -133,6 +145,19 @@ function openApiComposer() {
 async function saveSettings(nextSettings: AppSettings) {
   await store.saveSettings(nextSettings);
 }
+
+async function toggleTtsEnabled() {
+  const enabled = !currentSettings.value.ttsMinimax.enabled;
+  await saveSettings(normalizeAppSettings({
+    ...currentSettings.value,
+    ttsEnabled: enabled,
+    ttsVoice: currentSettings.value.ttsMinimax.voiceId,
+    ttsMinimax: {
+      ...currentSettings.value.ttsMinimax,
+      enabled
+    }
+  }));
+}
 </script>
 
 <style scoped>
@@ -188,6 +213,27 @@ async function saveSettings(nextSettings: AppSettings) {
   gap: 4px;
 }
 
+.tts-top-switch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  height: 32px;
+  min-width: 0;
+  padding: 0 2px;
+  border-radius: 999px;
+  background: transparent;
+  color: #6b7279;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.tts-top-switch.enabled {
+  color: #126332;
+}
+
 .settings-main {
   flex: 1;
   min-width: 0;
@@ -210,6 +256,14 @@ async function saveSettings(nextSettings: AppSettings) {
 }
 
 @media (max-width: 360px) {
+  .settings-topbar {
+    gap: 8px;
+  }
+
+  .tts-top-switch {
+    font-size: 11px;
+  }
+
   .settings-main {
     padding: 8px 10px 14px;
   }

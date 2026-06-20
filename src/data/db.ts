@@ -1,4 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import { toRaw } from 'vue';
 import type { AppSettings, AppSnapshot, CharacterProfile, ChatMessage, Conversation, ConversationMemoryRecord, ConversationSettings, GeneratedImageRecord, Sticker, StickerGroup, UserProfile, VoomPost, WorldBookEntry } from '@/types/domain';
 import { normalizeUserProfile } from '@/utils/profile';
 import { normalizeAppSettings } from '@/utils/settings';
@@ -190,64 +191,115 @@ export async function replaceSnapshot(snapshot: AppSnapshot) {
 
   const userStore = tx.objectStore('user');
   void userStore.clear();
-  snapshot.users.forEach((entry) => void userStore.put(entry));
+  snapshot.users.forEach((entry) => void userStore.put(toPersistableValue(entry)));
 
   const characterStore = tx.objectStore('characters');
   void characterStore.clear();
-  snapshot.characters.forEach((entry) => void characterStore.put(entry));
+  snapshot.characters.forEach((entry) => void characterStore.put(toPersistableValue(entry)));
 
   const conversationStore = tx.objectStore('conversations');
   void conversationStore.clear();
-  snapshot.conversations.forEach((entry) => void conversationStore.put(entry));
+  snapshot.conversations.forEach((entry) => void conversationStore.put(toPersistableValue(entry)));
 
   const messageStore = tx.objectStore('messages');
   void messageStore.clear();
-  snapshot.messages.forEach((entry) => void messageStore.put(entry));
+  snapshot.messages.forEach((entry) => void messageStore.put(toPersistableValue(entry)));
 
   const voomStore = tx.objectStore('voomPosts');
   void voomStore.clear();
-  snapshot.voomPosts.forEach((entry) => void voomStore.put(entry));
+  snapshot.voomPosts.forEach((entry) => void voomStore.put(toPersistableValue(entry)));
 
   const worldBookStore = tx.objectStore('worldBooks');
   void worldBookStore.clear();
-  snapshot.worldBooks.forEach((entry) => void worldBookStore.put(entry));
+  snapshot.worldBooks.forEach((entry) => void worldBookStore.put(toPersistableValue(entry)));
 
   const stickerGroupStore = tx.objectStore('stickerGroups');
   void stickerGroupStore.clear();
-  snapshot.stickerGroups.forEach((entry) => void stickerGroupStore.put(entry));
+  snapshot.stickerGroups.forEach((entry) => void stickerGroupStore.put(toPersistableValue(entry)));
 
   const stickerStore = tx.objectStore('stickers');
   void stickerStore.clear();
-  snapshot.stickers.forEach((entry) => void stickerStore.put(entry));
+  snapshot.stickers.forEach((entry) => void stickerStore.put(toPersistableValue(entry)));
 
   const conversationSettingsStore = tx.objectStore('conversationSettings');
   void conversationSettingsStore.clear();
-  snapshot.conversationSettings.forEach((entry) => void conversationSettingsStore.put(entry));
+  snapshot.conversationSettings.forEach((entry) => void conversationSettingsStore.put(toPersistableValue(entry)));
 
   const conversationMemoryStore = tx.objectStore('conversationMemories');
   void conversationMemoryStore.clear();
-  snapshot.conversationMemories.forEach((entry) => void conversationMemoryStore.put(entry));
+  snapshot.conversationMemories.forEach((entry) => void conversationMemoryStore.put(toPersistableValue(entry)));
 
   const generatedImageStore = tx.objectStore('generatedImages');
   void generatedImageStore.clear();
-  (snapshot.generatedImages ?? []).forEach((entry) => void generatedImageStore.put(entry));
+  (snapshot.generatedImages ?? []).forEach((entry) => void generatedImageStore.put(toPersistableValue(entry)));
 
   const settingsStore = tx.objectStore('settings');
   void settingsStore.clear();
-  void settingsStore.put(snapshot.settings, 'main');
+  void settingsStore.put(toPersistableValue(snapshot.settings), 'main');
 
   await tx.done;
 }
 
 type StoreName = typeof storeNames[number];
 
+function toPersistableValue<T>(value: T): T {
+  return stripVueProxy(value, new WeakMap()) as T;
+}
+
+function stripVueProxy(value: unknown, seen: WeakMap<object, unknown>): unknown {
+  const rawValue = toRaw(value);
+  if (!rawValue || typeof rawValue !== 'object') return rawValue;
+
+  if (rawValue instanceof Date) return new Date(rawValue);
+  if (rawValue instanceof Blob) return rawValue;
+  if (rawValue instanceof ArrayBuffer) return rawValue.slice(0);
+  if (ArrayBuffer.isView(rawValue)) return rawValue;
+
+  const cachedValue = seen.get(rawValue);
+  if (cachedValue) return cachedValue;
+
+  if (Array.isArray(rawValue)) {
+    const nextValue: unknown[] = [];
+    seen.set(rawValue, nextValue);
+    rawValue.forEach((entry) => nextValue.push(stripVueProxy(entry, seen)));
+    return nextValue;
+  }
+
+  if (rawValue instanceof Map) {
+    const nextValue = new Map<unknown, unknown>();
+    seen.set(rawValue, nextValue);
+    rawValue.forEach((entryValue, entryKey) => {
+      nextValue.set(stripVueProxy(entryKey, seen), stripVueProxy(entryValue, seen));
+    });
+    return nextValue;
+  }
+
+  if (rawValue instanceof Set) {
+    const nextValue = new Set<unknown>();
+    seen.set(rawValue, nextValue);
+    rawValue.forEach((entry) => nextValue.add(stripVueProxy(entry, seen)));
+    return nextValue;
+  }
+
+  const prototype = Object.getPrototypeOf(rawValue);
+  if (prototype !== Object.prototype && prototype !== null) return rawValue;
+
+  const nextValue: Record<string, unknown> = {};
+  seen.set(rawValue, nextValue);
+  Object.entries(rawValue).forEach(([key, entry]) => {
+    nextValue[key] = stripVueProxy(entry, seen);
+  });
+  return nextValue;
+}
+
 export async function putEntity<TStore extends StoreName>(storeName: TStore, value: LinkDb[TStore]['value'], key?: LinkDb[TStore]['key']) {
   const db = await getDb();
+  const persistableValue = toPersistableValue(value);
   if (key !== undefined) {
-    await db.put(storeName, value as never, key as never);
+    await db.put(storeName, persistableValue as never, key as never);
     return;
   }
-  await db.put(storeName, value as never);
+  await db.put(storeName, persistableValue as never);
 }
 
 export async function deleteEntity<TStore extends StoreName>(storeName: TStore, key: LinkDb[TStore]['key']) {

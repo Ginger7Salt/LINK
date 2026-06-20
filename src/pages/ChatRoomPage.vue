@@ -59,6 +59,7 @@
       @open-image-panel="openImagePanel"
       @open-menu="showActionMenu = true"
       @open-stickers="showStickers = true"
+      @open-voice-panel="openVoicePanel"
       @reply="sendAndReply"
       @send="sendBubble"
     />
@@ -84,7 +85,6 @@
             <textarea v-model="localImageHintDraft" maxlength="500" rows="3" placeholder="可以写画面重点、场景、人物或你希望 AI 理解到的细节。"></textarea>
           </label>
           <button class="local-image-button" type="button" :disabled="sendingImage" @click="localImageInputRef?.click()">
-            <FileImage :size="22" />
             <span>{{ sendingImage ? '处理中' : '选择本地图片' }}</span>
           </button>
           <p>图片会以真实图片发送，支持后续模型识图。</p>
@@ -101,6 +101,56 @@
           <button class="description-send-button" type="button" :disabled="sendingImage || !imageDescriptionDraft.trim()" @click="sendDescriptionImage">
             {{ sendingImage ? '发送中' : '发送描述卡片' }}
           </button>
+        </section>
+      </section>
+    </AppModal>
+
+    <AppModal v-model="showVoicePanel" title="发送语音" :show-header="false" variant="ins">
+      <section class="voice-send-panel">
+        <div class="voice-panel-head">
+          <div>
+            <p>Voice</p>
+            <h3>发送语音给 {{ characterDisplayName }}</h3>
+          </div>
+        </div>
+        <nav class="voice-tabs" aria-label="语音发送方式">
+          <button type="button" :disabled="recordingVoice" :class="{ active: voiceSendTab === 'record' }" @click="voiceSendTab = 'record'">录音语音</button>
+          <button type="button" :disabled="recordingVoice" :class="{ active: voiceSendTab === 'text' }" @click="voiceSendTab = 'text'">文字语音</button>
+        </nav>
+
+        <section v-if="voiceSendTab === 'record'" class="voice-record-tab">
+          <div class="voice-recorder-card" :class="{ recording: recordingVoice, ready: recordedVoiceDraft }">
+            <strong>{{ voiceRecordStatus }}</strong>
+            <span>{{ formatVoiceDuration(recordedVoiceSeconds) }}</span>
+            <div class="voice-preview-wave" aria-hidden="true">
+              <span></span><span></span><span></span><span></span><span></span>
+            </div>
+          </div>
+          <label class="voice-text-field">
+            <span>语音内容</span>
+            <textarea v-model="voiceTranscriptDraft" maxlength="500" rows="4" placeholder="输入这条语音要表达的内容"></textarea>
+          </label>
+          <div class="voice-actions">
+            <button v-if="!recordingVoice" class="voice-secondary" type="button" :disabled="store.loadingReply" @click="startVoiceRecording">
+              {{ recordedVoiceDraft ? '重录' : '开始录音' }}
+            </button>
+            <button v-else class="voice-secondary voice-secondary--stop" type="button" @click="stopVoiceRecording">停止</button>
+            <button class="voice-primary" type="button" :disabled="!recordedVoiceDraft || !voiceTranscriptDraft.trim() || store.loadingReply || recordingVoice" @click="sendRecordedVoice">发送语音</button>
+          </div>
+        </section>
+
+        <section v-else class="voice-text-tab">
+          <div class="voice-text-preview">
+            <div class="voice-preview-wave" aria-hidden="true">
+              <span></span><span></span><span></span><span></span><span></span>
+            </div>
+            <strong>{{ formatVoiceDuration(textVoiceDuration) }}</strong>
+          </div>
+          <label class="voice-text-field">
+            <span>语音内容</span>
+            <textarea v-model="voiceTextDraft" maxlength="500" rows="5" placeholder="输入要作为语音发送的内容"></textarea>
+          </label>
+          <button class="voice-primary" type="button" :disabled="!voiceTextDraft.trim() || store.loadingReply" @click="sendTextVoice">发送语音</button>
         </section>
       </section>
     </AppModal>
@@ -123,6 +173,10 @@
           <ArchiveX :size="20" />
           <span>清空记忆</span>
         </button>
+        <button type="button" @click="openLocationPanel">
+          <MapPin :size="20" />
+          <span>发送定位</span>
+        </button>
         <button type="button" @click="openModelSwitch">
           <SlidersHorizontal :size="20" />
           <span>模型切换</span>
@@ -139,6 +193,44 @@
           <Sparkles :size="20" />
           <span>{{ generatingVoom ? '生成中' : '生成 VOOM' }}</span>
         </button>
+      </section>
+    </AppModal>
+
+    <AppModal v-model="showLocationPanel" title="发送定位" :show-header="false" variant="ins">
+      <section class="location-send-panel">
+        <div class="location-panel-head">
+          <div>
+            <p>Location</p>
+            <h3>发送定位给 {{ characterDisplayName }}</h3>
+          </div>
+        </div>
+
+        <div class="location-preview-card">
+          <span aria-hidden="true"><MapPin :size="24" /></span>
+          <div>
+            <strong>{{ locationNameDraft.trim() || '地点名称' }}</strong>
+            <small>{{ locationAddressDraft.trim() || '详细地址可留空' }}</small>
+            <em>{{ locationDistanceDraft.trim() || `距离 ${characterDisplayName} 多远` }}</em>
+          </div>
+        </div>
+
+        <label class="location-field">
+          <span>地理位置</span>
+          <input v-model="locationNameDraft" maxlength="80" placeholder="例如：市图书馆三楼自习区" />
+        </label>
+        <label class="location-field">
+          <span>详细地址（可选）</span>
+          <input v-model="locationAddressDraft" maxlength="140" placeholder="例如：XX路 88 号 / 北门附近" />
+        </label>
+        <label class="location-field">
+          <span>距离角色的位置</span>
+          <input v-model="locationDistanceDraft" maxlength="60" placeholder="例如：约 2.4 公里 / 步行 12 分钟" />
+        </label>
+
+        <div class="location-actions">
+          <button class="secondary-action" type="button" @click="showLocationPanel = false">取消</button>
+          <button class="primary-action" type="button" :disabled="!canSendLocation || store.loadingReply" @click="sendLocationMessage">发送定位</button>
+        </div>
       </section>
     </AppModal>
 
@@ -239,9 +331,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { ArchiveX, CheckSquare, ContactRound, Copy, FileImage, Grid3X3, Pencil, Quote, RefreshCw, RotateCcw, SlidersHorizontal, Sparkles, Trash2, UserMinus, UserRound, X } from 'lucide-vue-next';
+import { ArchiveX, CheckSquare, ContactRound, Copy, Grid3X3, MapPin, Pencil, Quote, RefreshCw, RotateCcw, SlidersHorizontal, Sparkles, Trash2, UserMinus, UserRound, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import ChatHeader from '@/components/chat/ChatHeader.vue';
 import ChatModelSwitchPanel from '@/components/chat/ChatModelSwitchPanel.vue';
@@ -251,7 +343,7 @@ import MessageComposer from '@/components/chat/MessageComposer.vue';
 import UserProfileSheet from '@/components/chat/UserProfileSheet.vue';
 import StickerLibraryModal from '@/components/stickers/StickerLibraryModal.vue';
 import { useAppStore } from '@/stores/appStore';
-import type { CharacterProfile, ChatImageAttachment, ChatMessage, ChatMessageQuote, UserProfile } from '@/types/domain';
+import type { CharacterProfile, ChatImageAttachment, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatVoiceAttachment, UserProfile } from '@/types/domain';
 import { readChatImageFile } from '@/utils/imageFile';
 import { useKeyboardScrollGuard } from '@/utils/keyboardScrollGuard';
 import { getSelectedImageModelOption } from '@/utils/settings';
@@ -270,6 +362,8 @@ const showModelSwitch = ref(false);
 const showOfflineConfirm = ref(false);
 const showStickers = ref(false);
 const showImagePanel = ref(false);
+const showVoicePanel = ref(false);
+const showLocationPanel = ref(false);
 const showMessageMenu = ref(false);
 const showEditModal = ref(false);
 const showDeleteConfirm = ref(false);
@@ -294,6 +388,21 @@ const imageSendTab = ref<'local' | 'description'>('local');
 const localImageHintDraft = ref('');
 const imageDescriptionDraft = ref('');
 const sendingImage = ref(false);
+const voiceSendTab = ref<'record' | 'text'>('record');
+const voiceTranscriptDraft = ref('');
+const voiceTextDraft = ref('');
+const locationNameDraft = ref('');
+const locationAddressDraft = ref('');
+const locationDistanceDraft = ref('');
+const recordedVoiceDraft = ref<Pick<ChatVoiceAttachment, 'audioUrl' | 'duration' | 'mimeType'> | null>(null);
+const recordingVoice = ref(false);
+const recordingStartedAt = ref(0);
+const recordingElapsed = ref(0);
+let voiceRecorder: MediaRecorder | null = null;
+let voiceStream: MediaStream | null = null;
+let voiceChunks: Blob[] = [];
+let voiceTimer: number | undefined;
+let discardRecording = false;
 
 const initialMessageLimit = 60;
 const messageLoadStep = 30;
@@ -337,6 +446,16 @@ const canRecallActiveMessage = computed(() => Boolean(activeMessage.value && act
 const canQuoteActiveMessage = computed(() => Boolean(activeMessage.value && activeMessage.value.sender === 'char' && !activeMessageIsSynthetic.value));
 const canEditActiveMessage = computed(() => Boolean(activeMessage.value && !activeMessageIsSynthetic.value));
 const canRegenerateChatImage = computed(() => Boolean(getSelectedImageModelOption(store.settings, 'onlineChat')));
+const recordedVoiceSeconds = computed(() => recordingVoice.value
+  ? Math.max(1, Math.round(recordingElapsed.value))
+  : recordedVoiceDraft.value?.duration ?? 0);
+const textVoiceDuration = computed(() => estimateVoiceDuration(voiceTextDraft.value));
+const voiceRecordStatus = computed(() => {
+  if (recordingVoice.value) return '正在录音';
+  if (recordedVoiceDraft.value) return '录音已就绪';
+  return '等待录音';
+});
+const canSendLocation = computed(() => Boolean(locationNameDraft.value.trim() && locationDistanceDraft.value.trim()));
 const { captureKeyboardScrollAnchor, releaseKeyboardScrollGuard, startKeyboardScrollGuard, stopKeyboardScrollGuard } = useKeyboardScrollGuard(messageListRef);
 
 async function syncConversationState(id: string) {
@@ -394,6 +513,10 @@ watch(() => [allOnlineMessages.value.length, store.loadingReply], () => {
   void scrollMessagesToBottom();
 }, {
   flush: 'post'
+});
+
+watch(showVoicePanel, (open) => {
+  if (!open) resetVoicePanel();
 });
 
 async function sendBubble(content: string) {
@@ -477,6 +600,199 @@ async function sendDescriptionImage() {
   }
 }
 
+function estimateVoiceDuration(content: string) {
+  const textLength = content.trim().length;
+  return Math.max(1, Math.min(60, Math.ceil(textLength / 4)));
+}
+
+function formatVoiceDuration(seconds: number) {
+  if (!seconds) return '0"';
+  return `${Math.max(1, Math.round(seconds))}"`;
+}
+
+function openVoicePanel() {
+  voiceSendTab.value = 'record';
+  showVoicePanel.value = true;
+}
+
+function openLocationPanel() {
+  showActionMenu.value = false;
+  locationNameDraft.value = '';
+  locationAddressDraft.value = '';
+  locationDistanceDraft.value = '';
+  showLocationPanel.value = true;
+}
+
+async function appendLocationMessage(location: ChatLocationAttachment) {
+  releaseKeyboardScrollGuard();
+  const userMessage = await store.appendUserLocationMessage(props.id, location, quoteTarget.value);
+  if (!userMessage) return;
+  quoteTarget.value = null;
+  await scrollMessagesToBottom();
+}
+
+async function sendLocationMessage() {
+  const name = locationNameDraft.value.trim();
+  const distance = locationDistanceDraft.value.trim();
+  if (!name || !distance || store.loadingReply) return;
+  await appendLocationMessage({
+    name,
+    address: locationAddressDraft.value.trim() || undefined,
+    distance
+  });
+  showLocationPanel.value = false;
+}
+
+function getPreferredAudioMimeType() {
+  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') return '';
+  return ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+    .find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) ?? '';
+}
+
+function cleanupVoiceRecorder() {
+  if (voiceTimer !== undefined) {
+    window.clearInterval(voiceTimer);
+    voiceTimer = undefined;
+  }
+  voiceStream?.getTracks().forEach((track) => track.stop());
+  voiceStream = null;
+  voiceRecorder = null;
+  voiceChunks = [];
+  recordingVoice.value = false;
+  recordingStartedAt.value = 0;
+  recordingElapsed.value = 0;
+}
+
+function abortVoiceRecording() {
+  discardRecording = true;
+  if (voiceRecorder) {
+    if (voiceRecorder.state !== 'inactive') voiceRecorder.stop();
+    return;
+  }
+  cleanupVoiceRecorder();
+  discardRecording = false;
+}
+
+function resetVoicePanel() {
+  abortVoiceRecording();
+  voiceSendTab.value = 'record';
+  voiceTranscriptDraft.value = '';
+  voiceTextDraft.value = '';
+  recordedVoiceDraft.value = null;
+}
+
+function blobToDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(new Error('语音读取失败。'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function finalizeVoiceRecording(recorder: MediaRecorder) {
+  const shouldDiscard = discardRecording;
+  discardRecording = false;
+  const chunks = [...voiceChunks];
+  const duration = Math.max(1, Math.round((Date.now() - recordingStartedAt.value) / 1000) || Math.round(recordingElapsed.value));
+  const mimeType = recorder.mimeType || chunks[0]?.type || 'audio/webm';
+  cleanupVoiceRecorder();
+  if (shouldDiscard) return;
+  if (!chunks.length) {
+    store.showConfigAlert('没有录到可发送的语音。', '录音为空');
+    return;
+  }
+
+  try {
+    const blob = new Blob(chunks, { type: mimeType });
+    recordedVoiceDraft.value = {
+      audioUrl: await blobToDataUrl(blob),
+      duration,
+      mimeType: blob.type || mimeType
+    };
+  } catch (error) {
+    store.showConfigAlert(error instanceof Error ? error.message : '语音读取失败。', '无法读取语音');
+  }
+}
+
+async function startVoiceRecording() {
+  if (recordingVoice.value || store.loadingReply) return;
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    showVoicePanel.value = false;
+    store.showConfigAlert('当前浏览器不支持录音。', '无法录音');
+    return;
+  }
+
+  try {
+    recordedVoiceDraft.value = null;
+    recordingElapsed.value = 0;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const preferredMimeType = getPreferredAudioMimeType();
+    const recorder = preferredMimeType
+      ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+      : new MediaRecorder(stream);
+    voiceStream = stream;
+    voiceRecorder = recorder;
+    voiceChunks = [];
+    discardRecording = false;
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) voiceChunks.push(event.data);
+    };
+    recorder.onstop = () => {
+      void finalizeVoiceRecording(recorder);
+    };
+    recordingStartedAt.value = Date.now();
+    recordingVoice.value = true;
+    voiceTimer = window.setInterval(() => {
+      recordingElapsed.value = (Date.now() - recordingStartedAt.value) / 1000;
+    }, 200);
+    recorder.start();
+  } catch (error) {
+    cleanupVoiceRecorder();
+    showVoicePanel.value = false;
+    store.showConfigAlert(error instanceof Error ? error.message : '请允许浏览器访问麦克风。', '无法录音');
+  }
+}
+
+function stopVoiceRecording() {
+  if (!voiceRecorder || voiceRecorder.state === 'inactive') return;
+  recordingElapsed.value = (Date.now() - recordingStartedAt.value) / 1000;
+  voiceRecorder.stop();
+}
+
+async function appendVoiceMessage(voice: ChatVoiceAttachment) {
+  releaseKeyboardScrollGuard();
+  const userMessage = await store.appendUserVoiceMessage(props.id, voice, quoteTarget.value);
+  if (!userMessage) return;
+  quoteTarget.value = null;
+  await scrollMessagesToBottom();
+}
+
+async function sendRecordedVoice() {
+  const draft = recordedVoiceDraft.value;
+  const transcript = voiceTranscriptDraft.value.trim();
+  if (!draft?.audioUrl || !transcript || recordingVoice.value || store.loadingReply) return;
+  await appendVoiceMessage({
+    source: 'recorded',
+    transcript,
+    duration: draft.duration,
+    audioUrl: draft.audioUrl,
+    mimeType: draft.mimeType
+  });
+  showVoicePanel.value = false;
+}
+
+async function sendTextVoice() {
+  const transcript = voiceTextDraft.value.trim();
+  if (!transcript || store.loadingReply) return;
+  await appendVoiceMessage({
+    source: 'text',
+    transcript,
+    duration: estimateVoiceDuration(transcript)
+  });
+  showVoicePanel.value = false;
+}
+
 async function regenerateChatImage(messageId: string, description: string) {
   if (regeneratingChatImageMessageIds.value.includes(messageId)) {
     store.showConfigAlert('正在重新生成聊天图片，请等待当前生成完成。', '正在生成');
@@ -501,10 +817,14 @@ function messageIdsForAction(message: ChatMessage) {
 function messageActionText(message: ChatMessage) {
   if (message.sticker) return `[Sticker] ${message.sticker.description}`;
   if (message.image) return `[图片] ${message.image.description}`;
+  if (message.voice) return `[语音] ${message.voice.transcript}`;
+  if (message.location) return `[定位] ${[message.location.name, message.location.address, message.location.distance].filter(Boolean).join(' · ')}`;
   return message.content;
 }
 
 function editableMessageText(message: ChatMessage) {
+  if (message.voice) return message.voice.transcript;
+  if (message.location) return message.location.name;
   return message.sticker?.description ?? message.image?.description ?? message.content;
 }
 
@@ -732,6 +1052,8 @@ async function enterOffline() {
   await store.updateConversationMode(props.id, 'offline');
   await router.push(`/offline/${props.id}`);
 }
+
+onBeforeUnmount(abortVoiceRecording);
 </script>
 
 <style scoped>
@@ -781,6 +1103,9 @@ async function enterOffline() {
 .image-send-panel {
   display: grid;
   gap: 12px;
+  width: 100%;
+  min-width: 0;
+  container-type: inline-size;
 }
 
 .image-panel-head {
@@ -788,6 +1113,11 @@ async function enterOffline() {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
+}
+
+.image-panel-head > div {
+  min-width: 0;
 }
 
 .image-panel-head p {
@@ -804,6 +1134,7 @@ async function enterOffline() {
   color: #211f24;
   font-size: 16px;
   line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .image-tabs {
@@ -816,11 +1147,15 @@ async function enterOffline() {
 }
 
 .image-tabs button {
+  min-width: 0;
   min-height: 34px;
+  padding: 6px 8px;
   border-radius: 8px;
   color: #59606a;
   font-size: 12px;
   font-weight: 900;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .image-tabs button.active {
@@ -833,20 +1168,24 @@ async function enterOffline() {
 .description-image-tab {
   display: grid;
   gap: 10px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .local-image-button {
-  display: inline-grid;
-  grid-auto-flow: column;
+  display: grid;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  min-width: 0;
   min-height: 46px;
+  padding: 8px 12px;
   border-radius: 10px;
-  background: #171717;
-  color: #ffffff;
+  background: #eff1f3;
+  color: #2d333a;
   font-size: 13px;
   font-weight: 900;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .local-image-tab p {
@@ -860,9 +1199,11 @@ async function enterOffline() {
   display: grid;
   place-items: center;
   width: min(100%, 220px);
+  min-width: 0;
   margin: 0 auto;
   aspect-ratio: 1 / 1;
   padding: 20px;
+  overflow: hidden;
   border: 1px solid #edf0f2;
   border-radius: 18px;
   background: #ffffff;
@@ -871,17 +1212,24 @@ async function enterOffline() {
 }
 
 .description-preview figcaption {
+  max-width: 100%;
+  max-height: 100%;
+  overflow: auto;
   margin: 0;
   font-size: 13px;
   font-weight: 820;
   line-height: 1.65;
   text-align: center;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  -webkit-overflow-scrolling: touch;
 }
 
 .description-field {
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
 
 .description-field span {
@@ -891,9 +1239,13 @@ async function enterOffline() {
 }
 
 .description-field textarea {
+  display: block;
   width: 100%;
+  min-width: 0;
   min-height: 112px;
-  resize: vertical;
+  max-height: min(34dvh, 180px);
+  resize: none;
+  overflow: auto;
   border: 1px solid #edf0f2;
   border-radius: 10px;
   padding: 10px;
@@ -901,6 +1253,10 @@ async function enterOffline() {
   color: #171717;
   font: inherit;
   line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  -webkit-overflow-scrolling: touch;
 }
 
 .local-image-hint-field textarea {
@@ -908,12 +1264,414 @@ async function enterOffline() {
 }
 
 .description-send-button {
+  min-width: 0;
   min-height: 42px;
+  padding: 9px 12px;
   border-radius: 10px;
-  background: var(--link-green);
-  color: #ffffff;
+  background: #eff1f3;
+  color: #2d333a;
   font-size: 13px;
   font-weight: 900;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.voice-send-panel {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  container-type: inline-size;
+}
+
+.location-send-panel {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.location-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.location-panel-head > div {
+  min-width: 0;
+}
+
+.location-panel-head p {
+  margin: 0 0 3px;
+  color: #60646b;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.location-panel-head h3 {
+  margin: 0;
+  color: #211f24;
+  font-size: 16px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.location-preview-card {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #202329;
+  box-shadow: 0 8px 26px rgba(37, 31, 37, 0.08);
+}
+
+.location-preview-card > span {
+  display: grid;
+  place-items: center;
+  min-height: 76px;
+  background: linear-gradient(135deg, #f0f1f3, #e3e5e8);
+  color: #30343a;
+}
+
+.location-preview-card div {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 11px 12px;
+}
+
+.location-preview-card strong,
+.location-preview-card small,
+.location-preview-card em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.location-preview-card strong {
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.location-preview-card small {
+  color: #68717a;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.location-preview-card em {
+  color: #30343a;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.location-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.location-field span {
+  color: #686b70;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.location-field input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid #edf0f2;
+  border-radius: 10px;
+  padding: 0 10px;
+  background: #ffffff;
+  color: #171717;
+  font: inherit;
+}
+
+.location-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.location-actions button {
+  min-height: 40px;
+}
+
+.location-actions .primary-action {
+  background: #d8dce0;
+  color: #202329;
+}
+
+.location-actions .primary-action:disabled {
+  background: #eceef1;
+  color: #9ba1a8;
+}
+
+.voice-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.voice-panel-head > div {
+  min-width: 0;
+}
+
+.voice-panel-head p {
+  margin: 0 0 3px;
+  color: #3c6f63;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.voice-panel-head h3 {
+  margin: 0;
+  color: #211f24;
+  font-size: 16px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.voice-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.voice-tabs button {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: #59606a;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.voice-tabs button.active {
+  background: #ffffff;
+  color: #171717;
+  box-shadow: 0 1px 8px rgba(37, 31, 37, 0.08);
+}
+
+.voice-tabs button:disabled {
+  opacity: 0.52;
+  cursor: default;
+}
+
+.voice-record-tab,
+.voice-text-tab {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.voice-recorder-card,
+.voice-text-preview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 54px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f4f6f5;
+  color: #27342f;
+}
+
+.voice-recorder-card.recording {
+  background: #e9f8ef;
+  color: #0a6231;
+}
+
+.voice-recorder-card.ready {
+  background: #eef6f1;
+}
+
+.voice-recorder-card strong,
+.voice-text-preview strong {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.voice-recorder-card > span {
+  font-size: 12px;
+  font-weight: 850;
+  opacity: 0.68;
+}
+
+.voice-preview-wave {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 18px;
+}
+
+.voice-preview-wave span {
+  width: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.62;
+}
+
+.voice-preview-wave span:nth-child(1) { height: 8px; }
+.voice-preview-wave span:nth-child(2) { height: 14px; }
+.voice-preview-wave span:nth-child(3) { height: 18px; }
+.voice-preview-wave span:nth-child(4) { height: 12px; }
+.voice-preview-wave span:nth-child(5) { height: 16px; }
+
+.voice-text-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.voice-text-field span {
+  color: #686b70;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.voice-text-field textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 98px;
+  max-height: min(34dvh, 170px);
+  resize: none;
+  overflow: auto;
+  border: 1px solid #edf0f2;
+  border-radius: 10px;
+  padding: 10px;
+  background: #ffffff;
+  color: #171717;
+  font: inherit;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  -webkit-overflow-scrolling: touch;
+}
+
+.voice-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.voice-secondary,
+.voice-primary {
+  min-width: 0;
+  min-height: 42px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.voice-secondary {
+  background: #eef1f2;
+  color: #20272d;
+}
+
+.voice-secondary--stop {
+  background: #1f2f28;
+  color: #ffffff;
+}
+
+.voice-primary {
+  background: #eff1f3;
+  color: #2d333a;
+}
+
+.voice-secondary:disabled,
+.voice-primary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+@container (max-width: 320px) {
+  .image-send-panel {
+    gap: 10px;
+  }
+
+  .description-preview {
+    width: min(100%, 190px);
+    padding: 16px;
+    border-radius: 16px;
+  }
+
+  .description-preview figcaption {
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .description-field textarea {
+    min-height: 96px;
+  }
+}
+
+@media (max-width: 360px) {
+  .image-send-panel {
+    gap: 10px;
+  }
+
+  .description-preview {
+    width: min(100%, 190px);
+    padding: 16px;
+    border-radius: 16px;
+  }
+
+  .description-preview figcaption {
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .description-field textarea {
+    min-height: 96px;
+  }
+}
+
+@media (max-height: 700px) {
+  .image-send-panel {
+    gap: 10px;
+  }
+
+  .description-preview {
+    width: min(100%, 180px);
+    padding: 16px;
+  }
+
+  .description-field textarea {
+    min-height: 92px;
+    max-height: 28dvh;
+  }
 }
 
 .local-image-button:disabled,

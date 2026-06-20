@@ -1,5 +1,5 @@
 <template>
-  <form :class="['composer', { 'composer--online': online }]" @submit.prevent="submit">
+  <form :class="['composer', { 'composer--online': online, 'composer--text-mode': textMode }]" @submit.prevent="submit">
     <div v-if="quote" class="composer-quote">
       <div>
         <strong>{{ quote.authorName }}</strong>
@@ -9,14 +9,14 @@
         <X :size="15" />
       </button>
     </div>
-    <button class="icon-button" type="button" aria-label="添加" @click="$emit('open-menu')">
+    <button v-if="!textMode" class="icon-button" type="button" aria-label="添加" @click="$emit('open-menu')">
       <Plus :size="27" />
     </button>
     <input ref="cameraInputRef" class="visually-hidden-input" type="file" accept="image/*" capture="environment" @change="handleCameraFile" />
-    <button class="icon-button" type="button" aria-label="相机" :disabled="disabled" @click="openCameraInput">
+    <button v-if="!textMode" class="icon-button" type="button" aria-label="相机" :disabled="disabled" @click="openCameraInput">
       <Camera :size="23" />
     </button>
-    <button v-if="online" class="icon-button" type="button" aria-label="图片" :disabled="disabled" @click="$emit('open-image-panel')">
+    <button v-if="online && !textMode" class="icon-button" type="button" aria-label="图片" :disabled="disabled" @click="$emit('open-image-panel')">
       <ImageIcon :size="23" />
     </button>
     <label class="composer-input">
@@ -26,21 +26,28 @@
         :disabled="disabled"
         @pointerdown="emit('prepare-focus')"
         @touchstart.passive="emit('prepare-focus')"
-        @focus="emit('focus')"
-        @blur="emit('blur')"
+        @focus="handleFocus"
+        @blur="handleBlur"
       />
-      <button class="sticker-button" type="button" aria-label="Stickers" @click.stop="$emit('open-stickers')">
+      <button v-if="!textMode" class="sticker-button" type="button" aria-label="Stickers" @click.stop="$emit('open-stickers')">
         <Smile :size="online ? 20 : 21" />
       </button>
     </label>
-    <button class="send-button" type="button" :disabled="disabled || (!text.trim() && !canSendReply)" aria-label="发送" @click="pressSendButton">
+    <template v-if="online && textMode">
+      <button class="text-action text-action--send" type="button" :disabled="disabled || !text.trim()" @pointerdown.prevent="keepTextMode" @click="submit">发送</button>
+      <button class="text-action text-action--reply" type="button" :disabled="disabled || (!text.trim() && !canSendReply)" @pointerdown.prevent="keepTextMode" @click="submitAndReply">回复</button>
+    </template>
+    <button v-else-if="online" class="voice-button" type="button" :disabled="disabled" aria-label="发送语音" @click="$emit('open-voice-panel')">
+      <Mic :size="22" />
+    </button>
+    <button v-else class="send-button" type="button" :disabled="disabled || !text.trim()" aria-label="发送" @click="pressSendButton">
     </button>
   </form>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { Camera, Image as ImageIcon, Plus, Smile, X } from 'lucide-vue-next';
+import { computed, onBeforeUnmount, ref } from 'vue';
+import { Camera, Image as ImageIcon, Mic, Plus, Smile, X } from 'lucide-vue-next';
 import type { ChatMessageQuote } from '@/types/domain';
 
 const props = defineProps<{
@@ -60,17 +67,48 @@ const emit = defineEmits<{
   'open-image-panel': [];
   'open-menu': [];
   'open-stickers': [];
+  'open-voice-panel': [];
   reply: [content: string];
   send: [content: string];
 }>();
 
 const text = ref('');
+const inputFocused = ref(false);
 const cameraInputRef = ref<HTMLInputElement | null>(null);
+let blurTimer: number | undefined;
+const textMode = computed(() => Boolean(props.online && inputFocused.value));
 const quoteContent = computed(() => {
   if (props.quote?.sticker) return `[Sticker] ${props.quote.sticker.description}`;
   if (props.quote?.image) return `[图片] ${props.quote.image.description}`;
+  if (props.quote?.voice) return `[语音] ${props.quote.voice.transcript}`;
+  if (props.quote?.location) return `[定位] ${props.quote.location.name}`;
   return props.quote?.content ?? '';
 });
+
+function clearBlurTimer() {
+  if (blurTimer === undefined) return;
+  window.clearTimeout(blurTimer);
+  blurTimer = undefined;
+}
+
+function keepTextMode() {
+  clearBlurTimer();
+}
+
+function handleFocus() {
+  clearBlurTimer();
+  inputFocused.value = true;
+  emit('focus');
+}
+
+function handleBlur() {
+  emit('blur');
+  clearBlurTimer();
+  blurTimer = window.setTimeout(() => {
+    inputFocused.value = false;
+    blurTimer = undefined;
+  }, 120);
+}
 
 function submit() {
   const content = text.value.trim();
@@ -103,6 +141,8 @@ function handleCameraFile(event: Event) {
   input.value = '';
   if (file?.type.startsWith('image/')) emit('capture-photo', file);
 }
+
+onBeforeUnmount(clearBlurTimer);
 </script>
 
 <style scoped>
@@ -227,8 +267,28 @@ function handleCameraFile(event: Event) {
   color: #ffffff;
 }
 
+.voice-button {
+  display: grid;
+  place-items: center;
+  width: var(--top-icon-button-width);
+  height: var(--top-icon-button-height);
+  border-radius: 8px;
+  background: transparent;
+  color: #141414;
+}
+
+.voice-button svg {
+  width: var(--top-icon-size);
+  height: var(--top-icon-size);
+}
+
 .send-button:disabled {
   background: #d6d8db;
+}
+
+.voice-button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .composer--online {
@@ -245,9 +305,40 @@ function handleCameraFile(event: Event) {
   flex: 0 0 20px;
 }
 
-.send-button {
-  width: 28px;
-  height: 28px;
-  border-radius: 14px;
+.composer--text-mode {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+}
+
+.composer--text-mode .composer-input {
+  height: 36px;
+  border-radius: 18px;
+  font-size: 14px;
+}
+
+.text-action {
+  min-width: 44px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: #2d333a;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.text-action--send {
+  background: #eff1f3;
+}
+
+.text-action--reply {
+  background: #eff1f3;
+  color: #2d333a;
+}
+
+.text-action:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 </style>

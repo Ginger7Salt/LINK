@@ -39,7 +39,9 @@ export type RoleplayReplySegment =
   | { type: 'reply'; content: string; translation?: string }
   | { type: 'narration'; content: string }
   | { type: 'sticker'; stickers: string[] }
-  | { type: 'image'; description: string };
+  | { type: 'image'; description: string }
+  | { type: 'voice'; content: string; duration?: number }
+  | { type: 'location'; name: string; address?: string; distance: string };
 
 export interface RoleplayReplyResult {
   reply: string;
@@ -825,12 +827,44 @@ function normalizeImageDescriptions(value: unknown): string[] {
   return [];
 }
 
+function normalizeLocationText(value: unknown): string {
+  if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
+  return '';
+}
+
+function normalizeLocationSegment(record: Record<string, unknown>): RoleplayReplySegment[] {
+  const name = normalizeLocationText(record.name)
+    || normalizeLocationText(record.placeName)
+    || normalizeLocationText(record.locationName)
+    || normalizeLocationText(record.title)
+    || normalizeLocationText(record.place)
+    || normalizeLocationText(record.poi);
+  const address = normalizeLocationText(record.address)
+    || normalizeLocationText(record.detail)
+    || normalizeLocationText(record.description);
+  const distance = normalizeLocationText(record.distance)
+    || normalizeLocationText(record.distanceText)
+    || normalizeLocationText(record.distanceFromUser)
+    || normalizeLocationText(record.distanceToUser)
+    || normalizeLocationText(record.distanceFromCharacter)
+    || normalizeLocationText(record.distanceToCharacter);
+  if (!name || !distance) return [];
+  return [{
+    type: 'location',
+    name,
+    ...(address && address !== name ? { address } : {}),
+    distance
+  }];
+}
+
 function normalizeSegmentType(value: unknown): RoleplayReplySegment['type'] | '' {
   const type = String(value ?? '').trim().toLocaleLowerCase();
   if (['reply', 'message', 'bubble', 'text'].includes(type)) return 'reply';
   if (['narration', 'narrative', 'action', 'system'].includes(type)) return 'narration';
   if (['sticker', 'stickers', 'emoji', 'emote'].includes(type)) return 'sticker';
   if (['image', 'picture', 'photo', 'pic'].includes(type)) return 'image';
+  if (['voice', 'audio', 'voice_message', 'voice-message', 'speech'].includes(type)) return 'voice';
+  if (['location', 'map', 'position', 'geo', 'geolocation', '定位', '位置'].includes(type)) return 'location';
   return '';
 }
 
@@ -871,6 +905,18 @@ function normalizeRoleplaySegment(value: unknown, narrationEnabled: boolean): Ro
     return normalizeImageDescriptions(record.description ?? record.imageDescription ?? record.prompt ?? record.content ?? record.text ?? record.message)
       .map((description) => ({ type: 'image' as const, description }));
   }
+
+  if (type === 'voice') {
+    const duration = Number(record.duration ?? record.seconds ?? record.length);
+    return normalizeTextFragments(record.content ?? record.transcript ?? record.text ?? record.message ?? record.reply)
+      .map((content) => ({
+        type: 'voice' as const,
+        content,
+        ...(Number.isFinite(duration) && duration > 0 ? { duration: Math.round(duration) } : {})
+      }));
+  }
+
+  if (type === 'location') return normalizeLocationSegment(record);
 
   return [];
 }

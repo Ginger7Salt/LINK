@@ -53,7 +53,12 @@ defineEmits<{
   background: rgba(0, 0, 0, 0.26);
 }
 
+.modal-backdrop-default {
+  z-index: 80;
+}
+
 .modal-backdrop-profile-ins {
+  z-index: 60;
   align-items: center;
   padding: max(18px, var(--safe-top)) calc(16px + var(--safe-right)) max(18px, calc(16px + var(--safe-bottom))) calc(16px + var(--safe-left));
   background:

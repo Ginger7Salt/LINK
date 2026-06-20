@@ -122,7 +122,7 @@ export const profileMutationPrompt = `补充输出规则：
 
 最终必须输出 JSON，不要输出 JSON 以外的任何文字，不要使用 Markdown 代码块。
 
-线上聊天像真实社交软件消息。messages 数组就是本轮发送顺序，可自由组合文字、图片、Sticker；旁白模式开启时也可加入旁白。线下模式通常只用一条 text。
+线上聊天像真实社交软件消息。messages 数组就是本轮发送顺序，可自由组合文字、语音、图片、定位、Sticker；旁白模式开启时也可加入旁白。线下模式通常只用一条 text。
 
 如果不修改资料：
 {
@@ -145,7 +145,9 @@ export const profileMutationPrompt = `补充输出规则：
 {
   "messages": [
     { "type": "text", "content": "第一条聊天气泡", "translation": "" },
+    { "type": "voice", "content": "一条语音里说出的内容", "duration": 4 },
     { "type": "image", "description": "你要发送的一张图片的画面描述" },
+    { "type": "location", "name": "地点名称", "address": "详细地址，可留空", "distance": "你与{{user}}的距离，例如：约2.4公里" },
     { "type": "sticker", "stickers": ["合适的Sticker id"] },
     { "type": "text", "content": "第二条聊天气泡", "translation": "" }
   ],
@@ -165,16 +167,18 @@ export const profileMutationPrompt = `补充输出规则：
 1. messages 按数组顺序发送。
 2. text 项显示成聊天气泡：{ "type":"text", "content":"...", "translation":"..." }。根据角色习惯、情绪、当前节奏自然决定条数。
 3. translation 只在 content 是非中文外语或粤语时填写自然简体中文译文；中文内容一律填空字符串。
-4. image 项显示成图片：{ "type":"image", "description":"画面描述" }。description 描述图片里有什么和氛围，不要写英文标签、相机参数、画质词或模型术语。
-5. 图片内容由角色性格、当前对话、生活状态和要表达的情绪决定，可以是自拍、随手拍、物品、街景、餐食、房间、作业、工作现场等任何合理画面。不合适就不发 image。
-6. sticker 项显示成 Sticker：{ "type":"sticker", "stickers":["Sticker id或文字描述"] }。不合适就不发 sticker，不要为了凑形式发送。
-7. 线上模式每次都要在 profileUpdate.innerMonologue 输出 3-5 句当前内心独白；一句一项，像角色当下不会说出口的心声，不要解释给用户听，不要使用上帝视角，不要重复聊天气泡原文。
-8. 线下模式可以把 profileUpdate 设为 null；线上模式即使不修改资料，也保留 profileUpdate，并让 nickname、signature、narration 为空字符串。
-9. profileUpdate.narration 只描述资料变动本身，不要总结，不要剧透；没有资料变动时 narration 为空字符串。
-10. 最近对话每条消息前的 [msg_xxx] 是 messageId。你可以像真实社交软件一样撤回自己之前发出的某条消息，但只能把你自己发过的角色消息 id 放进 messageActions.recallMessageIds；不要撤回用户或系统消息。
-11. 你可以引用用户之前发过的某条消息进行回复。若第 n 个 text 气泡要引用用户消息，在 messageActions.quotes 里写 {"replyIndex": n, "messageId": "用户消息id"}；replyIndex 从 0 开始，只按 text 气泡计数，不把 image、sticker、narration 算进去。
-12. 引用用于自然承接上下文。引用时 text.content 里仍只写你真正要发出的新消息，不要重复被引用内容。
-13. 如果没有撤回或引用动作，messageActions 里的两个数组都保持空数组。`;
+4. voice 项显示成语音条：{ "type":"voice", "content":"语音里说出的文字内容", "duration": 3 }。只在线上模式使用；content 是角色真的用语音说出的内容，duration 写 1-60 秒。
+5. image 项显示成图片：{ "type":"image", "description":"画面描述" }。description 描述图片里有什么和氛围，不要写英文标签、相机参数、画质词或模型术语。
+6. 图片内容由角色性格、当前对话、生活状态和要表达的情绪决定，可以是自拍、随手拍、物品、街景、餐食、房间、作业、工作现场等任何合理画面。
+7. location 项显示成定位卡片：{ "type":"location", "name":"地点名称", "address":"详细地址，可留空", "distance":"你与{{user}}的距离" }。只在线上模式使用；name 是你当前所在或要主动发送的位置，distance 必须写清你与{{user}}的相对距离。
+8. sticker 项显示成 Sticker：{ "type":"sticker", "stickers":["Sticker id或文字描述"] }。
+9. 线上模式每次都要在 profileUpdate.innerMonologue 输出 3-5 句当前内心独白；一句一项，像角色当下不会说出口的心声，不要解释给用户听，不要使用上帝视角，不要重复聊天气泡原文。
+10. 线下模式可以把 profileUpdate 设为 null；线上模式即使不修改资料，也保留 profileUpdate，并让 nickname、signature、narration 为空字符串。
+11. profileUpdate.narration 只描述资料变动本身，不要总结，不要剧透；没有资料变动时 narration 为空字符串。
+12. 最近对话每条消息前的 [msg_xxx] 是 messageId。你可以像真实社交软件一样撤回自己之前发出的某条消息，但只能把你自己发过的角色消息 id 放进 messageActions.recallMessageIds；不要撤回用户或系统消息。
+13. 你可以引用用户之前发过的某条消息进行回复。若第 n 个 text 气泡要引用用户消息，在 messageActions.quotes 里写 {"replyIndex": n, "messageId": "用户消息id"}；replyIndex 从 0 开始，只按 text 气泡计数，不把 voice、image、location、sticker、narration 算进去。
+14. 引用用于自然承接上下文。引用时 text.content 里仍只写你真正要发出的新消息，不要重复被引用内容。
+15. 如果没有撤回或引用动作，messageActions 里的两个数组都保持空数组。`;
 
 export const narrationModePrompt = `补充旁白模式规则：
 
@@ -228,13 +232,25 @@ const modeInstructions: Record<ChatMode, string> = {
   offline: '当前是线下模式。回复为长文本 RP，像小说章节一样呈现，并把你的私人生活推进、身体状态、社交圈与当下场景自然写进叙事。'
 };
 
-function getMessageText(message: Pick<PromptContext['messages'][number], 'content' | 'sticker' | 'image'>) {
+function getMessageText(message: Pick<PromptContext['messages'][number], 'content' | 'sender' | 'sticker' | 'image' | 'voice' | 'location'>) {
   if (message.sticker) return `[Sticker] ${message.sticker.description}`;
   if (message.image) {
     if (message.image.kind === 'description') return `用户发送了一张图片，图片内容为“${message.image.description}”。`;
     const kindLabel = message.image.kind === 'photo' ? '相机照片' : '本地图片';
     const hintText = message.image.aiHint ? `图片内容线索：${message.image.aiHint}。` : '';
     return `用户发送了一张${kindLabel}，已随请求附带真实图片，可直接识图。${hintText}`;
+  }
+  if (message.voice) {
+    const durationText = Number.isFinite(message.voice.duration) && message.voice.duration > 0
+      ? `（约 ${Math.round(message.voice.duration)} 秒）`
+      : '';
+    return `发送了一条语音消息${durationText}，语音内容为“${message.voice.transcript}”。`;
+  }
+  if (message.location) {
+    const addressText = message.location.address ? `，详细地址为“${message.location.address}”` : '';
+    const senderText = message.sender === 'user' ? '用户' : '角色';
+    const peerText = message.sender === 'user' ? '角色' : '用户';
+    return `${senderText}发送了一条定位：${senderText}目前在“${message.location.name}”${addressText}，距离${peerText}“${message.location.distance}”。`;
   }
   return message.content;
 }
@@ -381,7 +397,7 @@ export function buildPrompt(context: PromptContext) {
     `当前对话总结：\n${context.conversationSummary || '暂无总结。'}`,
     `记忆手册：\n${context.memorySummary || '暂无记忆手册。'}`,
     `世界书：\n${renderWorldBooks(selectedWorldBooks, context) || '无启用条目。'}`,
-    'Sticker / 图片规则：用户发送 Sticker 时，文字描述是用户提供的贴纸含义。用户发送真实图片时，若本次请求附带图片，你可以观察图片内容；用户发送文字描述卡片时，必须理解为“用户发送了一张图片，图片内容为描述文本”，虽然没有真实图片文件，也要按图片内容参与对话。若未附带真实图片，不要臆造描述之外的图片细节。',
+    'Sticker / 图片 / 语音 / 定位规则：用户发送 Sticker 时，文字描述是用户提供的贴纸含义。用户发送真实图片时，若本次请求附带图片，你可以观察图片内容；用户发送文字描述卡片时，必须理解为“用户发送了一张图片，图片内容为描述文本”，虽然没有真实图片文件，也要按图片内容参与对话。用户或角色发送语音时，必须理解为对方用语音消息说出了对应文字内容，不要把它当成普通打字消息；角色也可以在合适时用 voice 项主动发送语音条。用户发送定位时，必须理解为用户把自己的当前位置发给了你，并告知了用户与角色之间的距离；角色也可以在合适时用 location 项主动发送自己的定位。若未附带真实图片，不要臆造描述之外的图片细节。',
     `角色可用 Stickers：\n${renderAvailableStickers(context)}`,
     `最近对话：\n${history || '暂无。'}`
   ].filter(Boolean).join('\n\n');

@@ -2,7 +2,7 @@ import { computed, ref, toRaw } from 'vue';
 import { defineStore } from 'pinia';
 import { deleteEntity, loadSnapshot, putEntity, replaceSnapshot } from '@/data/db';
 import { defaultSettings, defaultStickerGroups } from '@/data/seed';
-import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, ChatImageCandidate, ChatMessage, ChatMessageQuote, ChatMode, ChatModelScope, Conversation, ConversationMemoryRecord, ConversationSettings, GeneratedImageRecord, ImageModuleId, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelScope, ChatVoiceAttachment, Conversation, ConversationMemoryRecord, ConversationSettings, GeneratedImageRecord, ImageModuleId, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
 import { createAccountId, createId } from '@/utils/id';
 import { getCharacterVoomAuthorName, normalizeCharacterMindStateLines, normalizeCharacterProfile } from '@/utils/character';
 import { normalizeUserProfile, normalizeVisualProfile } from '@/utils/profile';
@@ -13,6 +13,7 @@ import { ageMemoryKind, createMemoryRecord, getConversationFloorCount, getHidden
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
 import { estimateRoleplayReplyInputTokens, fetchVendorModels, generateConversationSummary, generateEmbeddingVector, generateImageByProvider, generateRoleplayReply, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, shouldAutoGenerateMoment, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
 import { GitHubBackupError, downloadGitHubBackup, downloadGitHubBackupVersion, ensureGitHubBackupRepository, formatGitHubBackupError, listGitHubBackupHistory, uploadGitHubBackup } from '@/services/githubBackup';
+import { synthesizeMinimaxSpeech } from '@/services/tts';
 import { createLinkBackupFile, parseLinkBackupFileText, parseLinkBackupText } from '@/utils/backup';
 
 interface CreateUserVoomPostPayload {
@@ -536,6 +537,26 @@ export const useAppStore = defineStore('app', () => {
     return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
   }
 
+  function estimateVoiceDuration(content: string, duration?: number) {
+    if (Number.isFinite(duration) && duration && duration > 0) return Math.max(1, Math.round(duration));
+    return Math.max(1, Math.ceil(content.trim().length / 4));
+  }
+
+  function normalizeLocationAttachment(location: ChatLocationAttachment): ChatLocationAttachment | null {
+    const name = location.name.trim();
+    const distance = location.distance.trim();
+    if (!name || !distance) return null;
+    return {
+      name,
+      address: location.address?.trim() || undefined,
+      distance
+    };
+  }
+
+  function formatLocationContent(location: ChatLocationAttachment) {
+    return `[定位] ${[location.name, location.address, location.distance].map((item) => item?.trim()).filter(Boolean).join(' · ')}`;
+  }
+
   async function appendConversationEvent(conversationId: string, content: string, options: Partial<Pick<ChatMessage, 'mode' | 'voomPostId' | 'voomCommentId' | 'voomEventType' | 'replyBatchId' | 'createdAt'>> = {}) {
     const conversation = conversationById(conversationId);
     if (!conversation || !content.trim()) return null;
@@ -583,13 +604,17 @@ export const useAppStore = defineStore('app', () => {
       authorName: quote.authorName.trim() || '未知',
       content: quote.content.trim(),
       sticker: quote.sticker ? { ...quote.sticker } : undefined,
-      image: quote.image ? { ...quote.image } : undefined
+      image: quote.image ? { ...quote.image } : undefined,
+      voice: quote.voice ? { ...quote.voice } : undefined,
+      location: quote.location ? { ...quote.location } : undefined
     };
   }
 
   function messageReadableContent(message: ChatMessage) {
     if (message.sticker) return `[Sticker] ${message.sticker.description}`.trim();
     if (message.image) return `[图片] ${message.image.description}`.trim();
+    if (message.voice) return `[语音] ${message.voice.transcript}`.trim();
+    if (message.location) return formatLocationContent(message.location).trim();
     return message.content.trim();
   }
 
@@ -616,7 +641,9 @@ export const useAppStore = defineStore('app', () => {
       authorName: messageAuthorName(message),
       content,
       sticker: message.sticker ? { ...message.sticker } : undefined,
-      image: message.image ? { ...message.image } : undefined
+      image: message.image ? { ...message.image } : undefined,
+      voice: message.voice ? { ...message.voice } : undefined,
+      location: message.location ? { ...message.location } : undefined
     };
   }
 
@@ -671,9 +698,15 @@ export const useAppStore = defineStore('app', () => {
         ? `[Sticker] ${trimmedContent}`
         : existingMessage.image
           ? `[图片] ${trimmedContent}`
+          : existingMessage.voice
+            ? `[语音] ${trimmedContent}`
+            : existingMessage.location
+              ? `[定位] ${trimmedContent}`
           : trimmedContent,
       sticker: existingMessage.sticker ? { ...existingMessage.sticker, description: trimmedContent } : existingMessage.sticker,
       image: existingMessage.image ? { ...existingMessage.image, description: trimmedContent } : existingMessage.image,
+      voice: existingMessage.voice ? { ...existingMessage.voice, transcript: trimmedContent } : existingMessage.voice,
+      location: existingMessage.location ? { ...existingMessage.location, name: trimmedContent } : existingMessage.location,
       editedAt: Date.now()
     };
     messages.value[messageIndex] = nextMessage;
@@ -681,6 +714,35 @@ export const useAppStore = defineStore('app', () => {
     await pruneMemoriesForMessageIds([nextMessage.id]);
     await touchConversationAfterMessageChange(nextMessage.conversationId, nextMessage.editedAt);
     return nextMessage;
+  }
+
+  async function generateMessageVoiceAudio(messageId: string) {
+    const messageIndex = messages.value.findIndex((message) => message.id === messageId);
+    if (messageIndex < 0) throw new Error('语音消息不存在。');
+
+    const existingMessage = messages.value[messageIndex];
+    if (!existingMessage.voice) throw new Error('这条消息不是语音消息。');
+    if (existingMessage.voice.audioUrl) return existingMessage.voice.audioUrl;
+    if (existingMessage.sender !== 'char') throw new Error('这条语音没有可播放的本地录音。');
+
+    const currentSettings = settings.value;
+    if (!currentSettings) throw new Error('设置尚未载入。');
+
+    const generated = await synthesizeMinimaxSpeech(existingMessage.voice.transcript, currentSettings.ttsMinimax);
+    const nextMessage: ChatMessage = {
+      ...existingMessage,
+      voice: {
+        ...existingMessage.voice,
+        audioUrl: generated.audioUrl,
+        mimeType: generated.mimeType,
+        ttsProvider: 'minimax',
+        ttsVoiceId: currentSettings.ttsMinimax.voiceId,
+        ttsGeneratedAt: Date.now()
+      }
+    };
+    messages.value[messageIndex] = nextMessage;
+    await putEntity('messages', nextMessage);
+    return generated.audioUrl;
   }
 
   async function recallMessage(messageId: string, options: { actor?: 'user' | 'char'; replyBatchId?: string } = {}) {
@@ -1706,6 +1768,65 @@ export const useAppStore = defineStore('app', () => {
     return userMessage;
   }
 
+  async function appendUserVoiceMessage(conversationId: string, voice: ChatVoiceAttachment, quote?: ChatMessageQuote | null) {
+    const transcript = voice.transcript.trim();
+    const conversation = conversationById(conversationId);
+    if (!transcript || !conversation) return;
+
+    const duration = estimateVoiceDuration(transcript, voice.duration);
+    const userMessage: ChatMessage = {
+      id: createId('msg'),
+      conversationId,
+      sender: 'user',
+      mode: conversation.activeMode,
+      content: `[语音] ${transcript}`,
+      voice: {
+        source: voice.source,
+        transcript,
+        duration,
+        audioUrl: voice.audioUrl,
+        mimeType: voice.mimeType
+      },
+      quote: cloneMessageQuote(quote),
+      createdAt: Date.now(),
+      status: 'sent'
+    };
+    messages.value.push(userMessage);
+    await putEntity('messages', userMessage);
+    const nextConversation = { ...conversation, updatedAt: userMessage.createdAt, unreadCount: 0 };
+    const conversationIndex = conversations.value.findIndex((item) => item.id === conversationId);
+    if (conversationIndex >= 0) conversations.value[conversationIndex] = nextConversation;
+    await putEntity('conversations', nextConversation);
+    void maybeAutoSummarizeConversation(conversationId);
+    return userMessage;
+  }
+
+  async function appendUserLocationMessage(conversationId: string, location: ChatLocationAttachment, quote?: ChatMessageQuote | null) {
+    const normalizedLocation = normalizeLocationAttachment(location);
+    const conversation = conversationById(conversationId);
+    if (!normalizedLocation || !conversation) return;
+
+    const userMessage: ChatMessage = {
+      id: createId('msg'),
+      conversationId,
+      sender: 'user',
+      mode: conversation.activeMode,
+      content: formatLocationContent(normalizedLocation),
+      location: normalizedLocation,
+      quote: cloneMessageQuote(quote),
+      createdAt: Date.now(),
+      status: 'sent'
+    };
+    messages.value.push(userMessage);
+    await putEntity('messages', userMessage);
+    const nextConversation = { ...conversation, updatedAt: userMessage.createdAt, unreadCount: 0 };
+    const conversationIndex = conversations.value.findIndex((item) => item.id === conversationId);
+    if (conversationIndex >= 0) conversations.value[conversationIndex] = nextConversation;
+    await putEntity('conversations', nextConversation);
+    void maybeAutoSummarizeConversation(conversationId);
+    return userMessage;
+  }
+
   async function summarizeConversationWindow(conversationId: string, options: { forceStartFloor?: number; forceEndFloor?: number; hiddenStartFloor?: number; hiddenEndFloor?: number; allowPartial?: boolean; replaceMemoryId?: string } = {}): Promise<ConversationSummaryResult | null> {
     const conversation = conversationById(conversationId);
     if (!conversation) return null;
@@ -2086,6 +2207,19 @@ export const useAppStore = defineStore('app', () => {
               const description = String(segment.description ?? '').trim();
               return description ? [{ type: 'image', description }] : [];
             }
+            if (segment.type === 'voice') {
+              const content = String(segment.content ?? '').trim();
+              const duration = Number(segment.duration);
+              return content ? [{ type: 'voice', content, ...(Number.isFinite(duration) && duration > 0 ? { duration } : {}) }] : [];
+            }
+            if (segment.type === 'location') {
+              const location = normalizeLocationAttachment({
+                name: String(segment.name ?? '').trim(),
+                address: String(segment.address ?? '').trim() || undefined,
+                distance: String(segment.distance ?? '').trim()
+              });
+              return location ? [{ type: 'location', ...location }] : [];
+            }
             return [];
           })
           .slice(0, 12)
@@ -2118,6 +2252,8 @@ export const useAppStore = defineStore('app', () => {
         && resolveCharacterStickerSelections(segment.stickers, availableCharacterStickers).length);
       const hasOrderedNarration = orderedSegments.some((segment) => segment.type === 'narration');
       const hasOrderedImage = orderedSegments.some((segment) => segment.type === 'image' && segment.description.trim());
+      const hasOrderedVoice = orderedSegments.some((segment) => segment.type === 'voice' && segment.content.trim());
+      const hasOrderedLocation = orderedSegments.some((segment) => segment.type === 'location' && segment.name.trim() && segment.distance.trim());
       const recallMessageIds = parsedReply.messageActions?.recallMessageIds ?? [];
       const validRecallMessageIds = recallMessageIds.filter((messageId) => messages.value.some((message) => message.id === messageId && message.conversationId === conversationId && message.sender === 'char'));
       const quoteByReplyIndex = new Map<number, ChatMessageQuote>();
@@ -2126,7 +2262,7 @@ export const useAppStore = defineStore('app', () => {
         const quote = targetMessage ? createMessageQuoteSnapshot(targetMessage) : null;
         if (quote) quoteByReplyIndex.set(Math.max(0, Math.floor(quoteAction.replyIndex)), quote);
       }
-      if (!effectiveReplyMessages.length && !replyStickers.length && !replyImages.length && !narrationMessages.length && !hasOrderedSticker && !hasOrderedNarration && !hasOrderedImage && !validRecallMessageIds.length) {
+      if (!effectiveReplyMessages.length && !replyStickers.length && !replyImages.length && !narrationMessages.length && !hasOrderedSticker && !hasOrderedNarration && !hasOrderedImage && !hasOrderedVoice && !hasOrderedLocation && !validRecallMessageIds.length) {
         showConfigAlert('AI 返回内容中没有可显示的聊天文本，请重试或检查模型输出格式。', '回复异常');
         return;
       }
@@ -2213,6 +2349,32 @@ export const useAppStore = defineStore('app', () => {
           status: 'sent' as const
         } satisfies ChatMessage;
       };
+      const createVoiceMessage = (content: string, duration?: number) => ({
+        id: createId('msg'),
+        conversationId,
+        sender: 'char' as const,
+        mode: conversation.activeMode,
+        content: `[语音] ${content}`,
+        voice: {
+          source: 'text' as const,
+          transcript: content,
+          duration: estimateVoiceDuration(content, duration)
+        },
+        replyBatchId,
+        createdAt: createdAt + charMessageOffset++,
+        status: 'sent' as const
+      } satisfies ChatMessage);
+      const createLocationMessage = (location: ChatLocationAttachment) => ({
+        id: createId('msg'),
+        conversationId,
+        sender: 'char' as const,
+        mode: conversation.activeMode,
+        content: formatLocationContent(location),
+        location,
+        replyBatchId,
+        createdAt: createdAt + charMessageOffset++,
+        status: 'sent' as const
+      } satisfies ChatMessage);
       const sentImageDescriptionKeys = new Set<string>();
       const appendImageMessage = async (description: string, targetMessages: ChatMessage[]) => {
         const imageKey = normalizeDuplicateKey(description);
@@ -2228,36 +2390,47 @@ export const useAppStore = defineStore('app', () => {
       };
       if (orderedSegments.length) {
         for (const segment of orderedSegments) {
-          if (segment.type === 'narration') {
-            orderedCharMessages.push({
-              id: createId('msg'),
-              conversationId,
-              sender: 'system' as const,
-              mode: conversation.activeMode,
-              content: segment.content,
-              createdAt: createdAt + charMessageOffset++,
-              displayStyle: 'narration' as const,
-              replyBatchId,
-              status: 'sent' as const
-            } satisfies ChatMessage);
-          } else if (segment.type === 'reply') {
-            orderedCharMessages.push({
-              id: createId('msg'),
-              conversationId,
-              sender: 'char' as const,
-              mode: conversation.activeMode,
-              content: segment.content,
-              translation: segment.translation || undefined,
-              quote: quoteByReplyIndex.get(orderedReplyIndex),
-              replyBatchId,
-              createdAt: createdAt + charMessageOffset++,
-              status: 'sent' as const
-            } satisfies ChatMessage);
-            orderedReplyIndex += 1;
-          } else if (segment.type === 'sticker') {
-            appendOrderedStickerMessages(resolveCharacterStickerSelections(segment.stickers, availableCharacterStickers));
-          } else {
-            await appendImageMessage(segment.description, orderedCharMessages);
+          switch (segment.type) {
+            case 'narration':
+              orderedCharMessages.push({
+                id: createId('msg'),
+                conversationId,
+                sender: 'system' as const,
+                mode: conversation.activeMode,
+                content: segment.content,
+                createdAt: createdAt + charMessageOffset++,
+                displayStyle: 'narration' as const,
+                replyBatchId,
+                status: 'sent' as const
+              } satisfies ChatMessage);
+              break;
+            case 'reply':
+              orderedCharMessages.push({
+                id: createId('msg'),
+                conversationId,
+                sender: 'char' as const,
+                mode: conversation.activeMode,
+                content: segment.content,
+                translation: segment.translation || undefined,
+                quote: quoteByReplyIndex.get(orderedReplyIndex),
+                replyBatchId,
+                createdAt: createdAt + charMessageOffset++,
+                status: 'sent' as const
+              } satisfies ChatMessage);
+              orderedReplyIndex += 1;
+              break;
+            case 'sticker':
+              appendOrderedStickerMessages(resolveCharacterStickerSelections(segment.stickers, availableCharacterStickers));
+              break;
+            case 'image':
+              await appendImageMessage(segment.description, orderedCharMessages);
+              break;
+            case 'location':
+              orderedCharMessages.push(createLocationMessage(segment));
+              break;
+            case 'voice':
+              orderedCharMessages.push(createVoiceMessage(segment.content, segment.duration));
+              break;
           }
         }
       } else if (replyMessages.length) {
@@ -3029,8 +3202,11 @@ export const useAppStore = defineStore('app', () => {
     appendUserMessage,
     appendStickerMessage,
     appendUserImageMessage,
+    appendUserVoiceMessage,
+    appendUserLocationMessage,
     deleteMessages,
     updateMessageContent,
+    generateMessageVoiceAudio,
     recallMessage,
     summarizeConversationWindow,
     updateMemoryRecord,

@@ -17,7 +17,7 @@
         @pointermove="trackPointerMove"
         @pointerup="cancelLongPress"
       >
-        <div class="bubble" :class="{ narration: message.displayStyle === 'narration', sticker: message.sticker, image: message.image }" :style="bubbleStyle">
+        <div class="bubble" :class="{ narration: message.displayStyle === 'narration', sticker: message.sticker, image: message.image, voice: message.voice, location: message.location }" :style="bubbleStyle">
           <template v-if="message.sticker">
             <img class="sticker-image" :src="message.sticker.imageUrl" :alt="message.sticker.description" />
           </template>
@@ -27,6 +27,31 @@
               <figcaption v-if="message.image.kind === 'description'">{{ message.image.description }}</figcaption>
             </figure>
           </template>
+          <template v-else-if="message.voice">
+            <div class="voice-message" :class="{ playing: playingVoice, loading: voiceLoading }" :style="voiceMessageStyle" role="button" tabindex="0" :aria-label="voiceButtonLabel" :aria-expanded="showVoiceTranscript" @click.stop="toggleVoiceTranscript" @keydown.enter.prevent="toggleVoiceTranscript" @keydown.space.prevent="toggleVoiceTranscript">
+              <span class="voice-wave" aria-hidden="true">
+                <span v-for="bar in voiceWaveBars" :key="bar" :style="{ '--voice-bar-index': bar }"></span>
+              </span>
+              <span class="voice-duration">{{ voiceDurationLabel }}</span>
+              <button class="voice-play-button" type="button" :aria-label="voicePlaybackLabel" :disabled="voicePlayDisabled" @click.stop="handleVoicePlayback">
+                <LoaderCircle v-if="voiceLoading" class="voice-loading-icon" :size="14" />
+                <Pause v-else-if="playingVoice" :size="13" fill="currentColor" />
+                <Play v-else :size="13" fill="currentColor" />
+              </button>
+            </div>
+          </template>
+          <template v-else-if="message.location">
+            <section class="location-message" aria-label="定位消息">
+              <span class="location-map" aria-hidden="true">
+                <MapPin :size="22" />
+              </span>
+              <span class="location-copy">
+                <strong>{{ message.location.name }}</strong>
+                <span v-if="message.location.address">{{ message.location.address }}</span>
+                <small>{{ locationDistanceLabel }}</small>
+              </span>
+            </section>
+          </template>
           <template v-else>
             <span>{{ displayContent }}</span>
             <template v-if="showInlineTranslation">
@@ -35,6 +60,7 @@
             </template>
           </template>
         </div>
+        <p v-if="message.voice && showVoiceTranscript" class="voice-transcript">{{ message.voice.transcript }}</p>
         <div v-if="message.quote" class="quote-card">
           <p>
             <strong>{{ quoteAuthorLabel }}</strong>
@@ -102,10 +128,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import { LoaderCircle } from 'lucide-vue-next';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { LoaderCircle, MapPin, Pause, Play } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import type { CharacterProfile, ChatAppearanceSettings, ChatImageCandidate, ChatMessage } from '@/types/domain';
+import { useAppStore } from '@/stores/appStore';
 import { getCharacterDisplayName } from '@/utils/character';
 import { formatChatTime } from '@/utils/time';
 import { defaultConversationSettings } from '@/utils/memory';
@@ -140,6 +167,8 @@ const emit = defineEmits<{
   'busy-action': [message: string, title: string];
 }>();
 
+const store = useAppStore();
+
 let longPressTimer: number | undefined;
 let longPressStart: { x: number; y: number } | null = null;
 let longPressTriggered = false;
@@ -147,6 +176,10 @@ const showImageModal = ref(false);
 const imageFlipped = ref(false);
 const imageDescriptionDraft = ref('');
 const selectedCandidateId = ref('');
+const playingVoice = ref(false);
+const showVoiceTranscript = ref(true);
+const voiceLoading = ref(false);
+let activeVoiceAudio: HTMLAudioElement | null = null;
 
 function extractJsonContent(content: string) {
   const trimmed = content.trim();
@@ -232,6 +265,8 @@ const displayTranslation = computed(() => normalizeTranslationText(props.message
 const showInlineTranslation = computed(() => props.message.sender === 'char'
   && props.message.mode === 'online'
   && !props.message.sticker
+  && !props.message.voice
+  && !props.message.location
   && shouldShowChineseTranslation(displayContent.value, displayTranslation.value));
 
 const characterDisplayName = computed(() => getCharacterDisplayName(props.character));
@@ -240,12 +275,16 @@ const quoteText = computed(() => props.message.quote?.sticker
   ? props.message.quote.sticker.description
   : props.message.quote?.image
     ? props.message.quote.image.description
+    : props.message.quote?.voice
+      ? props.message.quote.voice.transcript
+      : props.message.quote?.location
+        ? props.message.quote.location.name
   : props.message.quote?.content ?? '');
 const quoteThumbnail = computed(() => props.message.quote?.sticker?.imageUrl ?? props.message.quote?.image?.url ?? '');
 const quoteAuthorLabel = computed(() => (props.message.quote?.authorName ? `${props.message.quote.authorName}：` : ''));
 
 const bubbleStyle = computed(() => {
-  if (props.message.sticker || props.message.image) return {};
+  if (props.message.sticker || props.message.image || props.message.location) return {};
   if (props.message.sender === 'user') {
     return {
       background: props.appearance.userBubbleColor,
@@ -295,6 +334,30 @@ const imageViewerAspectRatio = computed(() => {
   return '1 / 1';
 });
 const imageViewerStyle = computed(() => ({ '--chat-viewer-ratio': imageViewerAspectRatio.value }));
+const locationDistanceLabel = computed(() => (props.message.sender === 'user'
+  ? `距离对方 ${props.message.location?.distance ?? ''}`
+  : `距离你 ${props.message.location?.distance ?? ''}`));
+const voiceDuration = computed(() => {
+  const duration = props.message.voice?.duration ?? 0;
+  if (Number.isFinite(duration) && duration > 0) return Math.max(1, Math.round(duration));
+  const transcriptLength = props.message.voice?.transcript.trim().length ?? 0;
+  return Math.max(1, Math.ceil(transcriptLength / 4));
+});
+const voiceDurationLabel = computed(() => `${voiceDuration.value}"`);
+const voiceMessageStyle = computed(() => ({
+  '--voice-width': `${Math.min(144, Math.max(98, 64 + voiceDuration.value * 2))}px`
+}));
+const voiceWaveBars = computed(() => Array.from({
+  length: Math.min(18, Math.max(4, Math.ceil(voiceDuration.value / 4) + 4))
+}, (_, index) => index));
+const canGenerateVoiceAudio = computed(() => props.message.sender === 'char' && Boolean(props.message.voice?.transcript.trim()));
+const voicePlayDisabled = computed(() => voiceLoading.value || (!props.message.voice?.audioUrl && !canGenerateVoiceAudio.value));
+const voiceButtonLabel = computed(() => (showVoiceTranscript.value ? '收起语音文字' : '显示语音文字'));
+const voicePlaybackLabel = computed(() => {
+  if (voiceLoading.value) return '正在生成语音';
+  if (playingVoice.value) return '暂停语音';
+  return props.message.voice?.audioUrl ? '播放语音' : '生成并播放语音';
+});
 
 const isSystemNarration = computed(() => props.message.sender === 'system' && props.message.displayStyle === 'narration');
 const showMessageTime = computed(() => props.appearance.showMessageTime && !isSystemNarration.value && !props.message.voomEventType && !props.message.voomPostId);
@@ -357,6 +420,70 @@ function handleBubbleClick(event: MouseEvent) {
   if (props.selectionMode) emit('toggle-select');
 }
 
+function stopVoicePlayback() {
+  if (activeVoiceAudio) {
+    activeVoiceAudio.pause();
+    activeVoiceAudio.onended = null;
+    activeVoiceAudio.onerror = null;
+  }
+  activeVoiceAudio = null;
+  playingVoice.value = false;
+}
+
+function toggleVoiceTranscript() {
+  if (props.selectionMode) {
+    emit('toggle-select');
+    return;
+  }
+  showVoiceTranscript.value = !showVoiceTranscript.value;
+}
+
+function playVoiceAudio(audioUrl: string) {
+  stopVoicePlayback();
+  const audio = new Audio(audioUrl);
+  activeVoiceAudio = audio;
+  playingVoice.value = true;
+  audio.onended = stopVoicePlayback;
+  audio.onerror = () => {
+    stopVoicePlayback();
+    emit('busy-action', '当前浏览器无法播放这条语音。', '播放失败');
+  };
+  void audio.play().catch(() => {
+    stopVoicePlayback();
+    emit('busy-action', '当前浏览器阻止了语音播放，请再点一次播放按钮。', '播放失败');
+  });
+}
+
+async function resolveVoiceAudioUrl() {
+  const audioUrl = props.message.voice?.audioUrl;
+  if (audioUrl) return audioUrl;
+  if (!canGenerateVoiceAudio.value) throw new Error('这条语音没有可播放的本地录音。');
+  voiceLoading.value = true;
+  try {
+    return await store.generateMessageVoiceAudio(props.message.id);
+  } finally {
+    voiceLoading.value = false;
+  }
+}
+
+async function handleVoicePlayback() {
+  if (props.selectionMode) {
+    emit('toggle-select');
+    return;
+  }
+  if (activeVoiceAudio && !activeVoiceAudio.paused) {
+    stopVoicePlayback();
+    return;
+  }
+
+  try {
+    playVoiceAudio(await resolveVoiceAudioUrl());
+  } catch (error) {
+    stopVoicePlayback();
+    emit('busy-action', error instanceof Error ? error.message : '语音生成失败，请检查 MiniMax TTS 配置。', '播放失败');
+  }
+}
+
 function openImageModal() {
   if (!props.message.image || props.message.sender !== 'char') return;
   if (props.selectionMode) {
@@ -405,6 +532,15 @@ watch(() => props.message.image?.url, () => {
   selectedCandidateId.value = imageCandidates.value.find((candidate) => candidate.image === props.message.image?.url)?.id ?? selectedCandidateId.value;
   imageFlipped.value = false;
 });
+
+watch(() => props.message.voice?.audioUrl, stopVoicePlayback);
+watch(() => props.message.id, () => {
+  showVoiceTranscript.value = true;
+  voiceLoading.value = false;
+  stopVoicePlayback();
+});
+
+onBeforeUnmount(stopVoicePlayback);
 </script>
 
 <style scoped>
@@ -512,6 +648,7 @@ watch(() => props.message.image?.url, () => {
   display: flex;
   align-items: flex-end;
   gap: 5px;
+  min-width: 0;
   max-width: min(80%, 300px);
 }
 
@@ -549,8 +686,15 @@ watch(() => props.message.image?.url, () => {
   color: #111111;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  word-break: break-word;
   line-height: 1.4;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+}
+
+.bubble > span {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .message-row.user .bubble {
@@ -588,6 +732,206 @@ watch(() => props.message.image?.url, () => {
   border-radius: 16px;
   background: transparent;
   box-shadow: none;
+}
+
+.bubble.voice {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(17, 17, 17, 0.05);
+  box-shadow: 0 8px 24px rgba(17, 20, 24, 0.08);
+}
+
+.bubble.location {
+  min-width: min(210px, 62vw);
+  padding: 0;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #ffffff;
+  color: #202329;
+  border: 1px solid #e6e8eb;
+  box-shadow: 0 8px 20px rgba(17, 20, 24, 0.06);
+}
+
+.message-row.user .bubble.location,
+.message-row.char .bubble.location {
+  background: #ffffff;
+  color: #202329;
+}
+
+.location-message {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 70px;
+}
+
+.location-map {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #f0f1f3, #e2e4e7);
+  color: #30343a;
+}
+
+.location-copy {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 11px;
+}
+
+.location-copy strong,
+.location-copy span,
+.location-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.location-copy strong {
+  color: #202329;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.location-copy span {
+  color: #69717b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.location-copy small {
+  color: #30343a;
+  font-size: 11px;
+  font-weight: 860;
+}
+
+.voice-message {
+  display: grid;
+  grid-template-columns: minmax(28px, 1fr) 28px 22px;
+  align-items: center;
+  justify-content: stretch;
+  gap: 4px;
+  width: min(var(--voice-width), 48vw);
+  min-width: 98px;
+  max-width: 144px;
+  min-height: 32px;
+  padding: 0 4px 0 8px;
+  border-radius: 999px;
+  color: inherit;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04));
+  cursor: pointer;
+}
+
+.voice-message.playing .voice-wave span {
+  animation: voice-wave 0.72s ease-in-out infinite;
+  animation-delay: calc(var(--voice-bar-index, 0) * 0.05s);
+}
+
+.voice-wave {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.voice-wave span {
+  flex: 0 0 2px;
+  width: 2px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.5;
+}
+
+.voice-wave span:nth-child(6n+2) {
+  height: 12px;
+}
+
+.voice-wave span:nth-child(6n+3) {
+  height: 15px;
+}
+
+.voice-wave span:nth-child(6n+4) {
+  height: 10px;
+}
+
+.voice-wave span:nth-child(6n+5) {
+  height: 13px;
+}
+
+.voice-wave span:nth-child(6n) {
+  height: 9px;
+}
+
+.voice-duration {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1;
+  opacity: 0.68;
+}
+
+.voice-play-button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.34);
+  color: currentColor;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+
+.voice-play-button:disabled {
+  opacity: 0.45;
+}
+
+.voice-loading-icon {
+  animation: chat-image-spin 0.8s linear infinite;
+}
+
+.voice-transcript {
+  width: fit-content;
+  max-width: min(100%, 260px);
+  margin: -1px 0 0;
+  padding: 7px 9px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #59606a;
+  box-shadow: 0 1px 0 rgba(17, 17, 17, 0.04);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.message-row.user .voice-transcript {
+  background: rgba(255, 255, 255, 0.68);
+  color: #3d4b42;
+}
+
+@keyframes voice-wave {
+  0%,
+  100% {
+    transform: scaleY(0.78);
+  }
+
+  50% {
+    transform: scaleY(1.16);
+  }
 }
 
 .quote-card {

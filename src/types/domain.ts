@@ -225,6 +225,25 @@ export interface ChatImageAttachment {
   height?: number;
 }
 
+export type ChatVoiceAttachmentSource = 'recorded' | 'text';
+
+export interface ChatVoiceAttachment {
+  source: ChatVoiceAttachmentSource;
+  transcript: string;
+  duration: number;
+  audioUrl?: string;
+  mimeType?: string;
+  ttsProvider?: 'minimax';
+  ttsVoiceId?: string;
+  ttsGeneratedAt?: number;
+}
+
+export interface ChatLocationAttachment {
+  name: string;
+  address?: string;
+  distance: string;
+}
+
 export interface ChatMessageQuote {
   messageId: string;
   sender: 'user' | 'char' | 'system';
@@ -232,6 +251,8 @@ export interface ChatMessageQuote {
   content: string;
   sticker?: ChatStickerAttachment;
   image?: ChatImageAttachment;
+  voice?: ChatVoiceAttachment;
+  location?: ChatLocationAttachment;
 }
 
 export interface ChatMessage {
@@ -248,6 +269,8 @@ export interface ChatMessage {
   voomEventType?: 'post' | 'like' | 'unlike' | 'comment' | 'reply';
   sticker?: ChatStickerAttachment;
   image?: ChatImageAttachment;
+  voice?: ChatVoiceAttachment;
+  location?: ChatLocationAttachment;
   quote?: ChatMessageQuote;
   replyBatchId?: string;
   status?: 'sending' | 'sent' | 'failed';
@@ -491,6 +514,24 @@ export interface GitHubBackupSettings {
   progress: GitHubBackupProgress;
 }
 
+export type MinimaxTtsAudioFormat = 'mp3' | 'wav' | 'pcm';
+
+export interface MinimaxTtsSettings {
+  enabled: boolean;
+  apiKey: string;
+  groupId: string;
+  apiUrl: string;
+  model: string;
+  voiceId: string;
+  speed: number;
+  volume: number;
+  pitch: number;
+  sampleRate: number;
+  bitrate: number;
+  audioFormat: MinimaxTtsAudioFormat;
+  channel: 1 | 2;
+}
+
 export interface AppSettings {
   activeUserId: string;
   apiEndpoint: string;
@@ -503,6 +544,7 @@ export interface AppSettings {
   ttsEnabled: boolean;
   ttsVoice: string;
   ttsPlaybackMode: 'manual' | 'auto';
+  ttsMinimax: MinimaxTtsSettings;
   imageModel: string;
   imageSize: string;
   imagePromptPrefix: string;
