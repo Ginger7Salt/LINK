@@ -1,5 +1,5 @@
 import type { ChatMode, PromptContext, WorldBookEntry, WorldBookLoreEntry } from '@/types/domain';
-import { renderTimeAwarenessPrompt } from '@/utils/timeAwareness';
+import { normalizeTimeAwarenessSettings, renderTimeAwarenessPrompt } from '@/utils/timeAwareness';
 
 export const baseRoleplayPrompt = `你是{{char}}。
 
@@ -237,6 +237,21 @@ const modeInstructions: Record<ChatMode, string> = {
   offline: '当前是线下模式。回复为长文本 RP，像小说章节一样呈现，并把你的私人生活推进、身体状态、社交圈与当下场景自然写进叙事。'
 };
 
+const promptMessageTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23'
+});
+
+function formatPromptMessageTime(timestamp: number) {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return '未知';
+  return promptMessageTimeFormatter.format(timestamp);
+}
+
 function getMessageText(message: Pick<PromptContext['messages'][number], 'content' | 'sender' | 'sticker' | 'image' | 'voice' | 'location' | 'transfer'>) {
   if (message.sticker) return `[Sticker] ${message.sticker.description}`;
   if (message.image) {
@@ -368,6 +383,7 @@ export function selectWorldBooks(context: PromptContext) {
 
 export function buildPrompt(context: PromptContext) {
   const selectedWorldBooks = selectWorldBooks(context);
+  const includeMessageTime = normalizeTimeAwarenessSettings(context.timeAwareness).enabled;
   const timeAwarenessPrompt = renderTimeAwarenessPrompt(context.timeAwareness, {
     userName: context.boundUser.name || context.user.name
   });
@@ -386,7 +402,8 @@ export function buildPrompt(context: PromptContext) {
       const visualText = message.sticker
         ? `${messageText}${context.stickerVisionEnabled ? '（已随请求附带图片，可直接识图）' : '（识图关闭，仅可读取文字描述）'}`
         : messageText;
-      return `[${message.id}] ${speaker}: ${quoteText}${visualText}`;
+      const sentAtText = includeMessageTime ? `（发送时间：${formatPromptMessageTime(message.createdAt)}）` : '';
+      return `[${message.id}] ${speaker}${sentAtText}: ${quoteText}${visualText}`;
     })
     .join('\n');
 
