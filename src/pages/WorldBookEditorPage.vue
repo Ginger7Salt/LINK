@@ -27,7 +27,8 @@
             <section v-if="editorTab === 'cover'" class="editor-pane cover-pane">
               <section class="cover-editor">
                 <div class="editor-cover-frame">
-                  <img class="editor-cover" :src="draftCoverImage" alt="世界书封面预览" />
+                  <img v-if="!isBrokenCoverImage(draftCoverImage)" class="editor-cover" :src="draftCoverImage" alt="世界书封面预览" @error="markBrokenCoverImage(draftCoverImage)" />
+                  <span v-else class="editor-cover-fallback">{{ getCoverDescription() || '世界书封面预览' }}</span>
                 </div>
                 <div class="cover-tools">
                   <div class="cover-source-grid">
@@ -254,6 +255,7 @@ const activeEntryIndex = ref(0);
 const draftError = ref('');
 const showDeleteConfirm = ref(false);
 const isDeletingWorldBook = ref(false);
+const brokenCoverImages = ref<string[]>([]);
 const draft = reactive(createDraft());
 const isRestoringDraft = ref(false);
 const isLoaded = ref(false);
@@ -556,6 +558,7 @@ function getCoverSizeLabel(provider: ImageProviderType) {
 }
 
 async function generateCover() {
+  if (coverState.value === 'loading') return;
   const selectedModel = getSelectedImageModelOption(currentSettings.value, 'worldBook');
   if (!selectedModel) {
     coverState.value = 'error';
@@ -593,6 +596,7 @@ async function generateCover() {
 
   try {
     const result = await generateImageByProvider(provider, imageSettings, imageOverrides);
+    clearBrokenCoverImage(result.imageUrl);
     draft.coverImage = result.imageUrl;
     draft.coverProvider = result.provider;
     await store.addGeneratedImage({
@@ -616,10 +620,29 @@ async function generateCover() {
 async function readCoverImage(event: Event) {
   const image = await readImageFileFromInput(event);
   if (!image) return;
+  clearBrokenCoverImage(image);
   draft.coverImage = image;
   draft.coverProvider = '';
   coverState.value = 'success';
   coverFeedback.value = '本地封面已载入，并会自动保存到这本世界书。';
+}
+
+function isBrokenCoverImage(imageUrl: string | undefined) {
+  return Boolean(imageUrl && brokenCoverImages.value.includes(imageUrl));
+}
+
+function markBrokenCoverImage(imageUrl: string | undefined) {
+  if (!imageUrl || brokenCoverImages.value.includes(imageUrl)) return;
+  brokenCoverImages.value = [...brokenCoverImages.value, imageUrl];
+  if (draft.coverImage.trim() === imageUrl) {
+    coverState.value = 'error';
+    coverFeedback.value = '封面图片加载失败，已显示文字封面。请重新生成、上传本地封面，或更换可访问的图片地址。';
+  }
+}
+
+function clearBrokenCoverImage(imageUrl: string | undefined) {
+  if (!imageUrl) return;
+  brokenCoverImages.value = brokenCoverImages.value.filter((item) => item !== imageUrl);
 }
 
 watch(
@@ -943,11 +966,24 @@ watch(draft, scheduleAutoSave, { deep: true });
 }
 
 .editor-cover-frame {
+  display: grid;
+  place-items: center;
   aspect-ratio: 0.68;
   overflow: hidden;
   border-radius: 16px 21px 21px 16px;
   background: linear-gradient(180deg, #f0f4f2, #e4ebe6);
   box-shadow: inset 8px 0 12px rgba(72, 84, 77, 0.1), 0 16px 28px rgba(16, 24, 20, 0.1);
+}
+
+.editor-cover-fallback {
+  max-width: 100%;
+  padding: 18px;
+  color: #24302a;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.55;
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .editor-cover {

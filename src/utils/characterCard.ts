@@ -55,7 +55,12 @@ function decodeBase64Utf8(value: string) {
 }
 
 function toDicebearAvatar(seed: string) {
-  return `https://api.dicebear.com/9.x/thumbs/svg?seed=${encodeURIComponent(seed || 'NewFriend')}&backgroundColor=f2f2f2`;
+  const label = (seed.trim() || 'NewFriend')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+  return `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><rect width="128" height="128" rx="32" fill="#f2f2f2"/><circle cx="64" cy="50" r="24" fill="#111" opacity=".82"/><path d="M28 108c8-22 24-34 36-34s28 12 36 34" fill="#111" opacity=".82"/><text x="64" y="121" text-anchor="middle" font-size="12" font-family="Arial, sans-serif" fill="#666">${label}</text></svg>`)}`;
 }
 
 function collectDescriptionSections(source: Record<string, unknown>) {

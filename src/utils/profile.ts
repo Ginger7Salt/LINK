@@ -20,12 +20,15 @@ type VisualProfileOwner = Partial<Pick<UserProfile, 'id' | 'nickname' | 'name' |
 
 const legacySeanAvatar = 'https://api.dicebear.com/9.x/thumbs/svg?seed=Sean&backgroundColor=06c755';
 const legacyMomoAvatar = 'https://api.dicebear.com/9.x/thumbs/svg?seed=momo&backgroundColor=f2f2f2';
+const legacyMomoGreenAvatar = 'https://api.dicebear.com/9.x/thumbs/svg?seed=momo&backgroundColor=06c755';
+const legacyNewUserAvatar = 'https://api.dicebear.com/9.x/thumbs/svg?seed=NewUser&backgroundColor=f2f2f2';
 const legacySvgAvatar = '/src/assets/profile/momo-avatar.svg';
 const legacySvgBackground = '/src/assets/profile/momo-background.svg';
 const legacyPhotoBackground = 'https://images.unsplash.com/photo-1517154421773-0529f29ea451?auto=format&fit=crop&w=1200&q=80';
 const legacyMomentToday = 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=500&q=80';
 const legacySvgMomentToday = '/src/assets/profile/momo-moment-today.svg';
-const fallbackAvatar = momoAvatar;
+export const defaultProfileAvatar = momoAvatar;
+const fallbackAvatar = defaultProfileAvatar;
 const fallbackBackground = momoBackground;
 const legacyProfileBio = 'link to your excutive character';
 const defaultProfileBio = 'link with your exclusive Char';
@@ -87,13 +90,21 @@ function isBundledProfileImage(image: string, assetName: string) {
   return !image || image.includes(`src/assets/profile/${assetName}.svg`) || image.includes(`src/assets/profile/${assetName}.png`);
 }
 
+function normalizeProfileAvatar(avatar: string | undefined) {
+  const trimmed = avatar?.trim() ?? '';
+  return ['', legacySeanAvatar, legacyMomoAvatar, legacyMomoGreenAvatar, legacyNewUserAvatar, legacySvgAvatar].includes(trimmed)
+    || isBundledProfileImage(trimmed, 'momo-avatar')
+    ? fallbackAvatar
+    : trimmed;
+}
+
 function withPngProfileAssets(profile: VisualProfile): VisualProfile {
   const fallback = createVisualProfile();
   const momentsById = new Map(profile.moments.map((moment) => [moment.id, moment]));
 
   return {
     ...profile,
-    avatar: profile.avatar === legacySeanAvatar || profile.avatar === legacyMomoAvatar || profile.avatar === legacySvgAvatar || isBundledProfileImage(profile.avatar, 'momo-avatar') ? fallbackAvatar : profile.avatar,
+    avatar: normalizeProfileAvatar(profile.avatar),
     backgroundImage: profile.backgroundImage === legacyPhotoBackground || profile.backgroundImage === legacySvgBackground || profile.backgroundImage === momoMomentPost || isBundledProfileImage(profile.backgroundImage, 'momo-background') ? fallbackBackground : profile.backgroundImage,
     highlights: profile.highlights.map((highlight) => {
       const image = defaultHighlightImages.get(highlight.id);
@@ -177,7 +188,7 @@ function isLegacyDefaultVisualProfile(profile: Partial<VisualProfile> | undefine
   const legacyNicknames = new Set(['', 'Sean', 'momo', 'Linker']);
   const legacyHandles = new Set(['', 'user.0001', 'momo.zip', 'linker.app']);
   const legacyBios = new Set(['', '在线', 'Im sean :-) I love my life', legacyProfileBio, defaultProfileBio]);
-  const legacyAvatars = new Set(['', legacySeanAvatar, legacyMomoAvatar, legacySvgAvatar, fallbackAvatar]);
+  const legacyAvatars = new Set(['', legacySeanAvatar, legacyMomoAvatar, legacyMomoGreenAvatar, legacyNewUserAvatar, legacySvgAvatar, fallbackAvatar]);
   const legacyBackgrounds = new Set(['', legacyPhotoBackground, legacySvgBackground, momoMomentPost, fallbackBackground]);
   const tagsAreDefault = !profile.tags || profile.tags.join(',') === 'daily,film,cafe';
   const chipsAreDefault = !profile.chips || ['seoul,cafe day,film', 'private link,exclusive char,signal room'].includes(profile.chips.join(','));
@@ -255,16 +266,18 @@ export function normalizeUserProfile(user: UserProfile): UserProfile {
   const profile = isLegacyDefaultUser(user) && isLegacyDefaultVisualProfile(user.profile)
     ? createDefaultLinkerProfile()
     : normalizeVisualProfile(user.profile, user);
+  const avatar = normalizeProfileAvatar(user.avatar) || profile.avatar;
 
   return {
     ...user,
+    avatar,
     nickname: user.nickname?.trim() || user.name,
     signature: user.signature?.trim() || defaultProfileBio,
     boundCharacterIds: Array.isArray(user.boundCharacterIds) ? [...new Set(user.boundCharacterIds.filter(Boolean))] : [],
     profile: {
       ...profile,
       nickname: user.nickname?.trim() || user.name,
-      avatar: user.avatar?.trim() || profile.avatar,
+      avatar,
       bio: user.signature?.trim() || profile.bio
     }
   };

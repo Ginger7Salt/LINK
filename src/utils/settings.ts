@@ -603,10 +603,31 @@ function buildOpenAiImageEndpoint(apiUrl: string, apiPath: string) {
   const normalizedApiUrl = apiUrl.trim().replace(/\/+$/, '');
   const normalizedPath = normalizeOpenAiImagePath(apiPath);
   const endpoint = `${normalizedApiUrl}${normalizedPath}`;
-  if (import.meta.env.DEV && /^https?:\/\//i.test(normalizedApiUrl)) {
+  if (canUseLocalImageProxy() && /^https?:\/\//i.test(normalizedApiUrl)) {
     return `/__image-proxy?url=${encodeURIComponent(endpoint)}`;
   }
   return endpoint;
+}
+
+function isLocalProxyHostname(hostname: string) {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized === 'localhost'
+    || normalized.endsWith('.localhost')
+    || normalized === '127.0.0.1'
+    || normalized === '0.0.0.0'
+    || normalized === '::1'
+    || normalized === '[::1]'
+    || /^10\./.test(normalized)
+    || /^192\.168\./.test(normalized)
+    || /^172\.(1[6-9]|2\d|3[01])\./.test(normalized)
+    || /^169\.254\./.test(normalized);
+}
+
+function canUseLocalImageProxy() {
+  if (import.meta.env.DEV) return true;
+  if (typeof window === 'undefined') return false;
+  if (!['http:', 'https:'].includes(window.location.protocol)) return false;
+  return isLocalProxyHostname(window.location.hostname);
 }
 
 function normalizeOpenAiImagePath(apiPath: unknown) {

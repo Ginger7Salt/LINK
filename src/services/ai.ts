@@ -150,7 +150,7 @@ function normalizeBaseUrl(url: string) {
 
 function createImageDownloadUrl(url: string) {
   const trimmed = url.trim();
-  if (import.meta.env.DEV && /^https?:\/\//i.test(trimmed)) {
+  if (canUseLocalTextProxy() && /^https?:\/\//i.test(trimmed)) {
     return `/__image-download?url=${encodeURIComponent(trimmed)}`;
   }
   return trimmed;
@@ -555,18 +555,20 @@ async function localizeGeneratedImageUrl(imageUrl: string, fallbackMimeType = 'i
     const response = await fetch(createImageDownloadUrl(trimmed), {
       headers: { Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8' }
     });
-    if (!response.ok) return trimmed;
+    if (!response.ok) {
+      throw new Error(`图片下载代理返回 ${formatHttpStatus(response) || '请求失败'}`);
+    }
 
     const contentType = response.headers.get('content-type')?.split(';')[0]?.trim() ?? '';
     const downloadedBlob = await response.blob();
-    if (!downloadedBlob.size) return trimmed;
+    if (!downloadedBlob.size) throw new Error('图片下载结果为空。');
 
     const mimeType = normalizeImageMimeType(downloadedBlob.type || contentType || inferImageMimeType(trimmed, fallbackMimeType), fallbackMimeType);
-    if (!mimeType.startsWith('image/')) return trimmed;
+    if (!mimeType.startsWith('image/')) throw new Error(`图片下载返回了非图片内容：${mimeType}`);
 
     return readBlobAsDataUrl(downloadedBlob.type ? downloadedBlob : new Blob([downloadedBlob], { type: mimeType }));
-  } catch {
-    return trimmed;
+  } catch (error) {
+    throw new Error(`OpenAI 图片接口返回了远程图片地址，但本地化下载失败：${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

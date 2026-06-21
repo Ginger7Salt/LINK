@@ -1,5 +1,5 @@
 import type { AppSettings, CharacterProfile, ChatMessage, Conversation, Sticker, StickerGroup, UserProfile, VoomPost, WorldBookEntry } from '@/types/domain';
-import { createVisualProfile } from '@/utils/profile';
+import { createVisualProfile, defaultProfileAvatar } from '@/utils/profile';
 
 const now = Date.now();
 
@@ -8,7 +8,7 @@ export const defaultUsers: UserProfile[] = [
     id: '1008600001',
     nickname: 'Linker',
     name: 'momo',
-    avatar: 'https://api.dicebear.com/9.x/thumbs/svg?seed=momo&backgroundColor=06c755',
+    avatar: defaultProfileAvatar,
     description: '该用户很懒，什么也没留下',
     signature: 'link to your excutive character',
     boundCharacterIds: [],

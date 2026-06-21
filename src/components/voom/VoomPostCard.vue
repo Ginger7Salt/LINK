@@ -26,8 +26,8 @@
       </div>
     </header>
     <p>{{ postDisplayContent }}</p>
-    <figure class="post-visual" :class="{ mock: !post.image }" :style="visualStyle" @click="openVisualModal">
-      <img v-if="post.image" :src="post.image" :alt="post.imageDescription || post.content" />
+    <figure class="post-visual" :class="{ mock: !post.image || isBrokenImageSource(post.image) }" :style="visualStyle" @click="openVisualModal">
+      <img v-if="post.image && !isBrokenImageSource(post.image)" :src="post.image" :alt="post.imageDescription || post.content" @error="markBrokenImageSource(post.image)" />
       <figcaption v-else>{{ visualDescription }}</figcaption>
     </figure>
     <footer>
@@ -64,7 +64,8 @@
       <section class="visual-viewer" :class="{ flipped: visualFlipped }" :style="visualStyle">
         <button class="visual-flip-card" type="button" @click="toggleVisualFlip">
           <span class="visual-face visual-image-face">
-            <img :src="modalImageSrc" :alt="selectedVisualDescription" />
+            <img v-if="modalImageSrc && !isBrokenImageSource(modalImageSrc)" :src="modalImageSrc" :alt="selectedVisualDescription" @error="markBrokenImageSource(modalImageSrc)" />
+            <span v-else>{{ selectedVisualDescription }}</span>
           </span>
           <span class="visual-face visual-text-face">
             <span>{{ descriptionDraft || selectedVisualDescription }}</span>
@@ -81,7 +82,7 @@
             :aria-label="`查看配图 ${index + 1}`"
             @click="selectCandidate(candidate.id)"
           >
-            <img :src="candidate.image" :alt="candidate.description || 'VOOM 配图'" />
+            <img :src="candidate.image" :alt="candidate.description || 'VOOM 配图'" @error="markBrokenImageSource(candidate.image)" />
           </button>
         </div>
 
@@ -92,14 +93,14 @@
 
         <div class="visual-actions">
           <button class="visual-secondary" type="button" @click="toggleVisualFlip">翻转</button>
-          <button v-if="visualCandidates.length" class="visual-secondary" type="button" :disabled="!canApplySelectedCandidate" @click="applySelectedCandidate">应用</button>
+          <button v-if="visualCandidates.length" class="visual-secondary" type="button" :disabled="regeneratingImage || !canApplySelectedCandidate" @click="applySelectedCandidate">应用</button>
           <button
             v-if="canRegenerateImage"
             class="visual-primary"
             type="button"
             :class="{ busy: regeneratingImage }"
             :aria-disabled="regeneratingImage"
-            :disabled="!descriptionDraft.trim()"
+            :disabled="regeneratingImage || !descriptionDraft.trim()"
             @click="regenerateImage"
           >
             <LoaderCircle v-if="regeneratingImage" class="loading-icon" :size="15" />
@@ -145,6 +146,7 @@ const showVisualModal = ref(false);
 const visualFlipped = ref(false);
 const descriptionDraft = ref('');
 const selectedCandidateId = ref('');
+const brokenImageSources = ref<string[]>([]);
 const lastCandidateCount = ref(0);
 const busyReminderShown = ref(false);
 const composerRef = ref<HTMLElement | null>(null);
@@ -160,7 +162,7 @@ const replyTarget = computed(() => props.post.comments.find((comment) => comment
 const commentPlaceholder = computed(() => replyTarget.value ? `回复 ${replyTarget.value.authorName}` : '评论这条 VOOM');
 const visualDescription = computed(() => props.post.imageDescription || '配图描述暂未保存。');
 const visualCandidates = computed(() => {
-  const candidates = [...(props.post.imageCandidates ?? [])].filter((candidate) => candidate.image && candidate.image !== '/load.jpg');
+  const candidates = [...(props.post.imageCandidates ?? [])].filter((candidate) => candidate.image && candidate.image !== '/load.jpg' && !isBrokenImageSource(candidate.image));
   if (props.post.image && props.post.image !== '/load.jpg' && !candidates.some((candidate) => candidate.image === props.post.image)) {
     candidates.unshift({
       id: `${props.post.id}-current-image`,
@@ -217,12 +219,25 @@ function selectCandidate(candidateId: string) {
 }
 
 function applySelectedCandidate() {
+  if (props.regeneratingImage) {
+    emit('busy-action', '正在重新生成 VOOM 配图，请等待当前生成完成。', '正在生成');
+    return;
+  }
   if (!selectedCandidate.value || !canApplySelectedCandidate.value) return;
   emit('apply-image', props.post.id, selectedCandidate.value.id);
 }
 
 function toggleVisualFlip() {
   visualFlipped.value = !visualFlipped.value;
+}
+
+function isBrokenImageSource(source: string | undefined) {
+  return Boolean(source && brokenImageSources.value.includes(source));
+}
+
+function markBrokenImageSource(source: string | undefined) {
+  if (!source || brokenImageSources.value.includes(source)) return;
+  brokenImageSources.value = [...brokenImageSources.value, source];
 }
 
 function regenerateImage() {

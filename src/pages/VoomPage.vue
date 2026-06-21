@@ -62,6 +62,7 @@
       :replying-thread="store.isReplyingVoomComments(post.id)"
       @comment="handleComment"
       @regenerate-image="handleRegenerateImage"
+      @apply-image="handleApplyImageCandidate"
       @busy-action="store.showConfigAlert"
       @reply-thread="store.replyToVoomComments"
       @toggle-like="store.toggleVoomLike"
@@ -445,6 +446,14 @@ async function handleRegenerateImage(postId: string, description: string) {
   } finally {
     regeneratingImagePostIds.value = regeneratingImagePostIds.value.filter((id) => id !== postId);
   }
+}
+
+async function handleApplyImageCandidate(postId: string, candidateId: string) {
+  if (regeneratingImagePostIds.value.includes(postId)) {
+    store.showConfigAlert('正在重新生成 VOOM 配图，请等待当前生成完成。', '正在生成');
+    return;
+  }
+  await store.applyVoomPostImageCandidate(postId, candidateId);
 }
 
 function requestDeleteVoomPost(postId: string) {

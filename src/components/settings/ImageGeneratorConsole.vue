@@ -16,7 +16,7 @@
     <section class="module-list">
       <article v-for="module in visibleModules" :key="module.id" class="module-card">
         <div class="module-preview-shell">
-          <img v-if="module.preview" class="module-preview" :src="module.preview" :alt="module.title" />
+          <img v-if="module.preview && !isBrokenPreview(module.preview)" class="module-preview" :src="module.preview" :alt="module.title" @error="markBrokenPreview(module.preview)" />
           <div v-else class="module-preview module-preview-placeholder" :class="`placeholder-${module.id}`">
             <span>{{ module.placeholder }}</span>
           </div>
@@ -65,6 +65,7 @@ const emit = defineEmits<{
 const router = useRouter();
 const draft = ref<AppSettings>(normalizeAppSettings(props.settings));
 const activeModule = ref<ImageModuleId>('openai');
+const brokenPreviewUrls = ref<string[]>([]);
 
 watch(
   () => props.settings,
@@ -128,6 +129,15 @@ function openGallery(moduleId: ImageModuleId) {
 
 function setActiveModule(moduleId: ImageModuleId) {
   activeModule.value = moduleId;
+}
+
+function isBrokenPreview(imageUrl: string | undefined) {
+  return Boolean(imageUrl && brokenPreviewUrls.value.includes(imageUrl));
+}
+
+function markBrokenPreview(imageUrl: string | undefined) {
+  if (!imageUrl || brokenPreviewUrls.value.includes(imageUrl)) return;
+  brokenPreviewUrls.value = [...brokenPreviewUrls.value, imageUrl];
 }
 
 function submitSettings() {

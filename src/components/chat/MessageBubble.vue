@@ -23,8 +23,8 @@
           </template>
           <template v-else-if="message.image">
             <figure class="chat-image-card" :class="[`chat-image-card--${message.image.kind}`, { interactive: message.sender === 'char' }]" :style="imageCardStyle" @click="handleImageCardClick">
-              <img v-if="message.image.url" :src="message.image.url" :alt="message.image.description" />
-              <figcaption v-if="message.image.kind === 'description'">{{ message.image.description }}</figcaption>
+              <img v-if="message.image.url && !isBrokenImageSource(message.image.url)" :src="message.image.url" :alt="message.image.description" @error="markBrokenImageSource(message.image.url)" />
+              <figcaption v-if="message.image.kind === 'description' || isBrokenImageSource(message.image.url)">{{ message.image.description }}</figcaption>
             </figure>
           </template>
           <template v-else-if="message.voice">
@@ -92,7 +92,7 @@
     <section class="image-viewer" :class="{ flipped: imageFlipped }" :style="imageViewerStyle">
       <button class="image-flip-card" type="button" @click="toggleImageFlip">
         <span class="image-face image-picture-face">
-          <img v-if="modalImageSrc" :src="modalImageSrc" :alt="selectedImageDescription" />
+          <img v-if="modalImageSrc && !isBrokenImageSource(modalImageSrc)" :src="modalImageSrc" :alt="selectedImageDescription" @error="markBrokenImageSource(modalImageSrc)" />
           <span v-else>{{ selectedImageDescription }}</span>
         </span>
         <span class="image-face image-text-face">
@@ -110,7 +110,7 @@
           :aria-label="`查看图片 ${index + 1}`"
           @click="selectCandidate(candidate.id)"
         >
-          <img :src="candidate.image" :alt="candidate.description || '聊天图片'" />
+          <img :src="candidate.image" :alt="candidate.description || '聊天图片'" @error="markBrokenImageSource(candidate.image)" />
         </button>
       </div>
 
@@ -121,14 +121,14 @@
 
       <div class="image-actions">
         <button class="image-secondary" type="button" @click="toggleImageFlip">翻转</button>
-        <button v-if="imageCandidates.length" class="image-secondary" type="button" :disabled="!canApplySelectedCandidate" @click="applySelectedCandidate">应用</button>
+        <button v-if="imageCandidates.length" class="image-secondary" type="button" :disabled="regeneratingImage || !canApplySelectedCandidate" @click="applySelectedCandidate">应用</button>
         <button
           v-if="canRegenerateImage"
           class="image-primary"
           type="button"
           :class="{ busy: regeneratingImage }"
           :aria-disabled="regeneratingImage"
-          :disabled="!imageDescriptionDraft.trim()"
+          :disabled="regeneratingImage || !imageDescriptionDraft.trim()"
           @click="regenerateImage"
         >
           <LoaderCircle v-if="regeneratingImage" class="loading-icon" :size="15" />
@@ -189,6 +189,7 @@ const showImageModal = ref(false);
 const imageFlipped = ref(false);
 const imageDescriptionDraft = ref('');
 const selectedCandidateId = ref('');
+const brokenImageSources = ref<string[]>([]);
 const playingVoice = ref(false);
 const showVoiceTranscript = ref(true);
 const voiceLoading = ref(false);
@@ -323,7 +324,7 @@ const imageCardStyle = computed(() => {
 
 const imageCandidates = computed<ChatImageCandidate[]>(() => {
   const image = props.message.image;
-  const candidates = [...(image?.candidates ?? [])].filter((candidate) => candidate.image);
+  const candidates = [...(image?.candidates ?? [])].filter((candidate) => candidate.image && !isBrokenImageSource(candidate.image));
   if (image?.url && !candidates.some((candidate) => candidate.image === image.url)) {
     candidates.unshift({
       id: `${props.message.id}-current-image`,
@@ -528,6 +529,15 @@ function toggleImageFlip() {
   imageFlipped.value = !imageFlipped.value;
 }
 
+function isBrokenImageSource(source: string | undefined) {
+  return Boolean(source && brokenImageSources.value.includes(source));
+}
+
+function markBrokenImageSource(source: string | undefined) {
+  if (!source || brokenImageSources.value.includes(source)) return;
+  brokenImageSources.value = [...brokenImageSources.value, source];
+}
+
 function regenerateImage() {
   const description = imageDescriptionDraft.value.trim();
   if (!description) return;
@@ -540,6 +550,10 @@ function regenerateImage() {
 }
 
 function applySelectedCandidate() {
+  if (props.regeneratingImage) {
+    emit('busy-action', '正在重新生成聊天图片，请等待当前生成完成。', '正在生成');
+    return;
+  }
   if (!selectedCandidate.value || !canApplySelectedCandidate.value) return;
   emit('apply-image', props.message.id, selectedCandidate.value.id);
 }

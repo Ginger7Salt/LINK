@@ -128,7 +128,7 @@ import type { CharacterProfile, UserProfile } from '@/types/domain';
 import { getCharacterDisplayName } from '@/utils/character';
 import { createAccountId } from '@/utils/id';
 import { readImageFileFromInput } from '@/utils/imageFile';
-import { normalizeUserProfile } from '@/utils/profile';
+import { defaultProfileAvatar, normalizeUserProfile } from '@/utils/profile';
 
 const props = defineProps<{
   accounts: UserProfile[];
@@ -209,14 +209,14 @@ function createAccount() {
     id: createAccountId(),
     nickname: 'new.account',
     name: 'New User',
-    avatar: 'https://api.dicebear.com/9.x/thumbs/svg?seed=NewUser&backgroundColor=f2f2f2',
+    avatar: defaultProfileAvatar,
     description: '在这里写这个账号希望被角色读到的用户设定。',
     signature: 'new signal online',
     boundCharacterIds: [],
     profile: props.accounts[0]?.profile ?? {
       nickname: 'new.account',
       handle: 'new.account',
-      avatar: 'https://api.dicebear.com/9.x/thumbs/svg?seed=NewUser&backgroundColor=f2f2f2',
+      avatar: defaultProfileAvatar,
       bio: 'new signal online',
       backgroundImage: '',
       location: 'Seoul / Shanghai',

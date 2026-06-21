@@ -113,6 +113,106 @@ function registerTextProxyMiddleware(middlewares: LinkProxyMiddlewares) {
   });
 }
 
+function registerImageProxyMiddleware(middlewares: LinkProxyMiddlewares) {
+  middlewares.use(imageProxyPath, async (request, response) => {
+    if (request.method === 'OPTIONS') {
+      response.statusCode = 204;
+      response.end();
+      return;
+    }
+
+    if (request.method !== 'POST') {
+      sendProxyError(response, 405, 'Image proxy only supports POST requests.');
+      return;
+    }
+
+    const requestUrl = new URL(request.url ?? '', 'http://localhost');
+    const target = requestUrl.searchParams.get('url')?.trim() ?? '';
+
+    let targetUrl: URL;
+    try {
+      targetUrl = new URL(target);
+    } catch {
+      sendProxyError(response, 400, 'Image proxy target URL is invalid.');
+      return;
+    }
+
+    if (!['http:', 'https:'].includes(targetUrl.protocol)) {
+      sendProxyError(response, 400, 'Image proxy target URL must use http or https.');
+      return;
+    }
+
+    try {
+      const headers = new Headers();
+      const contentType = getForwardHeader(request, 'content-type');
+      const authorization = getForwardHeader(request, 'authorization');
+      const accept = getForwardHeader(request, 'accept');
+      if (contentType) headers.set('Content-Type', contentType);
+      if (authorization) headers.set('Authorization', authorization);
+      if (accept) headers.set('Accept', accept);
+
+      const upstreamResponse = await fetch(targetUrl, {
+        method: 'POST',
+        headers,
+        body: await readRequestBody(request)
+      });
+
+      response.statusCode = upstreamResponse.status;
+      response.statusMessage = upstreamResponse.statusText;
+      response.setHeader('X-Link-Proxy-Target-Host', targetUrl.host);
+      const upstreamContentType = upstreamResponse.headers.get('content-type');
+      if (upstreamContentType) response.setHeader('Content-Type', upstreamContentType);
+      response.end(Buffer.from(await upstreamResponse.arrayBuffer()));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      response.setHeader('X-Link-Proxy-Error', 'upstream_unreachable');
+      sendProxyError(response, 502, `OpenAI-compatible image proxy request failed: ${message}`);
+    }
+  });
+}
+
+function registerImageDownloadMiddleware(middlewares: LinkProxyMiddlewares) {
+  middlewares.use(imageDownloadPath, async (request, response) => {
+    if (request.method !== 'GET') {
+      sendProxyError(response, 405, 'Image download proxy only supports GET requests.');
+      return;
+    }
+
+    const requestUrl = new URL(request.url ?? '', 'http://localhost');
+    const target = requestUrl.searchParams.get('url')?.trim() ?? '';
+    let targetUrl: URL;
+    try {
+      targetUrl = new URL(target);
+    } catch {
+      sendProxyError(response, 400, 'Image download target URL is invalid.');
+      return;
+    }
+
+    if (!['http:', 'https:'].includes(targetUrl.protocol)) {
+      sendProxyError(response, 400, 'Image download target URL must use http or https.');
+      return;
+    }
+
+    try {
+      const upstreamResponse = await fetch(targetUrl, { method: 'GET' });
+      response.statusCode = upstreamResponse.status;
+      response.statusMessage = upstreamResponse.statusText;
+      const upstreamContentType = upstreamResponse.headers.get('content-type');
+      if (upstreamContentType) response.setHeader('Content-Type', upstreamContentType);
+      response.end(Buffer.from(await upstreamResponse.arrayBuffer()));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      sendProxyError(response, 502, `Image download proxy request failed: ${message}`);
+    }
+  });
+}
+
+function registerOpenAiCompatibleMiddlewares(middlewares: LinkProxyMiddlewares) {
+  registerTextProxyMiddleware(middlewares);
+  registerImageProxyMiddleware(middlewares);
+  registerImageDownloadMiddleware(middlewares);
+}
+
 export default defineConfig({
   base,
   server: {
@@ -131,66 +231,10 @@ export default defineConfig({
     {
       name: 'link-openai-compatible-dev-proxy',
       configurePreviewServer(server) {
-        registerTextProxyMiddleware(server.middlewares);
+        registerOpenAiCompatibleMiddlewares(server.middlewares);
       },
       configureServer(server) {
-        registerTextProxyMiddleware(server.middlewares);
-
-        server.middlewares.use(imageProxyPath, async (request, response) => {
-          if (request.method === 'OPTIONS') {
-            response.statusCode = 204;
-            response.end();
-            return;
-          }
-
-          if (request.method !== 'POST') {
-            sendProxyError(response, 405, 'Image proxy only supports POST requests.');
-            return;
-          }
-
-          const requestUrl = new URL(request.url ?? '', 'http://localhost');
-          const target = requestUrl.searchParams.get('url')?.trim() ?? '';
-
-          let targetUrl: URL;
-          try {
-            targetUrl = new URL(target);
-          } catch {
-            sendProxyError(response, 400, 'Image proxy target URL is invalid.');
-            return;
-          }
-
-          if (!['http:', 'https:'].includes(targetUrl.protocol)) {
-            sendProxyError(response, 400, 'Image proxy target URL must use http or https.');
-            return;
-          }
-
-          try {
-            const headers = new Headers();
-            const contentType = getForwardHeader(request, 'content-type');
-            const authorization = getForwardHeader(request, 'authorization');
-            const accept = getForwardHeader(request, 'accept');
-            if (contentType) headers.set('Content-Type', contentType);
-            if (authorization) headers.set('Authorization', authorization);
-            if (accept) headers.set('Accept', accept);
-
-            const upstreamResponse = await fetch(targetUrl, {
-              method: 'POST',
-              headers,
-              body: await readRequestBody(request)
-            });
-
-            response.statusCode = upstreamResponse.status;
-            response.statusMessage = upstreamResponse.statusText;
-            response.setHeader('X-Link-Proxy-Target-Host', targetUrl.host);
-            const upstreamContentType = upstreamResponse.headers.get('content-type');
-            if (upstreamContentType) response.setHeader('Content-Type', upstreamContentType);
-            response.end(Buffer.from(await upstreamResponse.arrayBuffer()));
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            response.setHeader('X-Link-Proxy-Error', 'upstream_unreachable');
-            sendProxyError(response, 502, `OpenAI-compatible image proxy request failed: ${message}`);
-          }
-        });
+        registerOpenAiCompatibleMiddlewares(server.middlewares);
 
         server.middlewares.use(openAiImageGeneratePath, async (request, response) => {
           if (request.method === 'OPTIONS') {
@@ -322,39 +366,6 @@ export default defineConfig({
           }
         });
 
-        server.middlewares.use(imageDownloadPath, async (request, response) => {
-          if (request.method !== 'GET') {
-            sendProxyError(response, 405, 'Image download proxy only supports GET requests.');
-            return;
-          }
-
-          const requestUrl = new URL(request.url ?? '', 'http://localhost');
-          const target = requestUrl.searchParams.get('url')?.trim() ?? '';
-          let targetUrl: URL;
-          try {
-            targetUrl = new URL(target);
-          } catch {
-            sendProxyError(response, 400, 'Image download target URL is invalid.');
-            return;
-          }
-
-          if (!['http:', 'https:'].includes(targetUrl.protocol)) {
-            sendProxyError(response, 400, 'Image download target URL must use http or https.');
-            return;
-          }
-
-          try {
-            const upstreamResponse = await fetch(targetUrl, { method: 'GET' });
-            response.statusCode = upstreamResponse.status;
-            response.statusMessage = upstreamResponse.statusText;
-            const upstreamContentType = upstreamResponse.headers.get('content-type');
-            if (upstreamContentType) response.setHeader('Content-Type', upstreamContentType);
-            response.end(Buffer.from(await upstreamResponse.arrayBuffer()));
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            sendProxyError(response, 502, `Image download proxy request failed: ${message}`);
-          }
-        });
       }
     },
     vue(),

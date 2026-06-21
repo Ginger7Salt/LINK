@@ -39,6 +39,8 @@ export const useAppStore = defineStore('app', () => {
   let githubBackupRunning = false;
   const summarizingConversationRanges = new Set<string>();
   const generatingMomentConversationIds = new Set<string>();
+  const regeneratingChatImageMessageIds = new Set<string>();
+  const regeneratingVoomImagePostIds = new Set<string>();
   const replyingConversationIds = ref<string[]>([]);
   const loadingReply = computed(() => replyingConversationIds.value.length > 0);
   const replyingVoomCommentPostIds = ref<string[]>([]);
@@ -1692,6 +1694,19 @@ export const useAppStore = defineStore('app', () => {
     return normalizedRecord;
   }
 
+  async function updateGeneratedImageUrl(imageId: string, imageUrl: string) {
+    const normalizedImageId = imageId.trim();
+    const normalizedImageUrl = imageUrl.trim();
+    if (!normalizedImageId || !normalizedImageUrl) return null;
+    const imageIndex = generatedImages.value.findIndex((entry) => entry.id === normalizedImageId);
+    if (imageIndex < 0) return null;
+    const nextRecord = normalizeGeneratedImages([{ ...generatedImages.value[imageIndex], imageUrl: normalizedImageUrl }])[0];
+    if (!nextRecord) return null;
+    generatedImages.value[imageIndex] = nextRecord;
+    await putEntity('generatedImages', nextRecord);
+    return nextRecord;
+  }
+
   async function deleteGeneratedImage(imageId: string) {
     generatedImages.value = generatedImages.value.filter((entry) => entry.id !== imageId);
     await deleteEntity('generatedImages', imageId);
@@ -3044,39 +3059,57 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function regenerateChatMessageImage(messageId: string, description: string) {
+    const normalizedMessageId = messageId.trim();
     const imageDescription = description.trim();
-    const existingMessage = messages.value.find((message) => message.id === messageId);
+    if (regeneratingChatImageMessageIds.has(normalizedMessageId)) {
+      showConfigAlert('正在重新生成聊天图片，请等待当前生成完成。', '正在生成');
+      return null;
+    }
+    const existingMessage = messages.value.find((message) => message.id === normalizedMessageId);
     if (!existingMessage?.image || !imageDescription) return null;
     if (!getSelectedImageModelOption(settings.value, 'onlineChat')) {
       showConfigAlert('请先在顶部切换按钮里选择一个已配置的生图模型。', '无法生成图片');
       return null;
     }
+    regeneratingChatImageMessageIds.add(normalizedMessageId);
     try {
       const candidate = await generateChatImageCandidate(imageDescription);
       if (!candidate) return null;
       const candidates = [...(existingMessage.image.candidates ?? []), candidate];
-      return updateChatMessageImage(messageId, {
+      return updateChatMessageImage(normalizedMessageId, {
         ...imageAttachmentFromCandidate(candidate),
         candidates
       });
     } catch (error) {
       showConfigAlert(error instanceof Error ? error.message : '聊天图片生成失败。', '无法生成图片');
       return null;
+    } finally {
+      regeneratingChatImageMessageIds.delete(normalizedMessageId);
     }
   }
 
   async function applyChatMessageImageCandidate(messageId: string, candidateId: string) {
-    const existingMessage = messages.value.find((message) => message.id === messageId);
+    const normalizedMessageId = messageId.trim();
+    if (regeneratingChatImageMessageIds.has(normalizedMessageId)) {
+      showConfigAlert('正在重新生成聊天图片，请等待当前生成完成。', '正在生成');
+      return null;
+    }
+    const existingMessage = messages.value.find((message) => message.id === normalizedMessageId);
     const candidate = existingMessage?.image?.candidates?.find((entry) => entry.id === candidateId);
     if (!existingMessage?.image || !candidate) return null;
-    return updateChatMessageImage(messageId, {
+    return updateChatMessageImage(normalizedMessageId, {
       ...imageAttachmentFromCandidate(candidate),
       candidates: existingMessage.image.candidates
     });
   }
 
   async function regenerateVoomPostImage(postId: string, description: string) {
-    const post = voomPosts.value.find((entry) => entry.id === postId);
+    const normalizedPostId = postId.trim();
+    if (regeneratingVoomImagePostIds.has(normalizedPostId)) {
+      showConfigAlert('正在重新生成 VOOM 配图，请等待当前生成完成。', '正在生成');
+      return null;
+    }
+    const post = voomPosts.value.find((entry) => entry.id === normalizedPostId);
     const selectedModel = getSelectedImageModelOption(settings.value, 'voom');
     const imageDescription = description.trim();
     if (!post || !settings.value) return null;
@@ -3089,6 +3122,7 @@ export const useAppStore = defineStore('app', () => {
       return null;
     }
 
+    regeneratingVoomImagePostIds.add(normalizedPostId);
     const provider = selectedModel.provider;
     const promptPreset = getImagePromptPresetForProvider(settings.value, provider);
     const positivePrompt = [promptPreset.positivePrompt, imageDescription].filter(Boolean).join(', ');
@@ -3117,7 +3151,7 @@ export const useAppStore = defineStore('app', () => {
 
     try {
       const result = await generateImageByProvider(provider, imageSettings, imageOverrides);
-      if (!hasVoomPost(postId)) return null;
+      if (!hasVoomPost(normalizedPostId)) return null;
       const nextCandidate = createVoomImageCandidate({
         image: result.imageUrl,
         description: imageDescription,
@@ -3145,7 +3179,7 @@ export const useAppStore = defineStore('app', () => {
       });
       return nextPost;
     } catch (error) {
-      if (!hasVoomPost(postId)) return null;
+      if (!hasVoomPost(normalizedPostId)) return null;
       if (!post.image) {
         await saveVoomPost({
           ...post,
@@ -3156,7 +3190,29 @@ export const useAppStore = defineStore('app', () => {
       }
       showConfigAlert(error instanceof Error ? error.message : 'VOOM 配图生成失败。', '无法生成配图');
       return null;
+    } finally {
+      regeneratingVoomImagePostIds.delete(normalizedPostId);
     }
+  }
+
+  async function applyVoomPostImageCandidate(postId: string, candidateId: string) {
+    const normalizedPostId = postId.trim();
+    if (regeneratingVoomImagePostIds.has(normalizedPostId)) {
+      showConfigAlert('正在重新生成 VOOM 配图，请等待当前生成完成。', '正在生成');
+      return null;
+    }
+    const post = voomPosts.value.find((entry) => entry.id === normalizedPostId);
+    const candidate = post?.imageCandidates?.find((entry) => entry.id === candidateId);
+    if (!post || !candidate?.image) return null;
+    const nextPost: VoomPost = {
+      ...post,
+      image: candidate.image,
+      imageDescription: candidate.description || post.imageDescription,
+      imageProvider: candidate.provider || post.imageProvider,
+      imageCandidates: post.imageCandidates
+    };
+    await saveVoomPost(nextPost);
+    return nextPost;
   }
 
   function hasVoomPost(postId: string) {
@@ -3418,6 +3474,7 @@ export const useAppStore = defineStore('app', () => {
     syncGitHubBackupHistory,
     saveSettings,
     addGeneratedImage,
+    updateGeneratedImageUrl,
     deleteGeneratedImage,
     refreshEnabledVendorModels,
     bindWorldBook,
@@ -3453,6 +3510,7 @@ export const useAppStore = defineStore('app', () => {
     createUserVoomPost,
     createMomentFromConversation,
     regenerateVoomPostImage,
+    applyVoomPostImageCandidate,
     addVoomComment,
     toggleVoomLike,
     replyToVoomComments,
