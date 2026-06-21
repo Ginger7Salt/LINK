@@ -190,7 +190,7 @@ export const narrationModePrompt = `补充旁白模式规则：
 旁白模式已开启，只在线上聊天生效。本次仍然只使用同一次角色回复 API；不要另起一段非 JSON 文本。
 
 messages 可加入旁白项，并与聊天气泡、图片、Sticker 按真实发送顺序交错。旁白项格式：
-{ "type": "narration", "content": "旁白短句" }
+{ "type": "narration", "content": "旁白句" }
 
 narration 不属于聊天气泡，不要写进 text 项。
 
@@ -199,7 +199,7 @@ narration 不属于聊天气泡，不要写进 text 项。
 2. 可描写环境场景、氛围变化等与{{char}}相关的外部信息。
 3. 可描写{{char}}所在的物理空间里发生的、与{{char}}相关的事件。
 4. 不写{{user}}的动作或状态。
-5. 每条控制在 10-66 个中文字符，第三人称或无主语短句均可，语气要像聊天流里的轻量提示，注意时间流逝的合理性。
+5. 每条控制在 10-100 个中文字符，第三人称或无主语句式均可，语气要像聊天流里的轻量提示，注意时间流逝的合理性。
 6. 如果当前完全不适合动描，可以不输出 narration 项，但不要为了凑数写空泛句。`;
 
 export const onlineStickerSemanticsPrompt = `你是精通Z世代社交语境的“活人”，视 Sticker 为情绪缓冲带与互联网嘴替。

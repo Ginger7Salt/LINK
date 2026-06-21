@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <div v-if="modelValue" class="modal-backdrop" :class="`modal-backdrop-${variant}`" @click.self="$emit('update:modelValue', false)">
-      <section class="modal-panel" :class="`modal-panel-${variant}`" role="dialog" aria-modal="true">
+      <section class="modal-panel" :class="[`modal-panel-${variant}`, { 'modal-panel-fixed': fixedHeight }]" role="dialog" aria-modal="true">
         <header v-if="showHeader" class="modal-header">
           <h2>{{ title }}</h2>
           <button class="icon-button" type="button" aria-label="关闭" @click="$emit('update:modelValue', false)">
@@ -27,9 +27,11 @@ withDefaults(defineProps<{
   title: string;
   showHeader?: boolean;
   variant?: 'default' | 'profile' | 'ins' | 'profile-ins';
+  fixedHeight?: boolean;
 }>(), {
   showHeader: true,
-  variant: 'default'
+  variant: 'default',
+  fixedHeight: false
 });
 
 defineEmits<{
@@ -80,6 +82,11 @@ defineEmits<{
   box-shadow: 0 -18px 60px rgba(0, 0, 0, 0.15);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.modal-panel-fixed {
+  height: min(540px, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 16px));
+  height: min(540px, calc(var(--app-height) - var(--safe-top) - var(--safe-bottom) - 16px));
 }
 
 .modal-header {

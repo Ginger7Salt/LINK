@@ -3,19 +3,16 @@
     <section class="backup-card">
       <header class="card-head">
         <div>
-          <span class="card-kicker">本地</span>
+          <span class="card-kicker">Local</span>
           <h3>本地备份</h3>
         </div>
-        <Download :size="20" stroke-width="2.2" />
       </header>
 
       <div class="action-row">
-        <button class="primary-action" type="button" :disabled="Boolean(localBusy)" @click="exportBackup">
-          <Download :size="16" />
+        <button class="primary-action local-export-action" type="button" :disabled="Boolean(localBusy)" @click="exportBackup">
           <span>导出备份</span>
         </button>
         <label class="secondary-action file-action" :class="{ disabled: Boolean(localBusy) }" :aria-disabled="Boolean(localBusy)">
-          <Upload :size="16" />
           <span>导入备份</span>
           <input type="file" accept=".json,application/json" :disabled="Boolean(localBusy)" @change="importBackup" />
         </label>
@@ -146,7 +143,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { CloudUpload, Download, Github, Lock, Upload } from 'lucide-vue-next';
+import { CloudUpload, Download, Github, Lock } from 'lucide-vue-next';
 import { buildGitHubLoginUrl, ensureGitHubBackupRepository, fetchGitHubViewer, formatGitHubBackupError, getGitHubOAuthWorkerOrigin } from '@/services/githubBackup';
 import { useAppStore } from '@/stores/appStore';
 import type { AppSettings, GitHubBackupHistoryRecord, GitHubBackupSettings } from '@/types/domain';
@@ -734,6 +731,11 @@ async function runGitHubImport() {
 .primary-action {
   background: #111111;
   color: #ffffff;
+}
+
+.local-export-action {
+  background: rgba(232, 235, 239, 0.98);
+  color: #202321;
 }
 
 .secondary-action {

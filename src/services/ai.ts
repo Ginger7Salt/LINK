@@ -1423,8 +1423,9 @@ function getResolvedTextApiConfig(settings: AppSettings | undefined, modelOverri
   if (selection.vendorId) {
     const vendor = settings?.apiVendors.find((item) => item.id === selection.vendorId);
     if (vendor) {
+      const apiUrl = normalizeBaseUrl(vendor.apiUrl);
       return {
-        endpoint: `${normalizeBaseUrl(vendor.apiUrl)}/${vendor.apiPath.trim().replace(/^\/+/, '')}`,
+        endpoint: apiUrl ? `${apiUrl}/${vendor.apiPath.trim().replace(/^\/+/, '')}` : '',
         apiKey: vendor.apiKey,
         model: selection.model || vendor.models.find((model) => model.selected)?.id || vendor.models[0]?.id || ''
       };

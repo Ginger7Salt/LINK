@@ -1,6 +1,6 @@
 <template>
   <button class="image-model-button" :class="{ 'with-label': showLabel }" type="button" :aria-label="buttonLabel" :title="buttonLabel" @click="showPicker = true">
-    <ImagePlus :size="iconSize" stroke-width="2.2" />
+    <SlidersHorizontal :size="iconSize" stroke-width="2.4" />
     <span v-if="showLabel">{{ compactSelectedLabel }}</span>
   </button>
 
@@ -31,7 +31,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { ImagePlus } from 'lucide-vue-next';
+import { SlidersHorizontal } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import { useAppStore } from '@/stores/appStore';
 import type { AppSettings, ImageModelScope } from '@/types/domain';
@@ -150,8 +150,8 @@ async function updateImageModel(scope: ImageModelScope, event: Event) {
   background: rgba(255, 255, 255, 0.88);
   color: #111111;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
-  font-size: 12px;
-  font-weight: 900;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .image-model-button.with-label {

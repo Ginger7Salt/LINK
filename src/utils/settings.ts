@@ -41,7 +41,7 @@ const defaultOpenAiPromptPresetId = 'openai_default';
 const defaultNovelAiPromptPresetId = 'novelai_default';
 const defaultPollinationsPromptPresetId = 'pollinations_default';
 
-export const openAiImageSizeOptions = ['1024x1024', '1536x1024', '1024x1536', '1280x720', '720x1280', 'auto'];
+export const openAiImageSizeOptions = ['1024x1024', '832x1216', '768x1152', '640x960', '1216x832', '1152x768'];
 
 export function parseImageSize(size: string) {
   const [width, height] = size.split('x').map((value) => Number.parseInt(value, 10));
@@ -557,18 +557,19 @@ function splitLegacyEndpoint(endpoint: string) {
   };
 }
 
-function normalizeVendor(vendor: Partial<ApiVendor> | null | undefined, fallbackId?: string): ApiVendor {
+function normalizeVendor(vendor: Partial<ApiVendor> | null | undefined, fallbackId?: string, options: { allowEmptyApiUrl?: boolean } = {}): ApiVendor {
   const models = Array.isArray(vendor?.models)
     ? vendor.models
         .map((model) => normalizeVendorModel(model))
         .filter((model): model is ApiVendorModel => Boolean(model))
     : [];
+  const apiUrl = String(vendor?.apiUrl ?? '').trim();
 
   return {
     id: String(vendor?.id ?? fallbackId ?? createId('vendor')).trim() || createId('vendor'),
     enabled: Boolean(vendor?.enabled),
     name: String(vendor?.name ?? 'OpenAI').trim() || 'OpenAI',
-    apiUrl: String(vendor?.apiUrl ?? 'https://api.openai.com/v1').trim() || 'https://api.openai.com/v1',
+    apiUrl: apiUrl || (options.allowEmptyApiUrl ? '' : 'https://api.openai.com/v1'),
     apiPath: String(vendor?.apiPath ?? '/chat/completions').trim() || '/chat/completions',
     apiKey: String(vendor?.apiKey ?? '').trim(),
     avatar: normalizeVendorAvatar(vendor?.avatar),
@@ -584,7 +585,7 @@ function shouldPreferBase64ImageResponse(vendor: Partial<ApiVendor> | null | und
 }
 
 function normalizeImageVendor(vendor: Partial<ApiVendor> | null | undefined, fallbackId?: string): ApiVendor {
-  const normalizedVendor = normalizeVendor(vendor, fallbackId);
+  const normalizedVendor = normalizeVendor(vendor, fallbackId, { allowEmptyApiUrl: true });
   const apiPath = normalizeOpenAiImagePath(vendor?.apiPath);
   return {
     ...normalizedVendor,
@@ -594,7 +595,7 @@ function normalizeImageVendor(vendor: Partial<ApiVendor> | null | undefined, fal
 }
 
 export function createApiVendor(overrides: Partial<ApiVendor> = {}): ApiVendor {
-  return normalizeVendor(overrides);
+  return normalizeVendor(overrides, undefined, { allowEmptyApiUrl: true });
 }
 
 export function createImageApiVendor(overrides: Partial<ApiVendor> = {}): ApiVendor {
@@ -603,12 +604,14 @@ export function createImageApiVendor(overrides: Partial<ApiVendor> = {}): ApiVen
 
 export function buildApiEndpoint(apiUrl: string, apiPath: string) {
   const url = apiUrl.trim().replace(/\/+$/, '');
+  if (!url) return '';
   const path = `/${apiPath.trim().replace(/^\/+/, '')}`;
   return `${url}${path}`;
 }
 
 function buildOpenAiImageEndpoint(apiUrl: string, apiPath: string) {
   const normalizedApiUrl = apiUrl.trim().replace(/\/+$/, '');
+  if (!normalizedApiUrl) return '';
   const normalizedPath = normalizeOpenAiImagePath(apiPath);
   const endpoint = `${normalizedApiUrl}${normalizedPath}`;
   if (canUseLocalImageProxy() && /^https?:\/\//i.test(normalizedApiUrl)) {
@@ -877,7 +880,7 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
   };
 
   const normalizedVendors = Array.isArray(settings?.apiVendors)
-    ? settings.apiVendors.map((vendor) => normalizeVendor(vendor)).filter((vendor) => vendor.name)
+    ? settings.apiVendors.map((vendor) => normalizeVendor(vendor, undefined, { allowEmptyApiUrl: true })).filter((vendor) => vendor.name)
     : [];
 
   if (!normalizedVendors.length && (merged.apiEndpoint.trim() || merged.apiKey.trim())) {

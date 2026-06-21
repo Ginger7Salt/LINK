@@ -19,7 +19,6 @@
             v-for="vendor in draft.imageOpenAi.vendors"
             :key="vendor.id"
             class="provider-card"
-            :class="{ active: draft.imageOpenAi.activeVendorId === vendor.id }"
             type="button"
             @click="openVendorEditor(vendor)"
           >
@@ -41,22 +40,14 @@
         </section>
 
         <label class="field">
-          <span>默认供应商</span>
-          <select v-model="draft.imageOpenAi.activeVendorId">
-            <option value="">请选择供应商</option>
-            <option v-for="vendor in draft.imageOpenAi.vendors" :key="vendor.id" :value="vendor.id">
-              {{ vendor.name }}
-            </option>
-          </select>
-        </label>
-
-        <label class="field">
           <span>默认画幅</span>
           <select v-model="draft.imageOpenAi.size">
             <option value="1024x1024">1024 x 1024</option>
-            <option value="1024x1536">1024 x 1536</option>
-            <option value="1536x1024">1536 x 1024</option>
-            <option value="auto">auto</option>
+            <option value="832x1216">832 x 1216</option>
+            <option value="768x1152">768 x 1152</option>
+            <option value="640x960">640 x 960</option>
+            <option value="1216x832">1216 x 832</option>
+            <option value="1152x768">1152 x 768</option>
           </select>
         </label>
 
@@ -417,14 +408,14 @@
       </section>
     </section>
 
-    <AppModal v-model="showVendorComposer" :title="vendorEditorTitle" :show-header="false" variant="ins">
+    <AppModal v-model="showVendorComposer" :title="vendorEditorTitle" :show-header="false" fixed-height variant="ins">
       <form class="provider-composer" @submit.prevent="saveVendor">
         <section class="composer-hero provider-hero">
           <img class="provider-avatar" :src="vendorDraft.avatar" :alt="vendorDraft.name || 'Provider avatar'" />
           <div>
-            <span>Image vendor</span>
+            <span>Provider moodboard</span>
             <strong>{{ vendorDraft.name || 'OpenAI Images' }}</strong>
-            <p>{{ vendorDraft.enabled ? '会参与默认图片供应商选择' : '保存后保持禁用状态' }}</p>
+            <p>{{ vendorDraft.enabled ? '启用后可在生图模型切换中选择' : '保存后保持禁用状态' }}</p>
           </div>
         </section>
 
@@ -447,39 +438,7 @@
             <span class="toggle-indicator" aria-hidden="true"></span>
             <div>
               <strong>启用供应商</strong>
-              <small>禁用后仍保留配置，但不会自动作为默认值。</small>
             </div>
-          </label>
-
-          <label class="field">
-            <span>供应商名称</span>
-            <input v-model="vendorDraft.name" placeholder="OpenAI / OpenRouter / 自建图片网关" />
-          </label>
-
-          <label class="field">
-            <span>头像 URL</span>
-            <input v-model="vendorDraft.avatar" placeholder="https://..." />
-          </label>
-
-          <label class="vendor-avatar-upload">
-            <input type="file" accept="image/*" @change="readVendorAvatar" />
-            <strong>上传本地头像</strong>
-            <small>保存为图片供应商头像。</small>
-          </label>
-
-          <label class="field">
-            <span>API Url</span>
-            <input v-model="vendorDraft.apiUrl" placeholder="https://api.openai.com/v1" />
-          </label>
-
-          <label class="field">
-            <span>API 路径</span>
-            <input v-model="vendorDraft.apiPath" placeholder="/images/generations" />
-          </label>
-
-          <label class="field">
-            <span>API Key</span>
-            <input v-model="vendorDraft.apiKey" autocomplete="off" type="password" />
           </label>
 
           <label class="toggle-card">
@@ -490,9 +449,30 @@
               <small>DALL-E 会请求 b64_json；gpt-image-1 保持官方默认 base64。</small>
             </div>
           </label>
+
+          <label class="field">
+            <span>供应商名称</span>
+            <input v-model="vendorDraft.name" placeholder="OpenAI / OpenRouter / 自建图片网关" />
+          </label>
+
+          <label class="field">
+            <span>API Url</span>
+            <input v-model="vendorDraft.apiUrl" placeholder="请输入 API Base URL" />
+          </label>
+
+          <label class="field">
+            <span>API 路径（新手谨慎更改）</span>
+            <input v-model="vendorDraft.apiPath" placeholder="/images/generations" />
+          </label>
+
+          <label class="field">
+            <span>API Key</span>
+            <input v-model="vendorDraft.apiKey" autocomplete="off" type="password" />
+          </label>
+
         </section>
 
-        <section v-else class="composer-section form-grid">
+        <section v-else-if="activeVendorTab === 'models'" class="composer-section form-grid">
           <div class="sync-shell">
             <div class="sync-copy">
               <span>Model sync</span>
@@ -506,38 +486,46 @@
             {{ vendorSyncFeedback }}
           </p>
 
-          <div class="manual-model-row">
-            <label class="field">
-              <span>手动添加模型</span>
-              <input v-model="manualModelId" placeholder="OpenAI 或第三方图片模型 ID" @keydown.enter.prevent="addVendorModel" />
-            </label>
-            <label class="field">
-              <span>备注</span>
-              <input v-model="manualModelNickname" placeholder="可选" @keydown.enter.prevent="addVendorModel" />
-            </label>
-            <button class="secondary-action manual-model-button" type="button" @click="addVendorModel">添加模型</button>
-          </div>
-
           <div v-if="vendorDraft.models.length" class="model-grid">
-            <button
+            <label
               v-for="model in vendorDraft.models"
               :key="model.id"
               class="model-option"
-              :class="{ active: model.selected }"
-              type="button"
-              @click="selectVendorModel(model.id)"
             >
+              <input :checked="model.selected" type="checkbox" @change="toggleVendorModel(model.id, $event)" />
               <div>
                 <strong>{{ model.nickname || model.id }}</strong>
                 <span>{{ model.id }}</span>
               </div>
-            </button>
+            </label>
           </div>
 
           <section v-else class="empty-shell compact-empty">
             <strong>暂无图片模型</strong>
             <p>先填好接口和 Key，再同步模型列表。</p>
           </section>
+        </section>
+
+        <section v-else class="composer-section form-grid">
+          <label class="field persona-card">
+            <span>头像 URL</span>
+            <input v-model="vendorDraft.avatar" placeholder="https://..." />
+          </label>
+
+          <label class="persona-upload-card">
+            <strong>上传本地头像</strong>
+            <span>保存为图片供应商头像。</span>
+            <input type="file" accept="image/*" @change="readVendorAvatar" />
+          </label>
+
+          <div v-if="selectedVendorModels.length" class="nickname-grid">
+            <label v-for="model in selectedVendorModels" :key="model.id" class="field nickname-card">
+              <span>{{ model.id }} 备注</span>
+              <input :value="model.nickname" placeholder="例如：封面/立绘" @input="updateVendorModelNickname(model.id, $event)" />
+            </label>
+          </div>
+
+          <div v-else class="empty-note">暂时未选择任何模型</div>
         </section>
 
         <div class="composer-footer">
@@ -565,7 +553,7 @@ import { readImageFileFromInput } from '@/utils/imageFile';
 import { createImageApiVendor, mergeImageVendorModels, normalizeAppSettings } from '@/utils/settings';
 
 type PreviewState = 'idle' | 'loading' | 'success' | 'error';
-type VendorComposerTab = 'provider' | 'models';
+type VendorComposerTab = 'provider' | 'models' | 'personalize';
 
 const props = defineProps<{
   settings: AppSettings;
@@ -577,8 +565,9 @@ const emit = defineEmits<{
 }>();
 
 const vendorTabs = [
-  { id: 'provider' as VendorComposerTab, label: '基础信息' },
-  { id: 'models' as VendorComposerTab, label: '图片模型' }
+  { id: 'provider' as VendorComposerTab, label: 'openai' },
+  { id: 'models' as VendorComposerTab, label: '选择模型' },
+  { id: 'personalize' as VendorComposerTab, label: '个性化' }
 ];
 
 const draft = ref<AppSettings>(normalizeAppSettings(props.settings));
@@ -590,12 +579,10 @@ const avatarEditorSource = ref('');
 const vendorDraft = ref<ApiVendor>(createImageApiVendor({
   enabled: true,
   name: 'OpenAI Images',
-  apiUrl: 'https://api.openai.com/v1',
+  apiUrl: '',
   apiPath: '/images/generations',
   preferBase64ImageResponse: true
 }));
-const manualModelId = ref('');
-const manualModelNickname = ref('');
 const vendorSyncState = ref<PreviewState>('idle');
 const vendorSyncFeedback = ref('');
 const novelAiSyncState = ref<PreviewState>('idle');
@@ -730,6 +717,7 @@ const pollinationsStatusBadge = computed(() => ({
   success: 'OK',
   error: 'Error'
 }[pollinationsSyncState.value]));
+const selectedVendorModels = computed(() => vendorDraft.value.models.filter((model) => model.selected));
 const activePromptPlaceholders = computed(() => ({
   openai: {
     positive: '例如：Seoul editorial photo, linen desk, soft sunlight, clean composition',
@@ -897,13 +885,11 @@ function openVendorCreator() {
   vendorDraft.value = cloneVendor(createImageApiVendor({
     enabled: true,
     name: 'OpenAI Images',
-    apiUrl: 'https://api.openai.com/v1',
+    apiUrl: '',
     apiPath: '/images/generations',
     preferBase64ImageResponse: true
   }));
   activeVendorTab.value = 'provider';
-  manualModelId.value = '';
-  manualModelNickname.value = '';
   vendorSyncState.value = 'idle';
   vendorSyncFeedback.value = '';
   showVendorComposer.value = true;
@@ -913,8 +899,6 @@ function openVendorEditor(vendor: ApiVendor) {
   editingVendorId.value = vendor.id;
   vendorDraft.value = cloneVendor(vendor);
   activeVendorTab.value = 'provider';
-  manualModelId.value = '';
-  manualModelNickname.value = '';
   vendorSyncState.value = 'idle';
   vendorSyncFeedback.value = '';
   showVendorComposer.value = true;
@@ -1055,46 +1039,20 @@ watch(
   { immediate: true }
 );
 
-function selectVendorModel(modelId: string) {
+function toggleVendorModel(modelId: string, event: Event) {
+  const input = event.target as HTMLInputElement;
   vendorDraft.value = {
     ...vendorDraft.value,
-    models: vendorDraft.value.models.map((model) => ({
-      ...model,
-      selected: model.id === modelId
-    }))
+    models: vendorDraft.value.models.map((model) => model.id === modelId ? { ...model, selected: input.checked } : model)
   };
 }
 
-function addVendorModel() {
-  const modelId = manualModelId.value.trim();
-  const nickname = manualModelNickname.value.trim();
-
-  if (!modelId) {
-    vendorSyncState.value = 'error';
-    vendorSyncFeedback.value = '请先填写图片模型 ID。';
-    return;
-  }
-
-  const existingModel = vendorDraft.value.models.find((model) => model.id === modelId);
+function updateVendorModelNickname(modelId: string, event: Event) {
+  const input = event.target as HTMLInputElement;
   vendorDraft.value = {
     ...vendorDraft.value,
-    models: existingModel
-      ? vendorDraft.value.models.map((model) => ({
-        ...model,
-        nickname: model.id === modelId && nickname ? nickname : model.nickname,
-        selected: model.id === modelId
-      }))
-      : [
-        ...vendorDraft.value.models.map((model) => ({ ...model, selected: false })),
-        { id: modelId, nickname, selected: true }
-      ]
+    models: vendorDraft.value.models.map((model) => model.id === modelId ? { ...model, nickname: input.value } : model)
   };
-
-  manualModelId.value = '';
-  manualModelNickname.value = '';
-  vendorSyncState.value = 'success';
-  vendorSyncFeedback.value = `已添加并选中 ${modelId}。`;
-  activeVendorTab.value = 'models';
 }
 
 async function readVendorAvatar(event: Event) {
@@ -1131,7 +1089,7 @@ function saveVendor() {
     ...vendorDraft.value,
     name: vendorDraft.value.name.trim() || 'OpenAI Images',
     avatar: vendorDraft.value.avatar.trim(),
-    apiUrl: vendorDraft.value.apiUrl.trim() || 'https://api.openai.com/v1',
+    apiUrl: vendorDraft.value.apiUrl.trim(),
     apiPath: vendorDraft.value.apiPath.trim() || '/images/generations',
     models: cleanedModels.length
       ? cleanedModels.map((model, index) => ({
@@ -1145,15 +1103,11 @@ function saveVendor() {
 
   const remainingVendors = draft.value.imageOpenAi.vendors.filter((vendor) => vendor.id !== nextVendor.id);
   const nextVendors = [nextVendor, ...remainingVendors];
-  const nextActiveVendorId = draft.value.imageOpenAi.activeVendorId && draft.value.imageOpenAi.activeVendorId !== nextVendor.id
-    ? draft.value.imageOpenAi.activeVendorId
-    : nextVendor.id;
 
   draft.value = normalizeAppSettings({
     ...draft.value,
     imageOpenAi: {
       ...draft.value.imageOpenAi,
-      activeVendorId: nextActiveVendorId,
       vendors: nextVendors
     }
   });
@@ -1165,7 +1119,7 @@ function removeVendor() {
 
   const nextVendors = draft.value.imageOpenAi.vendors.filter((vendor) => vendor.id !== editingVendorId.value);
   const nextActiveVendorId = draft.value.imageOpenAi.activeVendorId === editingVendorId.value
-    ? nextVendors[0]?.id || ''
+    ? ''
     : draft.value.imageOpenAi.activeVendorId;
 
   draft.value = normalizeAppSettings({
@@ -1205,9 +1159,10 @@ function removeVendor() {
 }
 
 .provider-composer {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  height: 100%;
   min-height: 0;
-  overflow-x: hidden;
-  padding-bottom: calc(74px + var(--safe-bottom));
+  overflow: hidden;
 }
 
 .composer-hero,
@@ -1218,14 +1173,12 @@ function removeVendor() {
 
 .composer-hero {
   display: grid;
-  gap: 9px;
-  padding: 13px;
-  border-radius: 22px;
-  border: 1px solid rgba(17, 17, 17, 0.04);
+  gap: 12px;
+  padding: 14px;
+  border-radius: 24px;
   background:
     radial-gradient(circle at top right, rgba(255, 209, 224, 0.65), transparent 30%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.94));
-  box-shadow: 0 12px 28px rgba(24, 28, 34, 0.06);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 248, 252, 0.94));
 }
 
 .composer-hero-novelai {
@@ -1245,19 +1198,26 @@ function removeVendor() {
   align-items: center;
 }
 
+.provider-hero .provider-avatar {
+  grid-column: auto;
+  grid-row: auto;
+  width: 56px;
+  height: 56px;
+  border-radius: 20px;
+}
+
 .section-kicker,
 .composer-hero span,
 .sync-copy span {
   margin: 0;
   color: #9d7a86;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   overflow-wrap: anywhere;
 }
 
-.composer-hero strong,
 .section-head h3 {
   margin: 0;
   color: #231f25;
@@ -1270,10 +1230,12 @@ function removeVendor() {
 
 .composer-hero strong {
   display: block;
-  margin-top: 4px;
-  font-size: 17px;
+  margin: 0;
+  color: #111111;
+  font-family: inherit;
+  font-size: 18px;
   line-height: 1.18;
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .composer-hero p,
@@ -1318,9 +1280,7 @@ function removeVendor() {
 }
 
 .section-head,
-.sync-shell,
-.manual-model-row,
-.composer-footer {
+.sync-shell {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1367,10 +1327,6 @@ function removeVendor() {
   text-align: left;
   box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.04);
   min-width: 0;
-}
-
-.provider-card.active {
-  box-shadow: 0 0 0 1.5px rgba(255, 188, 210, 0.88), 0 18px 34px rgba(42, 35, 44, 0.08);
 }
 
 .provider-avatar {
@@ -1754,34 +1710,69 @@ function removeVendor() {
   background: rgba(243, 244, 245, 0.92);
 }
 
-.manual-model-row {
-  align-items: end;
-  padding: 11px;
-  border-radius: 20px;
+.persona-card,
+.persona-upload-card,
+.nickname-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.88);
-  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.035);
 }
 
-.manual-model-row .field {
-  flex: 1 1 130px;
+.persona-upload-card strong,
+.persona-upload-card span {
+  display: block;
 }
 
-.manual-model-button {
-  min-height: 34px;
-  min-width: 0;
-  padding: 0 14px;
-  border-radius: 999px;
-  background: rgba(243, 244, 245, 0.92);
+.persona-upload-card strong {
+  font-size: 14px;
+}
+
+.persona-upload-card span {
+  color: var(--muted);
   font-size: 12px;
-  font-weight: 800;
+  line-height: 1.4;
+}
+
+.persona-upload-card input {
+  display: none;
+}
+
+.nickname-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.empty-note {
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .model-option {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px;
   border: 1px solid transparent;
   text-align: left;
   overflow-wrap: anywhere;
+}
+
+.model-option input {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+}
+
+.model-option div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
 
 .model-option.active {
@@ -1798,7 +1789,7 @@ function removeVendor() {
 
 .composer-tabs {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
 }
 
@@ -1807,13 +1798,12 @@ function removeVendor() {
 }
 
 .composer-tab {
-  min-height: 34px;
+  min-height: 40px;
   min-width: 0;
-  padding: 7px 10px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.78);
   color: #6f7079;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -1823,18 +1813,25 @@ function removeVendor() {
 }
 
 .composer-footer {
-  position: sticky;
-  bottom: calc(-16px - var(--safe-bottom));
-  z-index: 3;
-  margin: 0 -16px calc(-16px - var(--safe-bottom));
-  padding: 12px 16px calc(16px + var(--safe-bottom));
-  background: linear-gradient(180deg, rgba(247, 249, 252, 0), rgba(247, 249, 252, 0.96) 28%, rgba(247, 249, 252, 0.99));
-  backdrop-filter: blur(14px);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-self: end;
 }
 
 .footer-button {
-  flex: 1 1 120px;
-  min-height: 38px;
+  width: 100%;
+  min-height: 42px;
+  border-radius: 16px;
+  font-size: 13px;
+}
+
+.provider-composer > .composer-section {
+  min-height: 0;
+  align-content: start;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .footer-cancel {
@@ -1889,7 +1886,6 @@ function removeVendor() {
 
   .section-head,
   .sync-shell,
-  .manual-model-row,
   .composer-footer {
     gap: 8px;
   }
@@ -1917,8 +1913,7 @@ function removeVendor() {
   .sync-shell,
   .model-option,
   .toggle-card,
-  .vendor-avatar-upload,
-  .manual-model-row {
+  .vendor-avatar-upload {
     padding: 10px;
     border-radius: 16px;
   }

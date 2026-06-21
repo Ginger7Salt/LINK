@@ -26,7 +26,7 @@
       <p>点击右上角 + 新建模型供应商</p>
     </section>
 
-    <AppModal v-model="showComposer" :title="editorTitle" :show-header="false" variant="ins">
+    <AppModal v-model="showComposer" :title="editorTitle" :show-header="false" fixed-height variant="ins">
       <form class="provider-composer" @submit.prevent="submit">
         <section class="composer-hero">
           <img class="composer-avatar" :src="draft.avatar" :alt="draft.name || 'Provider avatar'" />
@@ -66,11 +66,11 @@
 
           <label class="field">
             <span>API Url</span>
-            <input v-model="draft.apiUrl" placeholder="https://api.openai.com/v1" />
+            <input v-model="draft.apiUrl" placeholder="https://api.openai.com/v1 " />
           </label>
 
           <label class="field">
-            <span>API 路径（谨慎更改）</span>
+            <span>API 路径（新手谨慎更改）</span>
             <input v-model="draft.apiPath" placeholder="/chat/completions" />
           </label>
 
@@ -104,7 +104,7 @@
             </label>
           </div>
 
-          <div v-else class="empty-note">暂无模型</div>
+          <div v-else class="empty-note">暂无模型，拉取模型后可同时选择多个模型方便后续任意切换</div>
         </section>
 
         <section v-else class="composer-section form-grid">
@@ -214,7 +214,7 @@ function openCreator() {
   draft.value = cloneVendor(createApiVendor({
     enabled: true,
     name: 'OpenAI',
-    apiUrl: 'https://api.openai.com/v1',
+    apiUrl: '',
     apiPath: '/chat/completions'
   }));
   activeTab.value = 'openai';
@@ -302,7 +302,7 @@ function submit() {
   const nextVendor = createApiVendor({
     ...draft.value,
     name: draft.value.name.trim() || 'OpenAI',
-    apiUrl: draft.value.apiUrl.trim() || 'https://api.openai.com/v1',
+    apiUrl: draft.value.apiUrl.trim(),
     apiPath: draft.value.apiPath.trim() || '/chat/completions',
     avatar: draft.value.avatar.trim(),
     models: cleanedModels
@@ -445,7 +445,11 @@ function submit() {
 
 .provider-composer {
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 16px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .composer-hero {
@@ -512,8 +516,11 @@ function submit() {
 }
 
 .composer-section {
-  min-height: 280px;
+  min-height: 0;
   align-content: start;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .toggle-card {
@@ -713,6 +720,7 @@ function submit() {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+  align-self: end;
 }
 
 .footer-button {
