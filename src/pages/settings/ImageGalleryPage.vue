@@ -150,16 +150,17 @@ function canRepairImage(image: GeneratedImageRecord | null) {
 function createRepairDownloadUrl(imageUrl: string) {
   const trimmed = imageUrl.trim();
   if (!isRemoteImageUrl(trimmed)) return trimmed;
-  if (['http:', 'https:'].includes(window.location.protocol) && isLocalProxyHostname(window.location.hostname)) {
+  if (['http:', 'https:'].includes(window.location.protocol) && (isLocalProxyHostname(window.location.hostname) || isLikelyViteProxyPort(window.location.port))) {
     return `/__image-download?url=${encodeURIComponent(trimmed)}`;
   }
   return trimmed;
 }
 
 function isLocalProxyHostname(hostname: string) {
-  const normalized = hostname.trim().toLowerCase();
+  const normalized = hostname.trim().toLowerCase().replace(/\.$/, '');
   return normalized === 'localhost'
     || normalized.endsWith('.localhost')
+    || normalized.endsWith('.local')
     || normalized === '127.0.0.1'
     || normalized === '0.0.0.0'
     || normalized === '::1'
@@ -168,6 +169,10 @@ function isLocalProxyHostname(hostname: string) {
     || /^192\.168\./.test(normalized)
     || /^172\.(1[6-9]|2\d|3[01])\./.test(normalized)
     || /^169\.254\./.test(normalized);
+}
+
+function isLikelyViteProxyPort(port: string) {
+  return port === '5173' || port === '4173';
 }
 
 function readBlobAsDataUrl(blob: Blob) {

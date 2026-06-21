@@ -618,9 +618,10 @@ function buildOpenAiImageEndpoint(apiUrl: string, apiPath: string) {
 }
 
 function isLocalProxyHostname(hostname: string) {
-  const normalized = hostname.trim().toLowerCase();
+  const normalized = hostname.trim().toLowerCase().replace(/\.$/, '');
   return normalized === 'localhost'
     || normalized.endsWith('.localhost')
+    || normalized.endsWith('.local')
     || normalized === '127.0.0.1'
     || normalized === '0.0.0.0'
     || normalized === '::1'
@@ -631,11 +632,15 @@ function isLocalProxyHostname(hostname: string) {
     || /^169\.254\./.test(normalized);
 }
 
+function isLikelyViteProxyPort(port: string) {
+  return port === '5173' || port === '4173';
+}
+
 function canUseLocalImageProxy() {
   if (import.meta.env.DEV) return true;
   if (typeof window === 'undefined') return false;
   if (!['http:', 'https:'].includes(window.location.protocol)) return false;
-  return isLocalProxyHostname(window.location.hostname);
+  return isLocalProxyHostname(window.location.hostname) || isLikelyViteProxyPort(window.location.port);
 }
 
 function normalizeOpenAiImagePath(apiPath: unknown) {

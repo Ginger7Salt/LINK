@@ -11,6 +11,8 @@ import { buildMomentPrompt, buildPrompt } from './prompt';
 
 const modelSelectionSeparator = '::';
 const imageModelSelectionSeparator = '::';
+const textProxyPath = '/__text-proxy';
+const imageDownloadProxyPath = '/__image-download';
 
 export interface ImageGenerationResult {
   imageUrl: string;
@@ -151,7 +153,7 @@ function normalizeBaseUrl(url: string) {
 function createImageDownloadUrl(url: string) {
   const trimmed = url.trim();
   if (canUseLocalTextProxy() && /^https?:\/\//i.test(trimmed)) {
-    return `/__image-download?url=${encodeURIComponent(trimmed)}`;
+    return `${imageDownloadProxyPath}?url=${encodeURIComponent(trimmed)}`;
   }
   return trimmed;
 }
@@ -447,9 +449,10 @@ function createNetworkErrorMessage(error: unknown, title: string, endpoint: stri
 }
 
 function isLocalProxyHostname(hostname: string) {
-  const normalized = hostname.trim().toLowerCase();
+  const normalized = hostname.trim().toLowerCase().replace(/\.$/, '');
   return normalized === 'localhost'
     || normalized.endsWith('.localhost')
+    || normalized.endsWith('.local')
     || normalized === '127.0.0.1'
     || normalized === '0.0.0.0'
     || normalized === '::1'
@@ -460,19 +463,32 @@ function isLocalProxyHostname(hostname: string) {
     || /^169\.254\./.test(normalized);
 }
 
+function isLikelyViteProxyPort(port: string) {
+  return port === '5173' || port === '4173';
+}
+
 function canUseLocalTextProxy() {
   if (import.meta.env.DEV) return true;
   if (typeof window === 'undefined') return false;
   if (!['http:', 'https:'].includes(window.location.protocol)) return false;
-  return isLocalProxyHostname(window.location.hostname);
+  return isLocalProxyHostname(window.location.hostname) || isLikelyViteProxyPort(window.location.port);
 }
 
-function createTextRequestEndpoint(endpoint: string) {
+function createTextProxyEndpoint(endpoint: string) {
   const trimmed = endpoint.trim();
-  if (canUseLocalTextProxy() && /^https?:\/\//i.test(trimmed)) {
-    return `/__text-proxy?url=${encodeURIComponent(trimmed)}`;
-  }
-  return trimmed;
+  return `${textProxyPath}?url=${encodeURIComponent(trimmed)}`;
+}
+
+function createTextRequestEndpoints(endpoint: string) {
+  const trimmed = endpoint.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return [trimmed];
+
+  const proxyEndpoint = createTextProxyEndpoint(trimmed);
+  const endpoints = canUseLocalTextProxy()
+    ? [proxyEndpoint, trimmed]
+    : [trimmed, proxyEndpoint];
+
+  return endpoints.filter((item, index) => item && endpoints.indexOf(item) === index);
 }
 
 function createTextNetworkErrorMessage(error: unknown, endpoint: string, requestEndpoint: string) {
@@ -480,37 +496,51 @@ function createTextNetworkErrorMessage(error: unknown, endpoint: string, request
     error,
     '文本模型网络请求失败',
     endpoint,
-    requestEndpoint.startsWith('/__text-proxy')
+    requestEndpoint.startsWith(textProxyPath)
       ? '本地同源文本代理没有响应。请确认正在通过 npm run dev 或 npm run preview 访问应用；如果仍失败，请检查本机网络、代理节点、网关地址、API Key 与模型是否可用。'
       : '当前运行环境没有可用的同源文本代理，浏览器直连 OpenAI 兼容聊天网关可能会被 CORS 或网络策略拦截。请使用 npm run dev / npm run preview，或换用支持浏览器跨域的网关。'
   );
 }
 
-function createNovelAiRequestEndpoint(endpoint: string) {
-  const trimmed = endpoint.trim();
-  if (import.meta.env.DEV && /^https?:\/\//i.test(trimmed)) {
-    return `/__text-proxy?url=${encodeURIComponent(trimmed)}`;
-  }
-  return trimmed;
-}
-
-function createNovelAiNetworkErrorMessage(error: unknown, endpoint: string) {
+function createNovelAiNetworkErrorMessage(error: unknown, endpoint: string, requestEndpoint: string) {
   return createNetworkErrorMessage(
     error,
     'NovelAI 生图接口预检网络请求失败',
     endpoint,
-    'NovelAI 预检请求无法到达后台。请确认连接方式、网络代理和 Token 可用。开发环境会通过同源代理转发官方接口；如果仍失败，通常是本机网络无法访问对应服务或代理节点异常。'
+    requestEndpoint.startsWith(textProxyPath)
+      ? 'NovelAI 预检请求无法通过本地同源代理到达后台。请确认正在通过 npm run dev 或 npm run preview 访问应用，并检查本机网络、代理节点和 Token 是否可用。'
+      : 'NovelAI 预检请求无法到达后台。请确认连接方式、网络代理和 Token 可用。本地开发/预览会优先通过同源代理转发官方接口。'
   );
 }
 
-async function fetchNovelAiEndpoint(endpoint: string, init: RequestInit) {
-  const requestEndpoint = createNovelAiRequestEndpoint(endpoint);
-  try {
-    const response = await fetch(requestEndpoint, init);
-    return { response, requestEndpoint };
-  } catch (error) {
-    throw new Error(createNovelAiNetworkErrorMessage(error, endpoint));
+async function fetchTextEndpointWithFallback(
+  endpoint: string,
+  init: RequestInit,
+  createErrorMessage: (error: unknown, endpoint: string, requestEndpoint: string) => string
+) {
+  const requestEndpoints = createTextRequestEndpoints(endpoint);
+  let lastError: unknown;
+  let lastRequestEndpoint = requestEndpoints[0] ?? endpoint;
+
+  for (const requestEndpoint of requestEndpoints) {
+    lastRequestEndpoint = requestEndpoint;
+    try {
+      const response = await fetch(requestEndpoint, init);
+      return { response, requestEndpoint };
+    } catch (error) {
+      lastError = error;
+    }
   }
+
+  throw new Error(createErrorMessage(lastError, endpoint, lastRequestEndpoint));
+}
+
+async function fetchTextEndpoint(endpoint: string, init: RequestInit) {
+  return fetchTextEndpointWithFallback(endpoint, init, createTextNetworkErrorMessage);
+}
+
+async function fetchNovelAiEndpoint(endpoint: string, init: RequestInit) {
+  return fetchTextEndpointWithFallback(endpoint, init, createNovelAiNetworkErrorMessage);
 }
 
 async function probeNovelAiAuth(settings: AppSettings) {
@@ -1421,32 +1451,26 @@ function requireTextGenerationConfig(settings: AppSettings | undefined, modelOve
 async function callTextApi(settings: AppSettings | undefined, prompt: string, modelOverride = '', imageParts: TextApiContentPart[] = []) {
   const resolved = getResolvedTextApiConfig(settings, modelOverride);
   if (!resolved.endpoint.trim()) return '';
-  const requestEndpoint = createTextRequestEndpoint(resolved.endpoint);
 
   const content = imageParts.length
     ? [{ type: 'text' as const, text: prompt }, ...imageParts]
     : prompt;
 
-  let response: Response;
-  try {
-    response = await fetch(requestEndpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(resolved.apiKey ? { Authorization: `Bearer ${resolved.apiKey}` } : {})
-      },
-      body: JSON.stringify({
-        model: resolved.model,
-        messages: [{ role: 'user', content }],
-        temperature: 0.9
-      })
-    });
-  } catch (error) {
-    throw new Error(createTextNetworkErrorMessage(error, resolved.endpoint, requestEndpoint));
-  }
+  const { response, requestEndpoint } = await fetchTextEndpoint(resolved.endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(resolved.apiKey ? { Authorization: `Bearer ${resolved.apiKey}` } : {})
+    },
+    body: JSON.stringify({
+      model: resolved.model,
+      messages: [{ role: 'user', content }],
+      temperature: 0.9
+    })
+  });
 
   if (!response.ok) {
-    if (requestEndpoint.startsWith('/__text-proxy') && response.status === 502) {
+    if (requestEndpoint.startsWith(textProxyPath) && response.status === 502) {
       throw new Error(await createApiErrorMessage(response, '本地文本模型代理请求失败'));
     }
     throw new Error(await createApiErrorMessage(response, '文本模型 API 请求失败'));
@@ -1459,29 +1483,26 @@ async function callTextApi(settings: AppSettings | undefined, prompt: string, mo
 export async function fetchVendorModels(vendor: Pick<ApiVendor, 'apiUrl' | 'apiKey'>): Promise<string[]> {
   const modelsEndpoint = `${vendor.apiUrl.trim().replace(/\/+$/, '')}/models`;
   if (!vendor.apiUrl.trim()) return [];
-  const requestEndpoint = createTextRequestEndpoint(modelsEndpoint);
-
-  let response: Response;
-  try {
-    response = await fetch(requestEndpoint, {
+  const { response, requestEndpoint } = await fetchTextEndpointWithFallback(
+    modelsEndpoint,
+    {
       headers: {
         Accept: 'application/json',
         ...(vendor.apiKey ? { Authorization: `Bearer ${vendor.apiKey}` } : {})
       }
-    });
-  } catch (error) {
-    throw new Error(createNetworkErrorMessage(
+    },
+    (error, endpoint, activeRequestEndpoint) => createNetworkErrorMessage(
       error,
       '模型列表网络请求失败',
-      modelsEndpoint,
-      requestEndpoint.startsWith('/__text-proxy')
+      endpoint,
+      activeRequestEndpoint.startsWith(textProxyPath)
         ? '本地同源文本代理没有响应。请确认正在通过 npm run dev 或 npm run preview 访问应用，并检查网关 /models 路径是否可达。'
         : '当前运行环境没有可用的同源文本代理，浏览器直连模型列表接口可能会被 CORS 或网络策略拦截。'
-    ));
-  }
+    )
+  );
 
   if (!response.ok) {
-    if (requestEndpoint.startsWith('/__text-proxy') && response.status === 502) {
+    if (requestEndpoint.startsWith(textProxyPath) && response.status === 502) {
       throw new Error(await createApiErrorMessage(response, '本地文本模型代理请求失败'));
     }
     throw new Error(await createApiErrorMessage(response, '模型列表 API 请求失败'));
@@ -1621,7 +1642,7 @@ export async function generateNovelAiImage(settings: AppSettings, overrides: Ima
   });
 
   if (!response.ok) {
-    if (requestEndpoint.startsWith('/__text-proxy') && response.status === 502) {
+    if (requestEndpoint.startsWith(textProxyPath) && response.status === 502) {
       throw new Error(await createApiErrorMessage(response, '本地 NovelAI 代理请求失败'));
     }
     if (response.status === 401 || response.status === 403) {
@@ -2110,9 +2131,8 @@ export async function generateEmbeddingVector(input: {
   if (!resolved.endpoint.trim() || !resolved.model.trim() || !input.text.trim()) return [];
 
   const embeddingsEndpoint = resolved.endpoint.replace(/\/chat\/completions\/?$/i, '/embeddings');
-  const requestEndpoint = createTextRequestEndpoint(embeddingsEndpoint);
   try {
-    const response = await fetch(requestEndpoint, {
+    const { response } = await fetchTextEndpoint(embeddingsEndpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
