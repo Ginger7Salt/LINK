@@ -204,14 +204,12 @@ function getGeminiTtsVoice(voice: string) {
   return geminiTtsVoices.includes(normalizedVoice) ? normalizedVoice : defaultGeminiTtsVoice;
 }
 
-function isGeminiNativeTtsConfig(endpoint: string, model: string) {
-  if (!/gemini.*tts/i.test(model.trim())) return false;
-  try {
-    const url = new URL(endpoint, window.location.origin);
-    return /(?:^|\.)generativelanguage\.googleapis\.com$/i.test(url.hostname);
-  } catch {
-    return /generativelanguage\.googleapis\.com/i.test(endpoint);
-  }
+function normalizeGeminiTtsModel(model: string) {
+  return model.trim().replace(/^models\//i, '');
+}
+
+function isGeminiTtsModel(model: string) {
+  return /gemini.*tts/i.test(normalizeGeminiTtsModel(model));
 }
 
 function buildGeminiNativeTtsEndpoint(endpoint: string, model: string) {
@@ -221,7 +219,7 @@ function buildGeminiNativeTtsEndpoint(endpoint: string, model: string) {
     .replace(/\/audio\/speech\/?$/i, '')
     .replace(/\/openai\/?$/i, '')
     .replace(/\/+$/, '') || '/v1beta';
-  url.pathname = `${basePath}/models/${encodeURIComponent(model.trim())}:generateContent`;
+  url.pathname = `${basePath}/models/${encodeURIComponent(normalizeGeminiTtsModel(model))}:generateContent`;
   url.search = '';
   return url.toString();
 }
@@ -375,16 +373,16 @@ async function synthesizeGeminiNativeSpeech(text: string, endpoint: string, apiK
 export async function synthesizeOpenAiSpeech(text: string, settings: AppSettings): Promise<TtsAudioResult> {
   const content = text.trim();
   if (!content) throw new Error('语音内容为空。');
-  if (!settings.ttsOpenAi.voice.trim()) throw new Error('请先填写 OpenAI TTS Voice。');
   const resolved = getResolvedOpenAiTtsConfig(settings);
   if (!resolved.endpoint.trim()) throw new Error('请先添加 OpenAI TTS 供应商。');
   if (!resolved.model.trim()) throw new Error('请先同步并选择 OpenAI TTS 模型。');
 
-  if (isGeminiNativeTtsConfig(resolved.endpoint, resolved.model)) {
+  if (isGeminiTtsModel(resolved.model)) {
     return synthesizeGeminiNativeSpeech(content, resolved.endpoint, resolved.apiKey, resolved.model, settings.ttsOpenAi.voice);
   }
 
   const voice = getOpenAiSpeechVoice(resolved.model, settings.ttsOpenAi.voice);
+  if (!voice.trim()) throw new Error('请先填写 OpenAI TTS Voice。');
 
   const response = await fetch(resolved.endpoint, {
     method: 'POST',

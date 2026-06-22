@@ -324,7 +324,7 @@ function normalizeOpenAiTtsSettings(settings: Partial<OpenAiTtsSettings> | null 
   const normalizedResponseFormat: OpenAiTtsAudioFormat = openAiTtsAudioFormats.includes(responseFormat as OpenAiTtsAudioFormat)
     ? responseFormat as OpenAiTtsAudioFormat
     : defaultAppSettings.ttsOpenAi.responseFormat;
-  const voice = (settings?.voice ?? legacyVoice) || defaultAppSettings.ttsOpenAi.voice;
+  const voice = settings?.voice !== undefined ? settings.voice : (legacyVoice || defaultAppSettings.ttsOpenAi.voice);
   const normalizedVendors = Array.isArray(settings?.vendors)
     ? settings.vendors
         .map((vendor) => normalizeOpenAiTtsVendor(vendor))
@@ -359,7 +359,7 @@ function normalizeOpenAiTtsSettings(settings: Partial<OpenAiTtsSettings> | null 
     apiKey: String(settings?.apiKey ?? '').trim(),
     apiUrl: String(settings?.apiUrl ?? defaultAppSettings.ttsOpenAi.apiUrl).trim() || defaultAppSettings.ttsOpenAi.apiUrl,
     model,
-    voice: String(voice).trim() || defaultAppSettings.ttsOpenAi.voice,
+    voice: String(voice).trim(),
     responseFormat: normalizedResponseFormat,
     speed: Math.min(4, Math.max(0.25, Number(settings?.speed ?? defaultAppSettings.ttsOpenAi.speed) || defaultAppSettings.ttsOpenAi.speed)),
     instructions: String(settings?.instructions ?? '').trim()
