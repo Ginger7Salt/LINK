@@ -141,6 +141,7 @@ export interface ConversationSettings {
   autoGenerateVoom: boolean;
   voomFrequency: VoomFrequency;
   stickerVisionEnabled: boolean;
+  stickerSuggestionsEnabled: boolean;
   characterStickerGroupIds: string[];
   timeAwareness: ConversationTimeAwarenessSettings;
   proactiveReply: ConversationProactiveReplySettings;

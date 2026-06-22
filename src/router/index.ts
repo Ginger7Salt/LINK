@@ -14,6 +14,7 @@ import ImageGalleryPage from '@/pages/settings/ImageGalleryPage.vue';
 import ImageModuleSettingsPage from '@/pages/settings/ImageModuleSettingsPage.vue';
 import SettingsPage from '@/pages/settings/SettingsPage.vue';
 import StickersPage from '@/pages/StickersPage.vue';
+import StickerManagePage from '@/pages/StickerManagePage.vue';
 import WorldBookPage from '@/pages/WorldBookPage.vue';
 import WorldBookEditorPage from '@/pages/WorldBookEditorPage.vue';
 
@@ -27,7 +28,7 @@ export const router = createRouter({
     { path: '/friends/add', name: 'add-friend', component: AddFriendPage },
     { path: '/services', name: 'services', component: ServicesPage },
     { path: '/stickers', name: 'stickers', component: StickersPage },
-    { path: '/stickers/manage', redirect: '/stickers' },
+    { path: '/stickers/manage', name: 'stickers-manage', component: StickerManagePage },
     { path: '/world-book', name: 'world-book', component: WorldBookPage },
     { path: '/world-book/new', name: 'world-book-new', component: WorldBookEditorPage },
     { path: '/world-book/:id/edit', name: 'world-book-edit', component: WorldBookEditorPage },

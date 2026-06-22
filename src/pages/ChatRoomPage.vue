@@ -52,7 +52,9 @@
       online
       placeholder="Aa"
       :quote="quoteTarget"
+      :sticker-suggestions="composerStickerSuggestions"
       @cancel-quote="quoteTarget = null"
+      @draft-text="composerText = $event"
       @prepare-focus="captureKeyboardScrollAnchor"
       @focus="startKeyboardScrollGuard"
       @blur="stopKeyboardScrollGuard"
@@ -63,6 +65,7 @@
       @open-voice-panel="openVoicePanel"
       @reply="sendAndReply"
       @send="sendBubble"
+      @send-sticker="sendStickerSuggestion"
     />
 
     <input ref="localImageInputRef" class="hidden-file-input" type="file" accept="image/*" @change="sendLocalImageFromInput" />
@@ -422,7 +425,13 @@
     <AppModal v-model="showProfile" title="角色主页" :show-header="false" variant="profile-ins">
       <CharacterProfileSheet v-if="character" :character="character" :posts="store.sortedVoomPosts" @save="saveCharacterProfile" />
     </AppModal>
-    <StickerLibraryModal v-model="showStickers" :conversation-id="props.id" :disabled="chatActionLocked" />
+    <StickerLibraryModal
+      v-model="showStickers"
+      :conversation-id="props.id"
+      :disabled="chatActionLocked"
+      :recommendation-query="composerText"
+      :recommended-stickers="stickerModalRecommendations"
+    />
     <ChatModelSwitchPanel v-model="showModelSwitch" :conversation-id="props.id" />
   </section>
   <section v-else class="screen no-tabs empty-state">会话不存在</section>
@@ -441,10 +450,11 @@ import MessageComposer from '@/components/chat/MessageComposer.vue';
 import UserProfileSheet from '@/components/chat/UserProfileSheet.vue';
 import StickerLibraryModal from '@/components/stickers/StickerLibraryModal.vue';
 import { useAppStore } from '@/stores/appStore';
-import type { CharacterProfile, ChatImageAttachment, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatTransferStatus, ChatVoiceAttachment, UserProfile } from '@/types/domain';
+import type { CharacterProfile, ChatImageAttachment, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatTransferStatus, ChatVoiceAttachment, Sticker, UserProfile } from '@/types/domain';
 import { readChatImageFile } from '@/utils/imageFile';
 import { useKeyboardScrollGuard } from '@/utils/keyboardScrollGuard';
 import { getSelectedImageModelOption } from '@/utils/settings';
+import { recommendStickers } from '@/utils/stickerRecommendations';
 import { isVoomNarrationMessage, mergeVoomLikeMessages } from '@/utils/voomMessages';
 
 const props = defineProps<{
@@ -480,6 +490,7 @@ const activeCardDetailMessageId = ref('');
 const selectionMode = ref(false);
 const selectedMessageIds = ref<string[]>([]);
 const quoteTarget = ref<ChatMessageQuote | null>(null);
+const composerText = ref('');
 const editDraft = ref('');
 const editLocationNameDraft = ref('');
 const editLocationAddressDraft = ref('');
@@ -574,6 +585,20 @@ const normalizedTransferAmount = computed(() => transferAmountDraft.value.replac
 const transferAmountPreview = computed(() => normalizedTransferAmount.value || '0.00');
 const canSendTransfer = computed(() => /^\d+(?:\.\d{1,2})?$/.test(normalizedTransferAmount.value) && Number(normalizedTransferAmount.value) > 0);
 const chatActionLocked = computed(() => currentConversationReplying.value || generatingVoom.value);
+const stickerRecommendationBase = computed(() => {
+  if (!chatSettings.value.stickerSuggestionsEnabled) return [];
+  return recommendStickers({
+    query: composerText.value,
+    stickers: store.stickers,
+    groups: store.sortedStickerGroups,
+    messages: store.messages,
+    conversationId: props.id,
+    boundGroupIds: chatSettings.value.characterStickerGroupIds,
+    limit: 12
+  });
+});
+const composerStickerSuggestions = computed(() => composerText.value.trim() ? stickerRecommendationBase.value.slice(0, 6) : []);
+const stickerModalRecommendations = computed(() => chatSettings.value.stickerSuggestionsEnabled ? stickerRecommendationBase.value : []);
 const normalizedEditTransferAmount = computed(() => editTransferAmountDraft.value.replace(/[￥¥,\s]/g, '').trim());
 const canSaveEditedMessage = computed(() => {
   const message = activeMessage.value;
@@ -663,6 +688,13 @@ async function sendAndReply(content: string) {
     quoteTarget.value = null;
   }
   await store.requestRoleplayReply(props.id);
+}
+
+async function sendStickerSuggestion(sticker: Sticker) {
+  releaseKeyboardScrollGuard();
+  await store.sendStickerMessage(props.id, sticker, quoteTarget.value);
+  quoteTarget.value = null;
+  composerText.value = '';
 }
 
 function openImagePanel() {

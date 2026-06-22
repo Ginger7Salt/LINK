@@ -351,6 +351,14 @@
               <span>关闭后角色只能读取 Sticker 的文字描述。</span>
             </div>
           </label>
+          <label class="switch-card wide">
+            <input v-model="draft.stickerSuggestionsEnabled" type="checkbox" @change="saveDraft" />
+            <span class="switch-track"></span>
+            <div>
+              <strong>开启 Stickers 智能推荐</strong>
+              <span>输入文字时基于描述、最近发送和当前会话习惯推荐贴纸。</span>
+            </div>
+          </label>
           <button class="sticker-bind-trigger" type="button" @click="toggleStickerGroupPicker">
             <span>
               <strong>角色绑定 Stickers分组</strong>

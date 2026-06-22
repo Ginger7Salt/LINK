@@ -6,7 +6,7 @@ import { normalizeVoomFrequency } from './voom';
 export const defaultChatMemorySettings: ChatMemorySettings = {
   enabled: true,
   autoSummarize: true,
-  summarizeEvery: 100,
+  summarizeEvery: 50,
   summaryModel: '',
   summaryPrompt: '请把下面聊天楼层总结成可供角色扮演继续读取的记忆手册，以{{char}}的第三人称视角。保留人物关系变化、承诺、偏好、冲突和未解决事项；不要评价用户；用中文输出，直接开始输出内容。',
   mergeSummaryPrompt: '请把下面多段已总结记忆合并成一份更高层级的大总结，以{{char}}的第三人称视角。保留稳定事实、长期关系变化、重要承诺、偏好、冲突和未解决事项；去除重复内容；用中文输出，直接开始输出内容。',
@@ -48,10 +48,11 @@ export const defaultConversationSettings: Omit<ConversationSettings, 'conversati
     showOnlyFirstAvatarInReply: true,
     hideVoomNarration: false
   },
-  narrationModeEnabled: false,
+  narrationModeEnabled: true,
   autoGenerateVoom: true,
   voomFrequency: 'medium',
   stickerVisionEnabled: true,
+  stickerSuggestionsEnabled: true,
   characterStickerGroupIds: defaultCharacterStickerGroupIds,
   timeAwareness: defaultTimeAwarenessSettings,
   proactiveReply: {
@@ -65,6 +66,7 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
   const memory = settings?.memory ?? defaultChatMemorySettings;
   const appearance = settings?.appearance ?? defaultConversationSettings.appearance;
   const modelOverrides = settings?.modelOverrides ?? defaultConversationSettings.modelOverrides;
+  const isLegacySettings = Boolean(settings && !Object.prototype.hasOwnProperty.call(settings, 'stickerSuggestionsEnabled'));
   const summaryModel = String(modelOverrides.summary ?? memory.summaryModel ?? '').trim();
   const rawBackgroundColor = String(appearance.backgroundColor ?? defaultConversationSettings.appearance.backgroundColor).trim();
   const backgroundColor = !rawBackgroundColor || rawBackgroundColor.toLowerCase() === legacyDefaultBackgroundColor
@@ -81,13 +83,17 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
   ].map((image) => String(image ?? '').trim()).filter(Boolean);
   const voomFrequency = normalizeVoomFrequency(settings?.voomFrequency, defaultConversationSettings.voomFrequency);
   const proactiveReply = settings?.proactiveReply ?? defaultConversationSettings.proactiveReply;
+  const rawSummarizeEvery = Math.max(10, Math.round(Number(memory.summarizeEvery) || defaultChatMemorySettings.summarizeEvery));
+  const summarizeEvery = rawSummarizeEvery === 100 && String(memory.summaryPrompt ?? defaultChatMemorySettings.summaryPrompt).trim() === defaultChatMemorySettings.summaryPrompt
+    ? defaultChatMemorySettings.summarizeEvery
+    : rawSummarizeEvery;
 
   return {
     conversationId,
     memory: {
       enabled: true,
       autoSummarize: memory.autoSummarize ?? defaultChatMemorySettings.autoSummarize,
-      summarizeEvery: Math.max(10, Math.round(Number(memory.summarizeEvery) || defaultChatMemorySettings.summarizeEvery)),
+      summarizeEvery,
       summaryModel,
       summaryPrompt: String(memory.summaryPrompt ?? defaultChatMemorySettings.summaryPrompt).trim() || defaultChatMemorySettings.summaryPrompt,
       mergeSummaryPrompt: String(memory.mergeSummaryPrompt ?? defaultChatMemorySettings.mergeSummaryPrompt).trim() || defaultChatMemorySettings.mergeSummaryPrompt,
@@ -113,10 +119,11 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
       showOnlyFirstAvatarInReply: appearance.showOnlyFirstAvatarInReply ?? defaultConversationSettings.appearance.showOnlyFirstAvatarInReply,
       hideVoomNarration: appearance.hideVoomNarration ?? defaultConversationSettings.appearance.hideVoomNarration
     },
-    narrationModeEnabled: settings?.narrationModeEnabled ?? defaultConversationSettings.narrationModeEnabled,
+    narrationModeEnabled: isLegacySettings ? defaultConversationSettings.narrationModeEnabled : settings?.narrationModeEnabled ?? defaultConversationSettings.narrationModeEnabled,
     autoGenerateVoom: settings?.autoGenerateVoom ?? defaultConversationSettings.autoGenerateVoom,
     voomFrequency,
     stickerVisionEnabled: settings?.stickerVisionEnabled ?? defaultConversationSettings.stickerVisionEnabled,
+    stickerSuggestionsEnabled: settings?.stickerSuggestionsEnabled ?? defaultConversationSettings.stickerSuggestionsEnabled,
     characterStickerGroupIds: Array.isArray(settings?.characterStickerGroupIds)
       ? [...new Set(settings.characterStickerGroupIds.map((item) => String(item).trim()).filter(Boolean))]
       : [...defaultConversationSettings.characterStickerGroupIds],

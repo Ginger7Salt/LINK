@@ -9,6 +9,21 @@
         <X :size="15" />
       </button>
     </div>
+    <section v-if="visibleStickerSuggestions.length" class="sticker-suggestions" aria-label="推荐 Stickers">
+      <button
+        v-for="sticker in visibleStickerSuggestions"
+        :key="sticker.id"
+        class="suggestion-chip"
+        type="button"
+        :aria-label="`发送推荐 Sticker：${sticker.description}`"
+        :disabled="disabled"
+        @pointerdown.prevent="keepTextMode"
+        @click="pickStickerSuggestion(sticker)"
+      >
+        <img :src="sticker.imageUrl" :alt="sticker.description" />
+        <span>{{ sticker.description }}</span>
+      </button>
+    </section>
     <button v-if="!textMode" class="icon-button" type="button" aria-label="添加" @click="$emit('open-menu')">
       <Plus :size="27" />
     </button>
@@ -46,9 +61,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { Camera, Image as ImageIcon, Mic, Plus, Smile, X } from 'lucide-vue-next';
-import type { ChatMessageQuote } from '@/types/domain';
+import type { ChatMessageQuote, Sticker } from '@/types/domain';
 
 const props = defineProps<{
   canSendReply?: boolean;
@@ -56,6 +71,7 @@ const props = defineProps<{
   online?: boolean;
   placeholder?: string;
   quote?: ChatMessageQuote | null;
+  stickerSuggestions?: Sticker[];
 }>();
 
 const emit = defineEmits<{
@@ -68,8 +84,10 @@ const emit = defineEmits<{
   'open-menu': [];
   'open-stickers': [];
   'open-voice-panel': [];
+  'draft-text': [content: string];
   reply: [content: string];
   send: [content: string];
+  'send-sticker': [sticker: Sticker];
 }>();
 
 const text = ref('');
@@ -77,6 +95,7 @@ const inputFocused = ref(false);
 const cameraInputRef = ref<HTMLInputElement | null>(null);
 let blurTimer: number | undefined;
 const textMode = computed(() => Boolean(props.online && inputFocused.value));
+const visibleStickerSuggestions = computed(() => text.value.trim() ? props.stickerSuggestions?.slice(0, 6) ?? [] : []);
 const quoteContent = computed(() => {
   if (props.quote?.sticker) return `[Sticker] ${props.quote.sticker.description}`;
   if (props.quote?.image) return `[图片] ${props.quote.image.description}`;
@@ -124,6 +143,12 @@ function submitAndReply() {
   emit('reply', content);
 }
 
+function pickStickerSuggestion(sticker: Sticker) {
+  if (props.disabled) return;
+  emit('send-sticker', sticker);
+  text.value = '';
+}
+
 function pressSendButton() {
   if (props.online) {
     submitAndReply();
@@ -142,6 +167,8 @@ function handleCameraFile(event: Event) {
   input.value = '';
   if (file?.type.startsWith('image/')) emit('capture-photo', file);
 }
+
+watch(text, (value) => emit('draft-text', value));
 
 onBeforeUnmount(clearBlurTimer);
 </script>
@@ -210,6 +237,57 @@ onBeforeUnmount(clearBlurTimer);
 .composer-quote span {
   font-size: 12px;
   line-height: 1.2;
+}
+
+.sticker-suggestions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 1px 2px;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.suggestion-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  max-width: 136px;
+  min-height: 34px;
+  padding: 4px 8px 4px 5px;
+  border-radius: 999px;
+  background: rgba(240, 241, 242, 0.96);
+  color: #2d333a;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.suggestion-chip img {
+  display: block;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  object-fit: contain;
+}
+
+.suggestion-chip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.suggestion-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .quote-cancel {

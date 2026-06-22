@@ -1111,10 +1111,12 @@ onBeforeUnmount(stopVoicePlayback);
 
 .sticker-image {
   display: block;
-  width: min(96px, 30vw);
-  aspect-ratio: 1;
+  width: auto;
+  height: auto;
+  max-width: min(128px, 36vw);
+  max-height: min(148px, 34vh);
   border-radius: 10px;
-  object-fit: contain;
+  object-fit: scale-down;
   background: transparent;
 }
 

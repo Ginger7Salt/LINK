@@ -3,6 +3,8 @@
     <StickerLibraryPanel
       :conversation-id="conversationId"
       :disabled="disabled"
+      :recommendation-query="recommendationQuery"
+      :recommended-stickers="recommendedStickers"
       :show-toolbar-actions="false"
       show-manage-action
       presentation="modal"
@@ -16,11 +18,14 @@
 import { useRouter } from 'vue-router';
 import AppModal from '@/components/common/AppModal.vue';
 import StickerLibraryPanel from '@/components/stickers/StickerLibraryPanel.vue';
+import type { Sticker } from '@/types/domain';
 
 defineProps<{
   modelValue: boolean;
   conversationId?: string;
   disabled?: boolean;
+  recommendationQuery?: string;
+  recommendedStickers?: Sticker[];
 }>();
 
 const emit = defineEmits<{

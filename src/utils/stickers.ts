@@ -6,6 +6,8 @@ export interface StickerImportDraft {
   description: string;
   imageUrl: string;
   sourceType: StickerSourceType;
+  cacheImageUrl?: () => Promise<string>;
+  cleanupImageUrl?: () => void;
 }
 
 export const RECENT_STICKER_GROUP_ID = 'sticker_group_recent';
@@ -325,6 +327,18 @@ export function readImageFileAsSticker(file: File) {
     };
     reader.readAsDataURL(file);
   });
+}
+
+export function createImageFileStickerDraft(file: File): StickerImportDraft {
+  const objectUrl = URL.createObjectURL(file);
+  const fileName = file.name.replace(/\.[^.]+$/, '').trim() || '本地贴纸';
+  return {
+    description: fileName,
+    imageUrl: objectUrl,
+    sourceType: 'local-image',
+    cacheImageUrl: () => readBlobAsDataUrl(file),
+    cleanupImageUrl: () => URL.revokeObjectURL(objectUrl)
+  };
 }
 
 export function createStickerGroup(name = '新分组'): StickerGroup {

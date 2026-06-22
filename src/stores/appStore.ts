@@ -8,7 +8,7 @@ import { getCharacterVoomAuthorName, normalizeCharacterMindStateLines, normalize
 import { normalizeUserProfile, normalizeVisualProfile } from '@/utils/profile';
 import { getImageGenerationSize, getImagePromptPresetForProvider, getSelectedImageModelOption, mergeVendorModels, normalizeAppSettings } from '@/utils/settings';
 import { normalizeWorldBookEntry, normalizeWorldBooks } from '@/utils/worldBook';
-import { RECENT_STICKER_GROUP_NAME, createStickerFromDraft, createStickerGroup, isLegacyGanadiSticker, isLegacyGanadiStickerGroup, isRecentStickerGroupId, localizeStickerImageUrl, localizeStickerImportDrafts, normalizeSticker, normalizeStickerGroup, shouldLocalizeStickerImageUrl, sortRecentStickers, type StickerImportDraft } from '@/utils/stickers';
+import { RECENT_STICKER_GROUP_NAME, createStickerFromDraft, createStickerGroup, isLegacyGanadiSticker, isLegacyGanadiStickerGroup, isRecentStickerGroupId, localizeStickerImageUrl, normalizeSticker, normalizeStickerGroup, shouldLocalizeStickerImageUrl, sortRecentStickers, type StickerImportDraft } from '@/utils/stickers';
 import { ageMemoryKind, createMemoryRecord, getConversationFloorCount, getHiddenMessageIds, getMemoryContext, getMessageFloorMap, getMessagesInFloorRange, getNextSummaryRange, getVisibleMessages, normalizeConversationSettings, renderCharacterMemoryPrompt, shouldCompressMemory } from '@/utils/memory';
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
 import { estimateRoleplayReplyInputTokens, fetchVendorModels, generateConversationSummary, generateEmbeddingVector, generateImageByProvider, generateRoleplayReply, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, shouldAutoGenerateMoment, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
@@ -64,6 +64,7 @@ export const useAppStore = defineStore('app', () => {
   const ready = ref(false);
   let hydratePromise: Promise<void> | null = null;
   let githubBackupRunning = false;
+  let stickerImportCacheQueue = Promise.resolve();
   const summarizingConversationRanges = new Set<string>();
   const generatingMomentConversationIds = new Set<string>();
   const regeneratingChatImageMessageIds = new Set<string>();
@@ -1189,24 +1190,70 @@ export const useAppStore = defineStore('app', () => {
     await putEntity('stickers', normalizedSticker);
   }
 
+  async function persistImportedStickerInBackground(importedSticker: Sticker, draft: StickerImportDraft) {
+    const sourceImageUrl = importedSticker.imageUrl;
+    const cacheImageUrl = draft.cacheImageUrl;
+    if (!cacheImageUrl) await putEntity('stickers', importedSticker);
+    if (!cacheImageUrl && !shouldLocalizeStickerImageUrl(sourceImageUrl)) return;
+
+    let cachedImageUrl = '';
+    try {
+      cachedImageUrl = cacheImageUrl ? await cacheImageUrl() : await localizeStickerImageUrl(sourceImageUrl);
+    } catch (error) {
+      console.warn('Sticker background cache failed.', error);
+      return;
+    }
+    if (!cachedImageUrl || cachedImageUrl === sourceImageUrl) return;
+
+    const index = stickers.value.findIndex((sticker) => sticker.id === importedSticker.id);
+    if (index < 0) {
+      draft.cleanupImageUrl?.();
+      return;
+    }
+    const currentSticker = stickers.value[index];
+    if (currentSticker.imageUrl !== sourceImageUrl) {
+      draft.cleanupImageUrl?.();
+      return;
+    }
+
+    const cachedSticker = { ...currentSticker, imageUrl: cachedImageUrl, updatedAt: Date.now() };
+    stickers.value[index] = cachedSticker;
+    await putEntity('stickers', cachedSticker);
+    draft.cleanupImageUrl?.();
+  }
+
+  function queueImportedStickerCache(sticker: Sticker, draft: StickerImportDraft) {
+    stickerImportCacheQueue = stickerImportCacheQueue
+      .then(() => persistImportedStickerInBackground(sticker, draft))
+      .catch((error) => {
+        console.warn('Sticker background persistence failed.', error);
+      });
+  }
+
   async function importStickers(drafts: StickerImportDraft[], groupIds: string[]) {
     const fallbackGroupId = stickerGroups.value[0]?.id ?? '';
     const existingGroupIds = new Set(stickerGroups.value.map((group) => group.id));
     const targetGroupIds = [...new Set((groupIds.length ? groupIds : [fallbackGroupId]).filter((id) => Boolean(id) && !isRecentStickerGroupId(id) && existingGroupIds.has(id)))];
-    if (!targetGroupIds.length) return [];
-    const localizedDrafts = await localizeStickerImportDrafts(drafts);
+    if (!targetGroupIds.length) {
+      drafts.forEach((draft) => draft.cleanupImageUrl?.());
+      return [];
+    }
     const existingKeys = new Set(stickers.value.map((sticker) => `${sticker.description.toLocaleLowerCase()}::${sticker.imageUrl}`));
-    const createdStickers = localizedDrafts
-      .map((draft) => createStickerFromDraft(draft, targetGroupIds))
-      .filter((sticker) => {
-        const key = `${sticker.description.toLocaleLowerCase()}::${sticker.imageUrl}`;
-        if (existingKeys.has(key)) return false;
-        existingKeys.add(key);
-        return true;
-      });
+    const createdEntries: Array<{ draft: StickerImportDraft; sticker: Sticker }> = [];
+    for (const draft of drafts) {
+      const sticker = createStickerFromDraft(draft, targetGroupIds);
+      const key = `${sticker.description.toLocaleLowerCase()}::${sticker.imageUrl}`;
+      if (existingKeys.has(key)) {
+        draft.cleanupImageUrl?.();
+        continue;
+      }
+      existingKeys.add(key);
+      createdEntries.push({ draft, sticker });
+    }
+    const createdStickers = createdEntries.map((entry) => entry.sticker);
     if (!createdStickers.length) return [];
     stickers.value.unshift(...createdStickers);
-    await Promise.all(createdStickers.map((sticker) => putEntity('stickers', sticker)));
+    createdEntries.forEach((entry) => queueImportedStickerCache(entry.sticker, entry.draft));
     return createdStickers;
   }
 

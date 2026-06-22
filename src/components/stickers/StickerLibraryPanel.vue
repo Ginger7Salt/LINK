@@ -39,40 +39,68 @@
     </nav>
 
     <section v-if="managementMode" class="manage-bar" @click.stop>
-      <form class="manage-group-row" @submit.prevent="submitGroupName">
-        <input v-model="newGroupName" :disabled="isActiveRecentGroup" aria-label="当前分组名称" :placeholder="isActiveRecentGroup ? '最近固定' : '分组名称'" />
-        <button class="icon-action" type="button" aria-label="添加分组" @click="createGroup">
-          <Plus :size="15" />
+      <div class="manage-choice-row">
+        <button class="manage-choice" :class="{ active: managementPanel === 'group' }" type="button" @click="toggleManagementPanel('group')">
+          <span>当前分组</span>
+          <small>{{ currentGroupLabel }}</small>
         </button>
-        <button class="icon-action" type="submit" :disabled="isActiveRecentGroup || !newGroupName.trim()" aria-label="保存分组名">
-          <Check :size="15" />
-        </button>
-        <button class="icon-action" type="button" :disabled="!canMoveActiveGroupUp" aria-label="上移分组" @click="moveActiveGroup('up')">
-          <ArrowUp :size="15" />
-        </button>
-        <button class="icon-action" type="button" :disabled="!canMoveActiveGroupDown" aria-label="下移分组" @click="moveActiveGroup('down')">
-          <ArrowDown :size="15" />
-        </button>
-        <button class="icon-action danger" type="button" :disabled="!canDeleteActiveGroup" aria-label="删除分组" @click="deleteActiveGroup">
-          <Trash2 :size="15" />
-        </button>
-      </form>
-
-      <div v-if="filteredStickers.length || selectedStickerIds.length" class="manage-batch-row">
-        <button class="mini-action text-action" type="button" :disabled="!filteredStickers.length" @click="toggleSelectAll">
-          {{ allVisibleSelected ? '取消全选' : '全选' }}
-        </button>
-        <select v-model="moveTargetGroupId" aria-label="移动到分组" :disabled="!sortedStickerGroups.length">
-          <option value="">移动到分组</option>
-          <option v-for="group in sortedStickerGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
-        </select>
-        <button class="icon-action" type="button" :disabled="!selectedStickerIds.length || !moveTargetGroupId" aria-label="移动所选 Stickers" @click="moveSelectedStickers">
-          <MoveRight :size="15" />
-        </button>
-        <button class="icon-action danger" type="button" :disabled="!selectedStickerIds.length" aria-label="删除所选 Stickers" @click="deleteSelectedStickers">
-          <Trash2 :size="15" />
+        <button class="manage-choice" :class="{ active: managementPanel === 'select' }" type="button" :disabled="!filteredStickers.length" @click="toggleManagementPanel('select')">
+          <span>批量选择</span>
+          <small>{{ filteredStickers.length ? `${selectedStickerIds.length} / ${filteredStickers.length}` : '暂无贴纸' }}</small>
         </button>
       </div>
+
+      <form v-if="managementPanel === 'group'" class="manage-panel group-manage-panel" @submit.prevent="submitGroupName">
+        <label class="field-stack">
+          <span>{{ isActiveRecentGroup ? '固定分组' : '分组名称' }}</span>
+          <input v-model="newGroupName" :disabled="isActiveRecentGroup" aria-label="当前分组名称" :placeholder="isActiveRecentGroup ? '最近固定，不能修改' : '输入分组名称'" />
+        </label>
+        <div class="group-action-grid">
+          <button class="text-action" type="button" @click="createGroup">
+            <Plus :size="15" />
+            <span>新建分组</span>
+          </button>
+          <button v-if="!isActiveRecentGroup" class="text-action" type="submit" :disabled="!newGroupName.trim()">
+            <Check :size="15" />
+            <span>保存名称</span>
+          </button>
+          <button v-if="!isActiveRecentGroup" class="text-action" type="button" :disabled="!canMoveActiveGroupUp" @click="moveActiveGroup('up')">
+            <ArrowUp :size="15" />
+            <span>上移</span>
+          </button>
+          <button v-if="!isActiveRecentGroup" class="text-action" type="button" :disabled="!canMoveActiveGroupDown" @click="moveActiveGroup('down')">
+            <ArrowDown :size="15" />
+            <span>下移</span>
+          </button>
+          <button v-if="!isActiveRecentGroup" class="text-action danger" type="button" :disabled="!canDeleteActiveGroup" @click="deleteActiveGroup">
+            <Trash2 :size="15" />
+            <span>删除分组</span>
+          </button>
+        </div>
+      </form>
+
+      <section v-if="managementPanel === 'select'" class="manage-panel batch-manage-panel">
+        <div class="batch-head">
+          <span>选择当前分组里的贴纸</span>
+          <button class="link-action" type="button" @click="toggleSelectAll">
+            {{ allVisibleSelected ? '取消全选' : '全选' }}
+          </button>
+        </div>
+        <div class="batch-action-row">
+          <select v-model="moveTargetGroupId" aria-label="移动到分组" :disabled="!sortedStickerGroups.length">
+            <option value="">移动到分组</option>
+            <option v-for="group in sortedStickerGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
+          </select>
+          <button class="text-action" type="button" :disabled="!selectedStickerIds.length || !moveTargetGroupId" @click="moveSelectedStickers">
+            <MoveRight :size="15" />
+            <span>移动选中</span>
+          </button>
+          <button class="text-action danger" type="button" :disabled="!selectedStickerIds.length" @click="deleteSelectedStickers">
+            <Trash2 :size="15" />
+            <span>删除选中</span>
+          </button>
+        </div>
+      </section>
 
       <p v-if="feedback" class="feedback">{{ feedback }}</p>
     </section>
@@ -97,8 +125,8 @@
 
     <section v-if="filteredStickers.length" class="sticker-grid">
       <template v-for="sticker in filteredStickers" :key="sticker.id">
-        <article v-if="managementMode" class="sticker-tile manage-tile" :class="{ selected: selectedStickerId === sticker.id, checked: selectedStickerIds.includes(sticker.id) }" @click.stop="selectSticker(sticker)">
-          <label class="tile-check" aria-label="选择 Sticker" @click.stop>
+        <article v-if="managementMode" class="sticker-tile manage-tile" :class="{ selected: selectedStickerId === sticker.id, checked: selectedStickerIds.includes(sticker.id), selectable: isSelectionMode }" @click.stop="handleManagedStickerClick(sticker)">
+          <label v-if="isSelectionMode" class="tile-check" aria-label="选择 Sticker" @click.stop>
             <input :checked="selectedStickerIds.includes(sticker.id)" type="checkbox" @change="toggleStickerSelection(sticker.id)" />
             <span></span>
           </label>
@@ -125,9 +153,10 @@
 
     <form v-if="allowStickerEditing && selectedSticker && !conversationId" class="sticker-editor" @click.stop @submit.prevent="saveSelectedSticker">
       <div class="editor-head">
-        <strong>编辑 Sticker</strong>
-        <button class="icon-action danger" type="button" aria-label="删除 Sticker" @click="deleteSelectedSticker">
+        <strong>编辑贴纸</strong>
+        <button class="text-action danger compact" type="button" @click="deleteSelectedSticker">
           <Trash2 :size="16" />
+          <span>删除</span>
         </button>
       </div>
       <div class="editor-fields">
@@ -141,6 +170,7 @@
         </select>
         <button class="save-button" type="submit" aria-label="保存 Sticker">
           <Check :size="16" />
+          <span>保存</span>
         </button>
       </div>
     </form>
@@ -152,7 +182,8 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { ArrowDown, ArrowUp, Check, FileUp, ImagePlus, MoveRight, PencilLine, Plus, Settings2, Trash2, Upload, X } from 'lucide-vue-next';
 import { useAppStore } from '@/stores/appStore';
 import type { Sticker, StickerSourceType } from '@/types/domain';
-import { RECENT_STICKER_GROUP_ID, RECENT_STICKER_GROUP_NAME, parseStickerImportText, readImageFileAsSticker, readStickerImportFile } from '@/utils/stickers';
+import { RECENT_STICKER_GROUP_ID, RECENT_STICKER_GROUP_NAME, createImageFileStickerDraft, parseStickerImportText, readStickerImportFile } from '@/utils/stickers';
+import { RECOMMENDED_STICKER_GROUP_ID, RECOMMENDED_STICKER_GROUP_NAME } from '@/utils/stickerRecommendations';
 
 const props = withDefaults(defineProps<{
   conversationId?: string;
@@ -163,6 +194,8 @@ const props = withDefaults(defineProps<{
   allowStickerEditing?: boolean;
   managementMode?: boolean;
   disabled?: boolean;
+  recommendationQuery?: string;
+  recommendedStickers?: Sticker[];
   presentation?: 'page' | 'modal';
 }>(), {
   conversationId: undefined,
@@ -173,6 +206,8 @@ const props = withDefaults(defineProps<{
   allowStickerEditing: true,
   managementMode: false,
   disabled: false,
+  recommendationQuery: '',
+  recommendedStickers: () => [],
   presentation: 'page'
 });
 
@@ -194,6 +229,7 @@ const draftImageUrl = ref('');
 const draftGroupId = ref('');
 const selectedStickerIds = ref<string[]>([]);
 const moveTargetGroupId = ref('');
+const managementPanel = ref<'group' | 'select' | ''>('');
 const activeTool = ref<'group-name' | 'import' | ''>('');
 
 const stickers = computed(() => store.stickers ?? []);
@@ -208,7 +244,14 @@ const currentActiveGroupId = computed({
 });
 
 const firstGroupId = computed(() => sortedStickerGroups.value[0]?.id ?? '');
-const groupTabs = computed(() => [{
+const hasRecommendations = computed(() => Boolean(props.recommendedStickers.length));
+const groupTabs = computed(() => [
+  ...(hasRecommendations.value ? [{
+    id: RECOMMENDED_STICKER_GROUP_ID,
+    name: RECOMMENDED_STICKER_GROUP_NAME,
+    count: props.recommendedStickers.length
+  }] : []),
+  {
     id: RECENT_STICKER_GROUP_ID,
     name: RECENT_STICKER_GROUP_NAME,
     count: store.recentStickers.length
@@ -219,7 +262,10 @@ const groupTabs = computed(() => [{
     count: store.stickersForGroup(group.id).length
   }))]
 );
-const filteredStickers = computed(() => currentActiveGroupId.value ? store.stickersForGroup(currentActiveGroupId.value) : []);
+const filteredStickers = computed(() => {
+  if (currentActiveGroupId.value === RECOMMENDED_STICKER_GROUP_ID) return props.recommendedStickers;
+  return currentActiveGroupId.value ? store.stickersForGroup(currentActiveGroupId.value) : [];
+});
 const selectedSticker = computed(() => stickers.value.find((sticker) => sticker.id === selectedStickerId.value) ?? null);
 const isActiveRecentGroup = computed(() => currentActiveGroupId.value === RECENT_STICKER_GROUP_ID);
 const activeGroupIndex = computed(() => sortedStickerGroups.value.findIndex((group) => group.id === currentActiveGroupId.value));
@@ -227,6 +273,12 @@ const canDeleteActiveGroup = computed(() => !isActiveRecentGroup.value && curren
 const canMoveActiveGroupUp = computed(() => !isActiveRecentGroup.value && activeGroupIndex.value > 0);
 const canMoveActiveGroupDown = computed(() => !isActiveRecentGroup.value && activeGroupIndex.value >= 0 && activeGroupIndex.value < sortedStickerGroups.value.length - 1);
 const allVisibleSelected = computed(() => Boolean(filteredStickers.value.length) && filteredStickers.value.every((sticker) => selectedStickerIds.value.includes(sticker.id)));
+const isSelectionMode = computed(() => props.managementMode && managementPanel.value === 'select');
+const currentGroupLabel = computed(() => {
+  if (isActiveRecentGroup.value) return `最近 · ${filteredStickers.value.length}`;
+  const group = sortedStickerGroups.value.find((item) => item.id === currentActiveGroupId.value);
+  return `${group?.name ?? '未选择'} · ${filteredStickers.value.length}`;
+});
 const targetImportGroupIds = computed(() => {
   if (currentActiveGroupId.value && !isActiveRecentGroup.value) return [currentActiveGroupId.value];
   return firstGroupId.value ? [firstGroupId.value] : [];
@@ -247,8 +299,21 @@ watch(
   () => stickerGroups.value,
   () => {
     feedback.value = '';
+    if (currentActiveGroupId.value === RECOMMENDED_STICKER_GROUP_ID && hasRecommendations.value) return;
     if (isActiveRecentGroup.value) return;
     if (!sortedStickerGroups.value.some((group) => group.id === currentActiveGroupId.value)) currentActiveGroupId.value = RECENT_STICKER_GROUP_ID;
+  },
+  { immediate: true }
+);
+
+watch(
+  () => props.recommendedStickers.length,
+  (count) => {
+    if (count > 0 && !props.activeGroupId && currentActiveGroupId.value === RECENT_STICKER_GROUP_ID) {
+      currentActiveGroupId.value = RECOMMENDED_STICKER_GROUP_ID;
+      return;
+    }
+    if (!count && currentActiveGroupId.value === RECOMMENDED_STICKER_GROUP_ID) currentActiveGroupId.value = RECENT_STICKER_GROUP_ID;
   },
   { immediate: true }
 );
@@ -259,10 +324,22 @@ watch(
     selectedStickerId.value = '';
     selectedStickerIds.value = [];
     moveTargetGroupId.value = '';
+    if (managementPanel.value === 'select' && !filteredStickers.value.length) managementPanel.value = '';
     const group = stickerGroups.value.find((item) => item.id === groupId);
     newGroupName.value = group?.name ?? '';
   },
   { immediate: true }
+);
+
+watch(
+  () => props.managementMode,
+  (enabled) => {
+    if (enabled) return;
+    managementPanel.value = '';
+    selectedStickerIds.value = [];
+    selectedStickerId.value = '';
+    moveTargetGroupId.value = '';
+  }
 );
 
 watch(filteredStickers, (nextStickers) => {
@@ -284,6 +361,25 @@ function sourceTypeForFile(file: File): StickerSourceType {
 
 function selectSticker(sticker: Sticker) {
   selectedStickerId.value = sticker.id;
+}
+
+function toggleManagementPanel(panel: 'group' | 'select') {
+  managementPanel.value = managementPanel.value === panel ? '' : panel;
+  feedback.value = '';
+  if (panel === 'select') {
+    selectedStickerId.value = '';
+    return;
+  }
+  selectedStickerIds.value = [];
+  moveTargetGroupId.value = '';
+}
+
+function handleManagedStickerClick(sticker: Sticker) {
+  if (isSelectionMode.value) {
+    toggleStickerSelection(sticker.id);
+    return;
+  }
+  selectSticker(sticker);
 }
 
 function hideTransientUi() {
@@ -406,7 +502,7 @@ async function importFiles(event: Event) {
     const drafts = [];
     for (const file of files) {
       if (file.type.startsWith('image/')) {
-        drafts.push(await readImageFileAsSticker(file));
+        drafts.push(createImageFileStickerDraft(file));
         continue;
       }
       const text = await readStickerImportFile(file);
@@ -599,8 +695,8 @@ async function deleteSelectedSticker() {
 
 .group-editor input,
 .import-row textarea,
-.manage-group-row input,
-.manage-batch-row select,
+.field-stack input,
+.batch-action-row select,
 .editor-fields input,
 .editor-actions select {
   min-height: 28px;
@@ -612,35 +708,148 @@ async function deleteSelectedSticker() {
 
 .manage-bar {
   display: grid;
-  gap: 6px;
-  padding: 6px;
-  border-radius: 14px;
-  background: rgba(17, 17, 17, 0.04);
+  gap: 8px;
+  padding: 8px;
+  border-radius: 16px;
+  background: rgba(17, 17, 17, 0.035);
 }
 
-.manage-group-row,
-.manage-batch-row,
+.manage-choice-row,
+.group-action-grid,
+.batch-action-row,
 .editor-actions {
   display: grid;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   min-width: 0;
 }
 
-.manage-group-row {
-  grid-template-columns: minmax(0, 1fr) repeat(5, 28px);
+.manage-choice-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.manage-batch-row {
-  grid-template-columns: minmax(66px, 0.7fr) minmax(0, 1fr) 28px 28px;
+.manage-choice,
+.text-action,
+.link-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  border-radius: 12px;
+  font-weight: 900;
 }
 
-.manage-batch-row select,
+.manage-choice {
+  display: grid;
+  justify-items: start;
+  gap: 3px;
+  min-height: 50px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.76);
+  color: #211f22;
+  text-align: left;
+}
+
+.manage-choice.active {
+  background: #111111;
+  color: #ffffff;
+}
+
+.manage-choice:disabled {
+  opacity: 0.48;
+}
+
+.manage-choice span,
+.manage-choice small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manage-choice span {
+  font-size: 12px;
+}
+
+.manage-choice small {
+  opacity: 0.68;
+  font-size: 10px;
+}
+
+.manage-panel {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.field-stack {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.field-stack span,
+.batch-head span {
+  color: #77717a;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.group-action-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.batch-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.batch-action-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.batch-action-row select,
 .editor-actions select {
   width: 100%;
   min-width: 0;
   color: #24262a;
   font-weight: 800;
+}
+
+.text-action,
+.link-action {
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.86);
+  color: #211f22;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.text-action.danger {
+  color: var(--danger);
+}
+
+.text-action.compact {
+  min-height: 28px;
+  padding: 0 8px;
+}
+
+.text-action:disabled,
+.link-action:disabled {
+  opacity: 0.38;
+}
+
+.link-action {
+  min-height: 28px;
+  background: transparent;
+  color: #111111;
+  padding-inline: 4px;
 }
 
 .sticker-editor,
@@ -694,7 +903,7 @@ async function deleteSelectedSticker() {
 }
 
 .editor-actions {
-  grid-template-columns: minmax(0, 1fr) 32px;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .import-row {
@@ -774,6 +983,10 @@ async function deleteSelectedSticker() {
   cursor: pointer;
 }
 
+.manage-tile.selectable {
+  cursor: cell;
+}
+
 .sticker-tile.selected,
 .sticker-tile.checked {
   border-color: rgba(17, 17, 17, 0.14);
@@ -840,12 +1053,9 @@ async function deleteSelectedSticker() {
 }
 
 @container (max-width: 340px) {
-  .manage-group-row {
-    grid-template-columns: minmax(0, 1fr) repeat(5, 26px);
-  }
-
-  .manage-batch-row {
-    grid-template-columns: minmax(58px, 0.65fr) minmax(0, 1fr) 26px 26px;
+  .group-action-grid,
+  .batch-action-row {
+    grid-template-columns: 1fr;
   }
 }
 

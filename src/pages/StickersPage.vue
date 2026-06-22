@@ -9,7 +9,7 @@
         <button class="stickers-action-button" type="button" aria-label="导入 Stickers" @click="openImportModal">
           <Plus :size="20" stroke-width="2.4" />
         </button>
-        <button class="stickers-action-button" :class="{ active: manageMode }" type="button" :aria-label="manageMode ? '退出管理 Stickers' : '管理 Stickers'" @click="toggleManageMode">
+        <button class="stickers-action-button" type="button" aria-label="管理 Stickers" @click="openManagePage">
           <PencilLine :size="19" stroke-width="2.3" />
         </button>
       </div>
@@ -21,8 +21,7 @@
           v-model:activeGroupId="activeGroupId"
           :show-close="false"
           :show-toolbar-actions="false"
-          :allow-sticker-editing="manageMode"
-          :management-mode="manageMode"
+          :allow-sticker-editing="false"
         />
       </section>
       <section v-else class="loading-card">
@@ -59,12 +58,11 @@ import StickerImportModal, { type StickerImportTab } from '@/components/stickers
 import StickerLibraryPanel from '@/components/stickers/StickerLibraryPanel.vue';
 import { useAppStore } from '@/stores/appStore';
 import type { StickerSourceType } from '@/types/domain';
-import { RECENT_STICKER_GROUP_ID, parseStickerImportText, readImageFileAsSticker, readStickerImportFile, type StickerImportDraft } from '@/utils/stickers';
+import { RECENT_STICKER_GROUP_ID, createImageFileStickerDraft, parseStickerImportText, readStickerImportFile, type StickerImportDraft } from '@/utils/stickers';
 
 const router = useRouter();
 const store = useAppStore();
 const activeGroupId = ref(RECENT_STICKER_GROUP_ID);
-const manageMode = ref(false);
 const showImportModal = ref(false);
 const importTab = ref<StickerImportTab>('url');
 const importTargetGroupId = ref('');
@@ -113,9 +111,9 @@ function openImportModal() {
   showImportModal.value = true;
 }
 
-function toggleManageMode() {
+function openManagePage() {
   showImportModal.value = false;
-  manageMode.value = !manageMode.value;
+  void router.push({ name: 'stickers-manage' });
 }
 
 function goBack() {
@@ -147,7 +145,7 @@ async function buildImportDrafts() {
   const drafts: StickerImportDraft[] = [];
   for (const file of selectedFiles.value) {
     if (file.type.startsWith('image/')) {
-      drafts.push(await readImageFileAsSticker(file));
+        drafts.push(createImageFileStickerDraft(file));
       continue;
     }
     const text = await readStickerImportFile(file);
@@ -234,6 +232,10 @@ async function createImportGroup() {
   border-radius: 8px;
   background: #111111;
   color: #ffffff;
+}
+
+.stickers-action-button svg {
+  pointer-events: none;
 }
 
 .stickers-title-button {
