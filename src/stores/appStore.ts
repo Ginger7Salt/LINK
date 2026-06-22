@@ -2,11 +2,11 @@ import { computed, ref, toRaw } from 'vue';
 import { defineStore } from 'pinia';
 import { deleteEntity, loadSnapshot, putEntity, replaceSnapshot } from '@/data/db';
 import { defaultSettings } from '@/data/seed';
-import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelScope, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationMemoryRecord, ConversationSettings, GeneratedImageRecord, ImageModuleId, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationMemoryRecord, ConversationSettings, GeneratedImageRecord, ImageModuleId, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
 import { createAccountId, createId } from '@/utils/id';
 import { getCharacterVoomAuthorName, normalizeCharacterMindStateLines, normalizeCharacterProfile } from '@/utils/character';
 import { normalizeUserProfile, normalizeVisualProfile } from '@/utils/profile';
-import { getImageGenerationSize, getImagePromptPresetForProvider, getSelectedImageModelOption, mergeVendorModels, normalizeAppSettings } from '@/utils/settings';
+import { getImageGenerationSize, getImagePromptPresetForProvider, getSelectedImageModelOption, mergeVendorModels, normalizeAppSettings, normalizeChatModelOverrides } from '@/utils/settings';
 import { normalizeWorldBookEntry, normalizeWorldBooks } from '@/utils/worldBook';
 import { RECENT_STICKER_GROUP_NAME, createStickerFromDraft, createStickerGroup, isLegacyGanadiSticker, isLegacyGanadiStickerGroup, isRecentStickerGroupId, localizeStickerImageUrl, normalizeSticker, normalizeStickerGroup, shouldLocalizeStickerImageUrl, sortRecentStickers, type StickerImportDraft } from '@/utils/stickers';
 import { ageMemoryKind, createMemoryRecord, getConversationFloorCount, getHiddenMessageIds, getMemoryContext, getMessageFloorMap, getMessagesInFloorRange, getNextSummaryRange, getVisibleMessages, normalizeConversationSettings, renderCharacterMemoryPrompt, shouldCompressMemory } from '@/utils/memory';
@@ -483,20 +483,74 @@ export const useAppStore = defineStore('app', () => {
     return settings.value?.modelOverrides[scope]?.trim() ?? '';
   }
 
+  function modelOverridesForConversation(id: string): ChatModelOverrides {
+    const chatSettings = settingsForConversation(id);
+    const conversation = conversationById(id);
+    const character = conversation ? characterById(conversation.charId) : null;
+    const characterOverrides = normalizeChatModelOverrides(character?.modelOverrides);
+    const legacyConversationOverrides = normalizeChatModelOverrides(chatSettings.modelOverrides);
+
+    return normalizeChatModelOverrides({
+      online: characterOverrides.online || legacyConversationOverrides.online,
+      offline: characterOverrides.offline || legacyConversationOverrides.offline,
+      summary: characterOverrides.summary || legacyConversationOverrides.summary,
+      voom: characterOverrides.voom || legacyConversationOverrides.voom
+    });
+  }
+
   function getConversationTextModelOverride(chatSettings: ConversationSettings, scope: ChatModelScope, fallbackScope?: ChatModelScope) {
-    const conversationOverride = chatSettings.modelOverrides[scope]?.trim() ?? '';
-    if (conversationOverride) return conversationOverride;
+    const localOverrides = modelOverridesForConversation(chatSettings.conversationId);
+    const localOverride = localOverrides[scope]?.trim() ?? '';
+    if (localOverride) return localOverride;
 
     const globalOverride = getGlobalTextModelOverride(scope);
     if (globalOverride) return globalOverride;
 
     if (fallbackScope && fallbackScope !== scope) {
-      const fallbackConversationOverride = chatSettings.modelOverrides[fallbackScope]?.trim() ?? '';
-      if (fallbackConversationOverride) return fallbackConversationOverride;
+      const fallbackLocalOverride = localOverrides[fallbackScope]?.trim() ?? '';
+      if (fallbackLocalOverride) return fallbackLocalOverride;
       return getGlobalTextModelOverride(fallbackScope);
     }
 
     return '';
+  }
+
+  async function clearLegacyModelOverridesForCharacter(characterId: string) {
+    const emptyOverrides = normalizeChatModelOverrides(null);
+    const updates = conversationSettings.value
+      .filter((entry) => conversationById(entry.conversationId)?.charId === characterId)
+      .filter((entry) => Object.values(normalizeChatModelOverrides(entry.modelOverrides)).some(Boolean))
+      .map((entry) => normalizeConversationSettings({
+        ...entry,
+        modelOverrides: emptyOverrides
+      }, entry.conversationId));
+
+    if (!updates.length) return;
+
+    const updatesById = new Map(updates.map((entry) => [entry.conversationId, entry]));
+    conversationSettings.value = conversationSettings.value.map((entry) => updatesById.get(entry.conversationId) ?? entry);
+    await Promise.all(updates.map((entry) => putEntity('conversationSettings', entry)));
+  }
+
+  async function saveCharacterModelOverridesForConversation(conversationId: string, nextOverrides: ChatModelOverrides) {
+    const normalizedOverrides = normalizeChatModelOverrides(nextOverrides);
+    const conversation = conversationById(conversationId);
+    const character = conversation ? characterById(conversation.charId) : null;
+    const chatSettings = settingsForConversation(conversationId);
+
+    if (character) {
+      await saveCharacter({
+        ...character,
+        modelOverrides: normalizedOverrides
+      });
+      await clearLegacyModelOverridesForCharacter(character.id);
+      return;
+    }
+
+    await saveConversationSettings({
+      ...chatSettings,
+      modelOverrides: normalizedOverrides
+    });
   }
 
   function isReplyingVoomComments(postId: string) {
@@ -3578,6 +3632,7 @@ export const useAppStore = defineStore('app', () => {
     messagesForConversation,
     generatedImagesForProvider,
     settingsForConversation,
+    modelOverridesForConversation,
     memoriesForConversation,
     stickersForGroup,
     visibleMessagesForConversation,
@@ -3602,6 +3657,7 @@ export const useAppStore = defineStore('app', () => {
     markCharacterMindStateRead,
     addCharacter,
     saveConversationSettings,
+    saveCharacterModelOverridesForConversation,
     saveStickerGroup,
     addStickerGroup,
     deleteStickerGroup,

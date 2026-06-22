@@ -24,9 +24,8 @@
 import { computed, reactive, watch } from 'vue';
 import AppModal from '@/components/common/AppModal.vue';
 import { useAppStore } from '@/stores/appStore';
-import type { AppSettings, ChatModelScope, ConversationSettings } from '@/types/domain';
-import { normalizeConversationSettings } from '@/utils/memory';
-import { normalizeAppSettings } from '@/utils/settings';
+import type { AppSettings, ChatModelOverrides, ChatModelScope } from '@/types/domain';
+import { normalizeAppSettings, normalizeChatModelOverrides } from '@/utils/settings';
 
 const props = withDefaults(defineProps<{
   modelValue: boolean;
@@ -48,11 +47,11 @@ const modelScopes: Array<{ id: ChatModelScope; label: string }> = [
   { id: 'summary', label: '总结模型' },
   { id: 'voom', label: 'VOOM 生成模型' }
 ];
-const draft = reactive<ConversationSettings>(normalizeConversationSettings(null, props.conversationId));
+const draft = reactive<ChatModelOverrides>(normalizeChatModelOverrides(null));
 const settingsDraft = reactive<AppSettings>(normalizeAppSettings(null));
 const isGlobal = computed(() => props.variant === 'global');
 const panelTitle = computed(() => (isGlobal.value ? '全局模型切换' : '模型切换'));
-const currentConversationSettings = computed(() => normalizeConversationSettings(store.settingsForConversation(props.conversationId), props.conversationId));
+const currentLocalModelOverrides = computed(() => store.modelOverridesForConversation(props.conversationId));
 const currentGlobalSettings = computed(() => normalizeAppSettings(store.settings));
 
 const groupedModels = computed(() => {
@@ -74,10 +73,10 @@ const groupedModels = computed(() => {
 });
 
 watch(
-  () => [props.conversationId, currentConversationSettings.value, props.modelValue] as const,
+  () => [props.conversationId, currentLocalModelOverrides.value, props.modelValue] as const,
   () => {
     if (isGlobal.value) return;
-    Object.assign(draft, currentConversationSettings.value);
+    Object.assign(draft, currentLocalModelOverrides.value);
   },
   { immediate: true }
 );
@@ -93,7 +92,7 @@ watch(
 
 function modelValueFor(scope: ChatModelScope) {
   if (isGlobal.value) return settingsDraft.modelOverrides[scope];
-  return draft.modelOverrides[scope].trim() || currentGlobalSettings.value.modelOverrides[scope];
+  return draft[scope].trim() || currentGlobalSettings.value.modelOverrides[scope];
 }
 
 function fallbackLabel(scope: ChatModelScope) {
@@ -122,16 +121,12 @@ function updateModel(scope: ChatModelScope, event: Event) {
     return;
   }
 
-  const nextSettings = normalizeConversationSettings({
+  const nextOverrides = normalizeChatModelOverrides({
     ...draft,
-    conversationId: props.conversationId,
-    modelOverrides: {
-      ...draft.modelOverrides,
-      [scope]: value
-    }
-  }, props.conversationId);
-  Object.assign(draft, nextSettings);
-  void store.saveConversationSettings(nextSettings);
+    [scope]: value
+  });
+  Object.assign(draft, nextOverrides);
+  void store.saveCharacterModelOverridesForConversation(props.conversationId, nextOverrides);
 }
 
 function vendorSelectLabel(vendor: { avatar: string; name: string }) {

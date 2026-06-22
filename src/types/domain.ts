@@ -84,6 +84,7 @@ export interface CharacterProfile {
   voomFrequency: VoomFrequency;
   profile?: VisualProfile;
   mindState?: CharacterMindState;
+  modelOverrides?: ChatModelOverrides;
 }
 
 export type VoomFrequency = 'very-low' | 'low' | 'medium' | 'high' | 'very-high' | 'always';

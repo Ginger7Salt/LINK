@@ -83,9 +83,9 @@
           <label class="field model-select-field">
             <span>自动总结模型</span>
             <div class="model-select-shell">
-              <img v-if="selectedModelMeta(draft.modelOverrides.summary)" :src="selectedModelMeta(draft.modelOverrides.summary)?.avatar" :alt="selectedModelMeta(draft.modelOverrides.summary)?.vendorName" />
-              <span v-if="selectedModelMeta(draft.modelOverrides.summary)" class="model-select-vendor">{{ selectedModelMeta(draft.modelOverrides.summary)?.vendorName }}</span>
-              <select v-model="draft.modelOverrides.summary" :class="{ 'with-provider': selectedModelMeta(draft.modelOverrides.summary) }" @change="saveDraft">
+              <img v-if="selectedModelMeta(summaryModelValue)" :src="selectedModelMeta(summaryModelValue)?.avatar" :alt="selectedModelMeta(summaryModelValue)?.vendorName" />
+              <span v-if="selectedModelMeta(summaryModelValue)" class="model-select-vendor">{{ selectedModelMeta(summaryModelValue)?.vendorName }}</span>
+              <select :value="summaryModelValue" :class="{ 'with-provider': selectedModelMeta(summaryModelValue) }" @change="updateSummaryModel">
                 <option value="">跟随全局总结模型</option>
                 <optgroup v-for="vendor in groupedModels" :key="vendor.id" :label="vendorSelectLabel(vendor)">
                   <option v-for="model in vendor.models" :key="model.value" :value="model.value">
@@ -451,6 +451,7 @@ import { useAppStore } from '@/stores/appStore';
 import type { CharacterProfile, ConversationMemoryRecord, ConversationSettings } from '@/types/domain';
 import { readImageFileFromInput } from '@/utils/imageFile';
 import { estimateTokenCount, getConversationFloorCount, normalizeConversationSettings } from '@/utils/memory';
+import { normalizeChatModelOverrides } from '@/utils/settings';
 import { normalizeVoomFrequency, voomFrequencyOptions } from '@/utils/voom';
 
 const props = defineProps<{
@@ -482,6 +483,9 @@ const manualSummary = reactive({
 });
 
 const memories = computed(() => store.memoriesForConversation(props.conversationId));
+const currentConversationSettings = computed(() => store.settingsForConversation(props.conversationId));
+const localModelOverrides = computed(() => store.modelOverridesForConversation(props.conversationId));
+const summaryModelValue = computed(() => localModelOverrides.value.summary.trim() || store.settings?.modelOverrides.summary?.trim() || '');
 const totalMemoryTokens = computed(() => store.nextReplyTokenCountForConversation(props.conversationId));
 const messageCount = computed(() => getConversationFloorCount(store.messagesForConversation(props.conversationId)));
 const hiddenFloorStatus = computed(() => {
@@ -551,9 +555,9 @@ const canManualSummarize = computed(() => {
 });
 
 watch(
-  () => [props.conversationId, store.conversationSettings.length] as const,
+  () => [props.conversationId, currentConversationSettings.value] as const,
   () => {
-    Object.assign(draft, normalizeConversationSettings(store.settingsForConversation(props.conversationId), props.conversationId));
+    Object.assign(draft, normalizeConversationSettings(currentConversationSettings.value, props.conversationId));
     showStickerGroupPicker.value = false;
     fillLatestRange();
   },
@@ -568,6 +572,14 @@ watch(
 
 function saveDraft() {
   void store.saveConversationSettings({ ...draft, conversationId: props.conversationId });
+}
+
+function updateSummaryModel(event: Event) {
+  const nextOverrides = normalizeChatModelOverrides({
+    ...localModelOverrides.value,
+    summary: (event.target as HTMLSelectElement).value
+  });
+  void store.saveCharacterModelOverridesForConversation(props.conversationId, nextOverrides);
 }
 
 function updateAutoGenerateVoom(event: Event) {

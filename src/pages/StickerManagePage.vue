@@ -470,7 +470,7 @@ async function deleteSticker(stickerId: string) {
 
 .toolbar-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(42px, 0.75fr) minmax(42px, 0.75fr) minmax(76px, 1fr) minmax(42px, 0.75fr);
   gap: 6px;
   min-width: 0;
 }
@@ -488,8 +488,14 @@ async function deleteSticker(stickerId: string) {
   background: #f0f3f1;
   color: #202421;
   padding: 0 10px;
-  font-size: 13px;
+  font-size: var(--compact-control-font-size);
   line-height: 1;
+}
+
+.toolbar-row button,
+.toolbar-row select {
+  min-height: 34px;
+  padding-inline: 8px;
 }
 
 .toolbar-row button,
@@ -754,13 +760,9 @@ async function deleteSticker(stickerId: string) {
 }
 
 @media (pointer: coarse) {
-  .toolbar-row button,
-  .toolbar-row select,
-  .add-group-button,
   .group-row input,
   .sticker-fields input,
-  .sticker-fields select,
-  .delete-row {
+  .sticker-fields select {
     font-size: var(--ios-control-font-size, 16px);
   }
 }

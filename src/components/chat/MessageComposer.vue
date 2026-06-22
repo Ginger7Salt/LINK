@@ -256,10 +256,10 @@ onBeforeUnmount(clearBlurTimer);
 .suggestion-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex: 0 0 auto;
-  max-width: 136px;
-  min-height: 34px;
+  max-width: 124px;
+  min-height: 30px;
   padding: 4px 8px 4px 5px;
   border-radius: 999px;
   background: rgba(240, 241, 242, 0.96);
@@ -271,10 +271,10 @@ onBeforeUnmount(clearBlurTimer);
 
 .suggestion-chip img {
   display: block;
-  flex: 0 0 26px;
-  width: 26px;
-  height: 26px;
-  border-radius: 9px;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
   object-fit: contain;
 }
 

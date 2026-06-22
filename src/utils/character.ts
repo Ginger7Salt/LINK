@@ -1,5 +1,6 @@
 import type { CharacterProfile } from '@/types/domain';
 import { normalizeVisualProfile } from '@/utils/profile';
+import { normalizeChatModelOverrides } from '@/utils/settings';
 import { normalizeVoomFrequency } from '@/utils/voom';
 
 const defaultCharacterSignature = '这个角色还没有写个性签名。';
@@ -64,6 +65,7 @@ export function normalizeCharacterProfile(character: CharacterProfile, fallbackU
     lastSeen: String(character.lastSeen ?? '').trim() || '现在',
     localWorldBookIds,
     voomFrequency,
+    modelOverrides: normalizeChatModelOverrides(character.modelOverrides),
     profile,
     mindState: mindStateLines.length
       ? {

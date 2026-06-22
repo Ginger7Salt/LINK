@@ -16,7 +16,7 @@
 
       <article class="account-card" :class="{ active: currentAccount.id === activeUserId }">
         <header class="account-head">
-          <span class="active-pill">{{ currentAccount.id === activeUserId ? '当前使用中' : currentAccountPersisted ? '可切换' : '等待保存' }}</span>
+          <span class="active-pill">{{ currentAccount.id === activeUserId ? '当前使用中' : currentAccountPersisted ? '可切换' : '自动保存中' }}</span>
 
           <div class="account-summary">
             <img :src="currentAccount.avatar" :alt="currentAccount.nickname" />
@@ -85,14 +85,13 @@
           <p v-else-if="boundListExpanded" :id="boundPanelId">这个账号还没有绑定任何 Friends。</p>
         </section>
 
-        <div class="card-actions triple-actions">
+        <div class="card-actions dual-actions">
           <button class="danger-button" type="button" :disabled="!canDeleteCurrent" @click="requestDeleteCurrentAccount">
             {{ currentAccountPersisted ? '删除账号' : '移除草稿账号' }}
           </button>
           <button class="switch-button" type="button" :disabled="!currentAccountPersisted || currentAccount.id === activeUserId" @click="switchAccount(currentAccount.id)">
             {{ currentAccount.id === activeUserId ? '当前账号' : '切换账号' }}
           </button>
-          <button class="save-button" type="button" @click="saveAccount(currentAccount.id)">保存账号</button>
         </div>
       </article>
     </div>
@@ -152,12 +151,16 @@ const avatarEditorSource = ref('');
 const pendingAvatarUserId = ref('');
 const pendingDeleteAccountId = ref('');
 const moveTargets = reactive<Record<string, string>>({});
+const savedAccountSnapshots = new Map<string, string>();
 
 watch(
   () => props.accounts,
   (accounts) => {
     const previousSelectedId = selectedAccountId.value;
-    draftAccounts.splice(0, draftAccounts.length, ...accounts.map((account) => normalizeUserProfile(cloneAccount(account))));
+    const normalizedAccounts = accounts.map((account) => normalizeUserProfile(cloneAccount(account)));
+    savedAccountSnapshots.clear();
+    normalizedAccounts.forEach((account) => savedAccountSnapshots.set(account.id, serializeAccount(account)));
+    draftAccounts.splice(0, draftAccounts.length, ...normalizedAccounts);
 
     if (draftAccounts.some((account) => account.id === previousSelectedId)) {
       selectedAccountId.value = previousSelectedId;
@@ -200,8 +203,21 @@ watch(selectedAccountId, () => {
   boundListExpanded.value = false;
 });
 
+watch(
+  draftAccounts,
+  () => {
+    if (!currentAccount.value) return;
+    saveAccount(currentAccount.value.id);
+  },
+  { deep: true }
+);
+
 function cloneAccount(account: UserProfile): UserProfile {
   return JSON.parse(JSON.stringify(account)) as UserProfile;
+}
+
+function serializeAccount(account: UserProfile) {
+  return JSON.stringify(normalizeUserProfile(account));
 }
 
 function createAccount() {
@@ -280,7 +296,11 @@ function switchAccount(userId: string) {
 function saveAccount(userId: string) {
   const account = draftAccounts.find((entry) => entry.id === userId);
   if (!account) return;
-  emit('save', normalizeUserProfile(account));
+  const normalizedAccount = normalizeUserProfile(account);
+  const snapshot = serializeAccount(normalizedAccount);
+  if (savedAccountSnapshots.get(normalizedAccount.id) === snapshot) return;
+  savedAccountSnapshots.set(normalizedAccount.id, snapshot);
+  emit('save', normalizedAccount);
 }
 
 function removeDraftAccount(userId: string) {
@@ -371,8 +391,7 @@ defineExpose({
 .upload-pill span,
 .ghost-button,
 .danger-button,
-.switch-button,
-.save-button {
+.switch-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -626,16 +645,14 @@ defineExpose({
 
 .ghost-button,
 .danger-button,
-.switch-button,
-.save-button {
+.switch-button {
   min-height: 34px;
   border-radius: 12px;
   font-size: 12px;
 }
 
 .danger-button,
-.switch-button,
-.save-button {
+.switch-button {
   min-width: 0;
   width: 100%;
   padding-inline: 6px;
@@ -657,11 +674,6 @@ defineExpose({
 .switch-button {
   background: #f1f3f6;
   color: #171717;
-}
-
-.save-button {
-  background: #171717;
-  color: #ffffff;
 }
 
 .account-delete-confirm {
@@ -719,8 +731,8 @@ defineExpose({
   gap: 7px;
 }
 
-.triple-actions {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.dual-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 button:disabled {
@@ -733,14 +745,13 @@ button:disabled {
     gap: 7px;
   }
 
-  .triple-actions {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .dual-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
   }
 
   .danger-button,
-  .switch-button,
-  .save-button {
+  .switch-button {
     min-height: 40px;
     padding-inline: 4px;
     border-radius: 14px;

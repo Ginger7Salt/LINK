@@ -1,5 +1,6 @@
 import type { ChatMemorySettings, ChatMessage, ChatMode, ConversationMemoryRecord, ConversationSettings } from '@/types/domain';
 import { createId } from './id';
+import { normalizeChatModelOverrides } from './settings';
 import { defaultTimeAwarenessSettings, normalizeTimeAwarenessSettings } from './timeAwareness';
 import { normalizeVoomFrequency } from './voom';
 
@@ -29,12 +30,7 @@ const defaultUserBubbleColor = '#eeeeee';
 
 export const defaultConversationSettings: Omit<ConversationSettings, 'conversationId'> = {
   memory: defaultChatMemorySettings,
-  modelOverrides: {
-    online: '',
-    offline: '',
-    summary: '',
-    voom: ''
-  },
+  modelOverrides: normalizeChatModelOverrides(null),
   appearance: {
     backgroundImage: '',
     backgroundImages: [],
@@ -65,7 +61,7 @@ export const defaultConversationSettings: Omit<ConversationSettings, 'conversati
 export function normalizeConversationSettings(settings: Partial<ConversationSettings> | null | undefined, conversationId: string): ConversationSettings {
   const memory = settings?.memory ?? defaultChatMemorySettings;
   const appearance = settings?.appearance ?? defaultConversationSettings.appearance;
-  const modelOverrides = settings?.modelOverrides ?? defaultConversationSettings.modelOverrides;
+  const modelOverrides = normalizeChatModelOverrides(settings?.modelOverrides ?? defaultConversationSettings.modelOverrides);
   const isLegacySettings = Boolean(settings && !Object.prototype.hasOwnProperty.call(settings, 'stickerSuggestionsEnabled'));
   const summaryModel = String(modelOverrides.summary ?? memory.summaryModel ?? '').trim();
   const rawBackgroundColor = String(appearance.backgroundColor ?? defaultConversationSettings.appearance.backgroundColor).trim();
@@ -100,12 +96,10 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
       vectorMemoryEnabled: memory.vectorMemoryEnabled ?? defaultChatMemorySettings.vectorMemoryEnabled,
       hideSummarizedMessages: memory.hideSummarizedMessages ?? defaultChatMemorySettings.hideSummarizedMessages
     },
-    modelOverrides: {
-      online: String(modelOverrides.online ?? '').trim(),
-      offline: String(modelOverrides.offline ?? '').trim(),
-      summary: summaryModel,
-      voom: String(modelOverrides.voom ?? '').trim()
-    },
+    modelOverrides: normalizeChatModelOverrides({
+      ...modelOverrides,
+      summary: summaryModel
+    }),
     appearance: {
       backgroundImage: activeBackgroundImage,
       backgroundImages: [...new Set(backgroundImages)],

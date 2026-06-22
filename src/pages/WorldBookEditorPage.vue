@@ -7,13 +7,13 @@
 
       <div v-if="store.ready && isLoaded && !missingBook" class="world-book-editor-actions">
         <button class="book-power-button" :class="{ active: draft.enabled }" type="button" @click="toggleBookEnabled">
-          <span>{{ draft.enabled ? 'Enabled' : 'Disabled' }}</span>
+          <span>{{ draft.enabled ? '已启用' : '已停用' }}</span>
         </button>
         <button v-if="selectedBookId" class="book-delete-button" type="button" @click="requestDeleteWorldBook">
-          <span>Delete</span>
+          <span>删除</span>
         </button>
         <button class="world-book-editor-save-button" type="button" aria-label="保存世界书" title="保存世界书" @click="finishEditing">
-          <span>Save</span>
+          <span>保存</span>
         </button>
       </div>
     </header>

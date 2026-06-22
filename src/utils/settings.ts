@@ -1,4 +1,4 @@
-import type { ApiVendor, ApiVendorModel, AppSettings, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, PublicTtsSettings, TtsProviderType } from '@/types/domain';
+import type { ApiVendor, ApiVendorModel, AppSettings, ChatModelOverrides, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, PublicTtsSettings, TtsProviderType } from '@/types/domain';
 import { createId } from './id';
 
 export const novelAiOfficialApiUrl = 'https://image.novelai.net';
@@ -97,17 +97,21 @@ function normalizeVendorAvatar(avatar: string | null | undefined) {
   return trimmed;
 }
 
+export function normalizeChatModelOverrides(overrides?: Partial<ChatModelOverrides> | null): ChatModelOverrides {
+  return {
+    online: String(overrides?.online ?? '').trim(),
+    offline: String(overrides?.offline ?? '').trim(),
+    summary: String(overrides?.summary ?? '').trim(),
+    voom: String(overrides?.voom ?? '').trim()
+  };
+}
+
 export const defaultAppSettings: AppSettings = {
   activeUserId: '',
   apiEndpoint: '',
   apiKey: '',
   model: 'gpt-compatible-model',
-  modelOverrides: {
-    online: '',
-    offline: '',
-    summary: '',
-    voom: ''
-  },
+  modelOverrides: normalizeChatModelOverrides(null),
   apiVendors: [],
   autoGenerateVoom: true,
   disclaimerAccepted: false,
@@ -1082,12 +1086,7 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
 
   const normalized = {
     ...merged,
-    modelOverrides: {
-      online: String(merged.modelOverrides?.online ?? '').trim(),
-      offline: String(merged.modelOverrides?.offline ?? '').trim(),
-      summary: String(merged.modelOverrides?.summary ?? '').trim(),
-      voom: String(merged.modelOverrides?.voom ?? '').trim()
-    },
+    modelOverrides: normalizeChatModelOverrides(merged.modelOverrides),
     imageModelOverrides: normalizeImageModelOverrides(settings),
     apiVendors: normalizedVendors,
     imageOpenAi: normalizeOpenAiImageSettings(settings?.imageOpenAi, {
