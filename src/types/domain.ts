@@ -237,13 +237,15 @@ export interface ChatImageAttachment {
 
 export type ChatVoiceAttachmentSource = 'recorded' | 'text';
 
+export type TtsProviderType = 'public' | 'openai' | 'minimax';
+
 export interface ChatVoiceAttachment {
   source: ChatVoiceAttachmentSource;
   transcript: string;
   duration: number;
   audioUrl?: string;
   mimeType?: string;
-  ttsProvider?: 'minimax';
+  ttsProvider?: TtsProviderType;
   ttsVoiceId?: string;
   ttsGeneratedAt?: number;
 }
@@ -539,6 +541,26 @@ export interface GitHubBackupSettings {
 
 export type MinimaxTtsAudioFormat = 'mp3' | 'wav' | 'pcm';
 
+export type OpenAiTtsAudioFormat = 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm';
+
+export interface PublicTtsSettings {
+  apiUrl: string;
+  voice: string;
+  mimeType: string;
+}
+
+export interface OpenAiTtsSettings {
+  activeVendorId: string;
+  vendors: ApiVendor[];
+  apiKey: string;
+  apiUrl: string;
+  model: string;
+  voice: string;
+  responseFormat: OpenAiTtsAudioFormat;
+  speed: number;
+  instructions: string;
+}
+
 export interface MinimaxTtsSettings {
   enabled: boolean;
   apiKey: string;
@@ -567,6 +589,9 @@ export interface AppSettings {
   ttsEnabled: boolean;
   ttsVoice: string;
   ttsPlaybackMode: 'manual' | 'auto';
+  ttsProvider: TtsProviderType;
+  ttsPublic: PublicTtsSettings;
+  ttsOpenAi: OpenAiTtsSettings;
   ttsMinimax: MinimaxTtsSettings;
   imageModel: string;
   imageSize: string;

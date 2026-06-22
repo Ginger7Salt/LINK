@@ -1,4 +1,4 @@
-import type { ApiVendor, ApiVendorModel, AppSettings, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, PollinationsImageSettings } from '@/types/domain';
+import type { ApiVendor, ApiVendorModel, AppSettings, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, PublicTtsSettings, TtsProviderType } from '@/types/domain';
 import { createId } from './id';
 
 export const novelAiOfficialApiUrl = 'https://image.novelai.net';
@@ -35,7 +35,11 @@ export interface ConfiguredImageModelOption {
 }
 
 const imageProviderOrder: ImageProviderType[] = ['openai', 'novelai', 'pollinations'];
+const ttsProviderOrder: TtsProviderType[] = ['public', 'minimax', 'openai'];
+const openAiTtsAudioFormats: OpenAiTtsAudioFormat[] = ['mp3', 'opus', 'aac', 'flac', 'wav', 'pcm'];
 const openAiImageGenerationPath = '/images/generations';
+const openAiTtsSpeechPath = '/audio/speech';
+const legacyOpenAiTtsVoice = 'alloy';
 const defaultPromptPresetName = '默认预设';
 const defaultOpenAiPromptPresetId = 'openai_default';
 const defaultNovelAiPromptPresetId = 'novelai_default';
@@ -107,9 +111,26 @@ export const defaultAppSettings: AppSettings = {
   apiVendors: [],
   autoGenerateVoom: true,
   disclaimerAccepted: false,
-  ttsEnabled: false,
-  ttsVoice: 'alloy',
+  ttsEnabled: true,
+  ttsVoice: 'Zhiyu',
   ttsPlaybackMode: 'manual',
+  ttsProvider: 'public',
+  ttsPublic: {
+    apiUrl: 'https://api.streamelements.com/kappa/v2/speech',
+    voice: 'Zhiyu',
+    mimeType: 'audio/mpeg'
+  },
+  ttsOpenAi: {
+    activeVendorId: '',
+    vendors: [],
+    apiKey: '',
+    apiUrl: 'https://api.openai.com/v1',
+    model: 'tts-1',
+    voice: 'alloy',
+    responseFormat: 'mp3',
+    speed: 1,
+    instructions: ''
+  },
   ttsMinimax: {
     enabled: false,
     apiKey: '',
@@ -224,6 +245,16 @@ function normalizeImageProvider(provider: string | null | undefined): ImageProvi
   return imageProviderOrder.includes(normalized as ImageProviderType) ? normalized as ImageProviderType : '';
 }
 
+function normalizeTtsProvider(provider: string | null | undefined): TtsProviderType | '' {
+  const normalized = String(provider ?? '').trim().toLowerCase();
+  return ttsProviderOrder.includes(normalized as TtsProviderType) ? normalized as TtsProviderType : '';
+}
+
+function normalizeLegacyTtsVoice(voice: string | null | undefined) {
+  const normalized = String(voice ?? '').trim();
+  return normalized && normalized !== legacyOpenAiTtsVoice ? normalized : '';
+}
+
 function normalizeImageModelSelection(selection: Partial<ImageModelSelection> | null | undefined, fallback?: Partial<ImageModelSelection> | null): ImageModelSelection {
   const provider = normalizeImageProvider(selection?.provider ?? fallback?.provider);
   return {
@@ -287,6 +318,70 @@ function normalizeMinimaxTtsSettings(settings: Partial<MinimaxTtsSettings> | nul
     audioFormat: normalizedAudioFormat,
     channel
   };
+}
+
+function normalizePublicTtsSettings(settings: Partial<PublicTtsSettings> | null | undefined): PublicTtsSettings {
+  const mimeType = String(settings?.mimeType ?? defaultAppSettings.ttsPublic.mimeType).trim().toLowerCase();
+  const voice = settings?.voice || defaultAppSettings.ttsPublic.voice;
+
+  return {
+    apiUrl: String(settings?.apiUrl ?? defaultAppSettings.ttsPublic.apiUrl).trim() || defaultAppSettings.ttsPublic.apiUrl,
+    voice: String(voice).trim() || defaultAppSettings.ttsPublic.voice,
+    mimeType: mimeType.startsWith('audio/') ? mimeType : defaultAppSettings.ttsPublic.mimeType
+  };
+}
+
+function normalizeOpenAiTtsSettings(settings: Partial<OpenAiTtsSettings> | null | undefined, legacyVoice = ''): OpenAiTtsSettings {
+  const responseFormat = String(settings?.responseFormat ?? defaultAppSettings.ttsOpenAi.responseFormat).trim().toLowerCase();
+  const normalizedResponseFormat: OpenAiTtsAudioFormat = openAiTtsAudioFormats.includes(responseFormat as OpenAiTtsAudioFormat)
+    ? responseFormat as OpenAiTtsAudioFormat
+    : defaultAppSettings.ttsOpenAi.responseFormat;
+  const voice = (settings?.voice ?? legacyVoice) || defaultAppSettings.ttsOpenAi.voice;
+  const normalizedVendors = Array.isArray(settings?.vendors)
+    ? settings.vendors
+        .map((vendor) => normalizeOpenAiTtsVendor(vendor))
+        .filter((vendor) => vendor.name && (vendor.id !== 'tts_openai_legacy' || vendor.apiKey.trim()))
+    : [];
+
+  if (!normalizedVendors.length && settings?.apiKey?.trim()) {
+    normalizedVendors.push(normalizeOpenAiTtsVendor({
+      id: 'tts_openai_legacy',
+      enabled: Boolean(settings?.apiKey?.trim()),
+      name: 'OpenAI TTS',
+      apiUrl: String(settings?.apiUrl ?? defaultAppSettings.ttsOpenAi.apiUrl).trim() || defaultAppSettings.ttsOpenAi.apiUrl,
+      apiPath: openAiTtsSpeechPath,
+      apiKey: String(settings?.apiKey ?? '').trim(),
+      models: String(settings?.model ?? '').trim()
+        ? [{ id: String(settings?.model ?? '').trim(), nickname: '', selected: true }]
+        : []
+    }, 'tts_openai_legacy'));
+  }
+
+  const activeVendorId = String(settings?.activeVendorId ?? '').trim();
+  const activeVendor = normalizedVendors.find((vendor) => vendor.id === activeVendorId)
+    ?? normalizedVendors.find((vendor) => vendor.enabled)
+    ?? normalizedVendors[0]
+    ?? null;
+  const activeModel = activeVendor?.models.find((model) => model.selected) ?? activeVendor?.models[0] ?? null;
+  const model = (activeModel?.id ?? String(settings?.model ?? defaultAppSettings.ttsOpenAi.model).trim()) || defaultAppSettings.ttsOpenAi.model;
+
+  return {
+    activeVendorId: activeVendor?.id ?? activeVendorId,
+    vendors: normalizedVendors,
+    apiKey: String(settings?.apiKey ?? '').trim(),
+    apiUrl: String(settings?.apiUrl ?? defaultAppSettings.ttsOpenAi.apiUrl).trim() || defaultAppSettings.ttsOpenAi.apiUrl,
+    model,
+    voice: String(voice).trim() || defaultAppSettings.ttsOpenAi.voice,
+    responseFormat: normalizedResponseFormat,
+    speed: Math.min(4, Math.max(0.25, Number(settings?.speed ?? defaultAppSettings.ttsOpenAi.speed) || defaultAppSettings.ttsOpenAi.speed)),
+    instructions: String(settings?.instructions ?? '').trim()
+  };
+}
+
+export function getTtsVoiceForProvider(settings: Pick<AppSettings, 'ttsProvider' | 'ttsPublic' | 'ttsOpenAi' | 'ttsMinimax'>) {
+  if (settings.ttsProvider === 'openai') return settings.ttsOpenAi.voice;
+  if (settings.ttsProvider === 'minimax') return settings.ttsMinimax.voiceId;
+  return settings.ttsPublic.voice;
 }
 
 function normalizePromptPreset(preset: Partial<ImagePromptPreset> | null | undefined, fallbackName: string): ImagePromptPreset | null {
@@ -594,12 +689,30 @@ function normalizeImageVendor(vendor: Partial<ApiVendor> | null | undefined, fal
   };
 }
 
+function normalizeOpenAiTtsVendor(vendor: Partial<ApiVendor> | null | undefined, fallbackId?: string): ApiVendor {
+  const normalizedVendor = normalizeVendor({
+    apiPath: openAiTtsSpeechPath,
+    ...vendor,
+    apiUrl: normalizeOpenAiTtsApiUrl(String(vendor?.apiUrl ?? '').trim())
+  }, fallbackId, { allowEmptyApiUrl: true });
+
+  return {
+    ...normalizedVendor,
+    apiPath: normalizeOpenAiTtsPath(vendor?.apiPath),
+    preferBase64ImageResponse: false
+  };
+}
+
 export function createApiVendor(overrides: Partial<ApiVendor> = {}): ApiVendor {
   return normalizeVendor(overrides, undefined, { allowEmptyApiUrl: true });
 }
 
 export function createImageApiVendor(overrides: Partial<ApiVendor> = {}): ApiVendor {
   return normalizeImageVendor({ apiPath: openAiImageGenerationPath, ...overrides });
+}
+
+export function createOpenAiTtsVendor(overrides: Partial<ApiVendor> = {}): ApiVendor {
+  return normalizeOpenAiTtsVendor({ apiPath: openAiTtsSpeechPath, ...overrides });
 }
 
 export function buildApiEndpoint(apiUrl: string, apiPath: string) {
@@ -618,6 +731,13 @@ function buildOpenAiImageEndpoint(apiUrl: string, apiPath: string) {
     return `/__image-proxy?url=${encodeURIComponent(endpoint)}`;
   }
   return endpoint;
+}
+
+function buildOpenAiTtsEndpoint(apiUrl: string, apiPath: string) {
+  const normalizedApiUrl = apiUrl.trim().replace(/\/+$/, '');
+  if (!normalizedApiUrl) return '';
+  if (normalizedApiUrl.endsWith(openAiTtsSpeechPath)) return normalizedApiUrl;
+  return buildApiEndpoint(normalizedApiUrl, normalizeOpenAiTtsPath(apiPath));
 }
 
 function isLocalProxyHostname(hostname: string) {
@@ -653,6 +773,20 @@ function normalizeOpenAiImagePath(apiPath: unknown) {
     : normalizedPath;
 }
 
+function normalizeOpenAiTtsPath(apiPath: unknown) {
+  const normalizedPath = `/${String(apiPath ?? '').trim().replace(/^\/+/, '')}`;
+  return !normalizedPath.trim() || normalizedPath === '/' || normalizedPath === '/chat/completions'
+    ? openAiTtsSpeechPath
+    : normalizedPath;
+}
+
+function normalizeOpenAiTtsApiUrl(apiUrl: string) {
+  const normalizedUrl = apiUrl.trim().replace(/\/+$/, '');
+  return normalizedUrl.endsWith(openAiTtsSpeechPath)
+    ? normalizedUrl.slice(0, -openAiTtsSpeechPath.length) || defaultAppSettings.ttsOpenAi.apiUrl
+    : normalizedUrl;
+}
+
 export function getSelectedVendorModels(vendor: ApiVendor) {
   return vendor.models.filter((model) => model.selected);
 }
@@ -685,6 +819,10 @@ export function mergeImageVendorModels(vendor: ApiVendor, modelIds: string[]) {
   return normalizeImageVendor(mergeVendorModels(vendor, modelIds), vendor.id);
 }
 
+export function mergeOpenAiTtsVendorModels(vendor: ApiVendor, modelIds: string[]) {
+  return normalizeOpenAiTtsVendor(mergeVendorModels(vendor, modelIds), vendor.id);
+}
+
 export function getPreferredApiVendor(settings?: AppSettings | null) {
   const vendors = settings?.apiVendors ?? [];
   return vendors.find((vendor) => vendor.enabled && vendor.models.length > 0)
@@ -697,6 +835,22 @@ export function getPreferredApiVendor(settings?: AppSettings | null) {
 export function getPreferredImageVendor(settings?: AppSettings | null) {
   const vendors = settings?.imageOpenAi.vendors ?? [];
   const activeVendorId = settings?.imageOpenAi.activeVendorId?.trim();
+
+  if (activeVendorId) {
+    const activeVendor = vendors.find((vendor) => vendor.id === activeVendorId);
+    if (activeVendor) return activeVendor;
+  }
+
+  return vendors.find((vendor) => vendor.enabled && vendor.models.length > 0)
+    ?? vendors.find((vendor) => vendor.enabled)
+    ?? vendors.find((vendor) => vendor.models.length > 0)
+    ?? vendors[0]
+    ?? null;
+}
+
+export function getPreferredOpenAiTtsVendor(settings?: AppSettings | null) {
+  const vendors = settings?.ttsOpenAi.vendors ?? [];
+  const activeVendorId = settings?.ttsOpenAi.activeVendorId?.trim();
 
   if (activeVendorId) {
     const activeVendor = vendors.find((vendor) => vendor.id === activeVendorId);
@@ -754,6 +908,29 @@ export function getResolvedOpenAiImageConfig(settings?: AppSettings | null) {
     model: settings?.imageModel?.trim() ?? defaultAppSettings.imageModel,
     size: imageSettings.size,
     preferBase64ImageResponse: false
+  };
+}
+
+export function getResolvedOpenAiTtsConfig(settings?: AppSettings | null) {
+  const preferredVendor = getPreferredOpenAiTtsVendor(settings);
+  const ttsSettings = settings?.ttsOpenAi ?? defaultAppSettings.ttsOpenAi;
+
+  if (preferredVendor) {
+    const preferredModel = preferredVendor.models.find((model) => model.selected)
+      ?? preferredVendor.models[0]
+      ?? null;
+
+    return {
+      endpoint: buildOpenAiTtsEndpoint(preferredVendor.apiUrl, preferredVendor.apiPath || openAiTtsSpeechPath),
+      apiKey: preferredVendor.apiKey,
+      model: preferredModel?.id ?? ttsSettings.model?.trim() ?? defaultAppSettings.ttsOpenAi.model
+    };
+  }
+
+  return {
+    endpoint: buildOpenAiTtsEndpoint(ttsSettings.apiUrl, openAiTtsSpeechPath),
+    apiKey: ttsSettings.apiKey?.trim() ?? '',
+    model: ttsSettings.model?.trim() ?? defaultAppSettings.ttsOpenAi.model
   };
 }
 
@@ -873,12 +1050,16 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
   const legacyImageModel = String((settings as { imageModel?: string } | null | undefined)?.imageModel ?? '').trim();
   const legacyImageSize = String((settings as { imageSize?: string } | null | undefined)?.imageSize ?? '').trim();
   const legacyImagePromptPrefix = String((settings as { imagePromptPrefix?: string } | null | undefined)?.imagePromptPrefix ?? '').trim();
+  const explicitTtsProvider = normalizeTtsProvider(settings?.ttsProvider);
+  const legacyTtsVoice = String(settings?.ttsVoice ?? '').trim();
 
   const merged = {
     ...defaultAppSettings,
     ...settings
   };
 
+  const legacyMinimaxEnabled = Boolean(settings?.ttsMinimax?.enabled ?? merged.ttsEnabled);
+  const normalizedTtsProvider = explicitTtsProvider || (legacyMinimaxEnabled ? 'minimax' : defaultAppSettings.ttsProvider);
   const normalizedVendors = Array.isArray(settings?.apiVendors)
     ? settings.apiVendors.map((vendor) => normalizeVendor(vendor, undefined, { allowEmptyApiUrl: true })).filter((vendor) => vendor.name)
     : [];
@@ -916,10 +1097,13 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
     }),
     imageNovelAi: normalizeNovelAiImageSettings(settings?.imageNovelAi),
     imagePollinations: normalizePollinationsImageSettings(settings?.imagePollinations),
+    ttsProvider: normalizedTtsProvider,
+    ttsPublic: normalizePublicTtsSettings(settings?.ttsPublic),
+    ttsOpenAi: normalizeOpenAiTtsSettings(settings?.ttsOpenAi, normalizedTtsProvider === 'openai' ? legacyTtsVoice : ''),
     ttsMinimax: normalizeMinimaxTtsSettings(settings?.ttsMinimax, {
-      enabled: Boolean(merged.ttsEnabled),
-      voiceId: String(settings?.ttsVoice ?? '').trim() && String(settings?.ttsVoice ?? '').trim() !== defaultAppSettings.ttsVoice
-        ? String(settings?.ttsVoice ?? '').trim()
+      enabled: normalizedTtsProvider === 'minimax',
+      voiceId: normalizedTtsProvider === 'minimax' && normalizeLegacyTtsVoice(legacyTtsVoice)
+        ? normalizeLegacyTtsVoice(legacyTtsVoice)
         : ''
     }),
     voomReadAtByUser: normalizeVoomReadAtByUser(settings?.voomReadAtByUser),
@@ -932,8 +1116,8 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
   return {
     ...normalized,
     activeUserId: String(normalized.activeUserId ?? '').trim(),
-    ttsEnabled: normalized.ttsMinimax.enabled,
-    ttsVoice: normalized.ttsMinimax.voiceId,
+    ttsEnabled: true,
+    ttsVoice: getTtsVoiceForProvider(normalized),
     ttsPlaybackMode: normalized.ttsPlaybackMode === 'auto' ? 'auto' : 'manual',
     apiEndpoint: resolvedApiConfig.endpoint,
     apiKey: resolvedApiConfig.apiKey,

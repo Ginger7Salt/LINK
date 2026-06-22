@@ -46,9 +46,26 @@ export const defaultSettings: AppSettings = {
   },
   autoGenerateVoom: true,
   disclaimerAccepted: false,
-  ttsEnabled: false,
-  ttsVoice: 'alloy',
+  ttsEnabled: true,
+  ttsVoice: 'Zhiyu',
   ttsPlaybackMode: 'manual',
+  ttsProvider: 'public',
+  ttsPublic: {
+    apiUrl: 'https://api.streamelements.com/kappa/v2/speech',
+    voice: 'Zhiyu',
+    mimeType: 'audio/mpeg'
+  },
+  ttsOpenAi: {
+    activeVendorId: '',
+    vendors: [],
+    apiKey: '',
+    apiUrl: 'https://api.openai.com/v1',
+    model: 'tts-1',
+    voice: 'alloy',
+    responseFormat: 'mp3',
+    speed: 1,
+    instructions: ''
+  },
   ttsMinimax: {
     enabled: false,
     apiKey: '',

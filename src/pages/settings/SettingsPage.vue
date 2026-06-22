@@ -14,18 +14,7 @@
         </button>
       </div>
       <ImageModelPickerButton v-else-if="activeTab === 'image'" />
-      <button
-        v-else-if="activeTab === 'tts'"
-        class="tts-top-switch"
-        :class="{ enabled: currentSettings.ttsMinimax.enabled }"
-        type="button"
-        role="switch"
-        :aria-checked="currentSettings.ttsMinimax.enabled"
-        :aria-label="currentSettings.ttsMinimax.enabled ? '关闭 MiniMax TTS' : '启用 MiniMax TTS'"
-        @click="toggleTtsEnabled"
-      >
-        {{ currentSettings.ttsMinimax.enabled ? '已启用' : '未启用' }}
-      </button>
+      <TtsModelPickerButton v-else-if="activeTab === 'tts'" />
     </header>
 
     <main class="settings-main">
@@ -68,6 +57,7 @@ import ApiSettingsEditor from '@/components/home/ApiSettingsEditor.vue';
 import DataCenterPanel from '@/components/settings/DataCenterPanel.vue';
 import ImageSettingsEditor from '@/components/settings/ImageSettingsEditor.vue';
 import ImageModelPickerButton from '@/components/settings/ImageModelPickerButton.vue';
+import TtsModelPickerButton from '@/components/settings/TtsModelPickerButton.vue';
 import TtsSettingsEditor from '@/components/settings/TtsSettingsEditor.vue';
 import { useAppStore } from '@/stores/appStore';
 import type { AppSettings } from '@/types/domain';
@@ -146,18 +136,6 @@ async function saveSettings(nextSettings: AppSettings) {
   await store.saveSettings(nextSettings);
 }
 
-async function toggleTtsEnabled() {
-  const enabled = !currentSettings.value.ttsMinimax.enabled;
-  await saveSettings(normalizeAppSettings({
-    ...currentSettings.value,
-    ttsEnabled: enabled,
-    ttsVoice: currentSettings.value.ttsMinimax.voiceId,
-    ttsMinimax: {
-      ...currentSettings.value.ttsMinimax,
-      enabled
-    }
-  }));
-}
 </script>
 
 <style scoped>
@@ -213,27 +191,6 @@ async function toggleTtsEnabled() {
   gap: 4px;
 }
 
-.tts-top-switch {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  height: 32px;
-  min-width: 0;
-  padding: 0 2px;
-  border-radius: 999px;
-  background: transparent;
-  color: #6b7279;
-  font-size: 12px;
-  font-weight: 900;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.tts-top-switch.enabled {
-  color: #126332;
-}
-
 .settings-main {
   flex: 1;
   min-width: 0;
@@ -258,10 +215,6 @@ async function toggleTtsEnabled() {
 @media (max-width: 360px) {
   .settings-topbar {
     gap: 8px;
-  }
-
-  .tts-top-switch {
-    font-size: 11px;
   }
 
   .settings-main {

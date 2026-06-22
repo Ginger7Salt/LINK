@@ -498,7 +498,7 @@ async function handleVoicePlayback() {
     playVoiceAudio(await resolveVoiceAudioUrl());
   } catch (error) {
     stopVoicePlayback();
-    emit('busy-action', error instanceof Error ? error.message : '语音生成失败，请检查 MiniMax TTS 配置。', '播放失败');
+    emit('busy-action', error instanceof Error ? error.message : '语音生成失败，请检查 TTS 配置。', '播放失败');
   }
 }
 

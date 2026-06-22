@@ -1,13 +1,28 @@
-import type { MinimaxTtsSettings } from '@/types/domain';
+import type { AppSettings, MinimaxTtsSettings, OpenAiTtsSettings, PublicTtsSettings, TtsProviderType } from '@/types/domain';
+import { getResolvedOpenAiTtsConfig, getTtsVoiceForProvider, normalizeAppSettings } from '@/utils/settings';
 
-export interface TtsAudioResult {
+interface TtsAudioPayload {
   audioUrl: string;
   mimeType: string;
 }
 
-function mimeTypeForFormat(format: MinimaxTtsSettings['audioFormat']) {
+export interface TtsAudioResult extends TtsAudioPayload {
+  provider: TtsProviderType;
+  voiceId: string;
+}
+
+function minimaxMimeTypeForFormat(format: MinimaxTtsSettings['audioFormat']) {
   if (format === 'wav') return 'audio/wav';
   if (format === 'pcm') return 'audio/pcm';
+  return 'audio/mpeg';
+}
+
+function openAiMimeTypeForFormat(format: OpenAiTtsSettings['responseFormat']) {
+  if (format === 'wav') return 'audio/wav';
+  if (format === 'pcm') return 'audio/pcm';
+  if (format === 'opus') return 'audio/ogg; codecs=opus';
+  if (format === 'aac') return 'audio/aac';
+  if (format === 'flac') return 'audio/flac';
   return 'audio/mpeg';
 }
 
@@ -53,6 +68,10 @@ function readBlobAsDataUrl(blob: Blob) {
 async function remoteAudioToDataUrl(audioUrl: string, fallbackMimeType: string) {
   const response = await fetch(audioUrl);
   if (!response.ok) throw new Error(`TTS 音频下载失败：${response.status}`);
+  return readAudioResponse(response, fallbackMimeType);
+}
+
+async function readAudioResponse(response: Response, fallbackMimeType: string) {
   const blob = await response.blob();
   const mimeType = blob.type || fallbackMimeType;
   return {
@@ -66,6 +85,41 @@ function buildMinimaxEndpoint(apiUrl: string, groupId: string) {
   if (!endpoint) throw new Error('请先填写 MiniMax TTS API 地址。');
   if (!groupId.trim() || /[?&]GroupId=/i.test(endpoint)) return endpoint;
   return `${endpoint}${endpoint.includes('?') ? '&' : '?'}GroupId=${encodeURIComponent(groupId.trim())}`;
+}
+
+function buildPublicEndpoint(apiUrl: string, voice: string, text: string) {
+  const endpoint = apiUrl.trim();
+  if (!endpoint) throw new Error('请先填写公共 TTS API 地址。');
+  const encodedVoice = encodeURIComponent(voice.trim());
+  const encodedText = encodeURIComponent(text.trim());
+
+  if (endpoint.includes('{voice}') || endpoint.includes('{text}')) {
+    return endpoint
+      .split('{voice}').join(encodedVoice)
+      .split('{text}').join(encodedText);
+  }
+
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    throw new Error('公共 TTS API 地址必须是完整 URL。');
+  }
+  url.searchParams.set('voice', voice.trim());
+  url.searchParams.set('text', text.trim());
+  return url.toString();
+}
+
+function extractJsonErrorMessage(rawText: string, fallback: string) {
+  try {
+    const payload = JSON.parse(rawText) as Record<string, unknown>;
+    const error = payload.error && typeof payload.error === 'object' && !Array.isArray(payload.error)
+      ? payload.error as Record<string, unknown>
+      : null;
+    return String(error?.message ?? payload.message ?? fallback).trim() || fallback;
+  } catch {
+    return rawText.trim() || fallback;
+  }
 }
 
 function extractAudioCandidate(payload: unknown): string {
@@ -104,7 +158,7 @@ function getMinimaxError(payload: unknown) {
   return String(baseResp?.status_msg ?? record.status_msg ?? record.message ?? 'MiniMax TTS 生成失败。').trim();
 }
 
-async function normalizeAudioPayload(candidate: string, mimeType: string): Promise<TtsAudioResult> {
+async function normalizeAudioPayload(candidate: string, mimeType: string): Promise<TtsAudioPayload> {
   if (candidate.startsWith('data:')) {
     const matchedMime = candidate.match(/^data:([^;,]+)/i)?.[1] || mimeType;
     return { audioUrl: candidate, mimeType: matchedMime };
@@ -123,12 +177,11 @@ async function normalizeAudioPayload(candidate: string, mimeType: string): Promi
 export async function synthesizeMinimaxSpeech(text: string, settings: MinimaxTtsSettings): Promise<TtsAudioResult> {
   const content = text.trim();
   if (!content) throw new Error('语音内容为空。');
-  if (!settings.enabled) throw new Error('请先在 TTS 设置里启用 MiniMax TTS。');
   if (!settings.apiKey.trim()) throw new Error('请先填写 MiniMax API Key。');
   if (!settings.groupId.trim()) throw new Error('请先填写 MiniMax Group ID。');
   if (!settings.voiceId.trim()) throw new Error('请先填写 MiniMax Voice ID。');
 
-  const mimeType = mimeTypeForFormat(settings.audioFormat);
+  const mimeType = minimaxMimeTypeForFormat(settings.audioFormat);
   const response = await fetch(buildMinimaxEndpoint(settings.apiUrl, settings.groupId), {
     method: 'POST',
     headers: {
@@ -170,5 +223,63 @@ export async function synthesizeMinimaxSpeech(text: string, settings: MinimaxTts
   const apiError = getMinimaxError(payload);
   if (apiError) throw new Error(apiError);
 
-  return normalizeAudioPayload(extractAudioCandidate(payload), mimeType);
+  const audio = await normalizeAudioPayload(extractAudioCandidate(payload), mimeType);
+  return { ...audio, provider: 'minimax', voiceId: settings.voiceId };
+}
+
+export async function synthesizeOpenAiSpeech(text: string, settings: AppSettings): Promise<TtsAudioResult> {
+  const content = text.trim();
+  if (!content) throw new Error('语音内容为空。');
+  if (!settings.ttsOpenAi.voice.trim()) throw new Error('请先填写 OpenAI TTS Voice。');
+  const resolved = getResolvedOpenAiTtsConfig(settings);
+  if (!resolved.endpoint.trim()) throw new Error('请先添加 OpenAI TTS 供应商。');
+  if (!resolved.model.trim()) throw new Error('请先同步并选择 OpenAI TTS 模型。');
+
+  const response = await fetch(resolved.endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(resolved.apiKey ? { Authorization: `Bearer ${resolved.apiKey}` } : {})
+    },
+    body: JSON.stringify({
+      model: resolved.model,
+      input: content,
+      voice: settings.ttsOpenAi.voice,
+      response_format: settings.ttsOpenAi.responseFormat,
+      speed: settings.ttsOpenAi.speed,
+      ...(settings.ttsOpenAi.instructions.trim() ? { instructions: settings.ttsOpenAi.instructions.trim() } : {})
+    })
+  });
+
+  if (!response.ok) {
+    const rawText = await response.text();
+    throw new Error(extractJsonErrorMessage(rawText, `OpenAI TTS 请求失败：${response.status}`));
+  }
+
+  const audio = await readAudioResponse(response, openAiMimeTypeForFormat(settings.ttsOpenAi.responseFormat));
+  return { ...audio, provider: 'openai', voiceId: settings.ttsOpenAi.voice };
+}
+
+export async function synthesizePublicSpeech(text: string, settings: PublicTtsSettings): Promise<TtsAudioResult> {
+  const content = text.trim();
+  if (!content) throw new Error('语音内容为空。');
+  if (!settings.voice.trim()) throw new Error('请先填写公共 TTS Voice。');
+
+  const response = await fetch(buildPublicEndpoint(settings.apiUrl, settings.voice, content));
+  if (!response.ok) {
+    const rawText = await response.text();
+    throw new Error(rawText.trim() || `公共 TTS 请求失败：${response.status}`);
+  }
+
+  const audio = await readAudioResponse(response, settings.mimeType || 'audio/mpeg');
+  return { ...audio, provider: 'public', voiceId: settings.voice };
+}
+
+export async function synthesizeSpeech(text: string, settings: AppSettings): Promise<TtsAudioResult> {
+  const normalized = normalizeAppSettings(settings);
+
+  if (normalized.ttsProvider === 'openai') return synthesizeOpenAiSpeech(text, normalized);
+  if (normalized.ttsProvider === 'minimax') return synthesizeMinimaxSpeech(text, normalized.ttsMinimax);
+  const result = await synthesizePublicSpeech(text, normalized.ttsPublic);
+  return { ...result, voiceId: result.voiceId || getTtsVoiceForProvider(normalized) };
 }

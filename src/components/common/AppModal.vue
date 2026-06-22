@@ -374,8 +374,19 @@ defineEmits<{
 }
 
 .modal-panel .modal-body :deep(.composer-footer) {
-  margin-inline: -13px !important;
-  padding: 10px 13px calc(12px + var(--safe-bottom)) !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 10px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  margin-inline: 0 !important;
+  padding: 2px 0 0 !important;
+}
+
+.modal-panel .modal-body :deep(.composer-footer > .footer-button) {
+  width: 100% !important;
+  min-width: 0 !important;
+  justify-self: stretch !important;
 }
 
 .modal-panel .modal-body :deep(.sheet-cover) {

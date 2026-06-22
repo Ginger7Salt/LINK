@@ -13,7 +13,7 @@ import { ageMemoryKind, createMemoryRecord, getConversationFloorCount, getHidden
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
 import { estimateRoleplayReplyInputTokens, fetchVendorModels, generateConversationSummary, generateEmbeddingVector, generateImageByProvider, generateRoleplayReply, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, shouldAutoGenerateMoment, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
 import { GitHubBackupError, downloadGitHubBackup, downloadGitHubBackupVersion, ensureGitHubBackupRepository, formatGitHubBackupError, listGitHubBackupHistory, uploadGitHubBackup } from '@/services/githubBackup';
-import { synthesizeMinimaxSpeech } from '@/services/tts';
+import { synthesizeSpeech } from '@/services/tts';
 import { createLinkBackupFile, parseLinkBackupFileText, parseLinkBackupText } from '@/utils/backup';
 import { getVoomFrequencyChance } from '@/utils/voom';
 
@@ -891,15 +891,15 @@ export const useAppStore = defineStore('app', () => {
     const currentSettings = settings.value;
     if (!currentSettings) throw new Error('设置尚未载入。');
 
-    const generated = await synthesizeMinimaxSpeech(existingMessage.voice.transcript, currentSettings.ttsMinimax);
+    const generated = await synthesizeSpeech(existingMessage.voice.transcript, currentSettings);
     const nextMessage: ChatMessage = {
       ...existingMessage,
       voice: {
         ...existingMessage.voice,
         audioUrl: generated.audioUrl,
         mimeType: generated.mimeType,
-        ttsProvider: 'minimax',
-        ttsVoiceId: currentSettings.ttsMinimax.voiceId,
+        ttsProvider: generated.provider,
+        ttsVoiceId: generated.voiceId,
         ttsGeneratedAt: Date.now()
       }
     };

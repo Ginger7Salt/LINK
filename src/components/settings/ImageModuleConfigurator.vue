@@ -446,7 +446,6 @@
             <span class="toggle-indicator" aria-hidden="true"></span>
             <div>
               <strong>优先 Base64 图片响应</strong>
-              <small>DALL-E 会请求 b64_json；gpt-image-1 保持官方默认 base64。</small>
             </div>
           </label>
 
@@ -457,7 +456,7 @@
 
           <label class="field">
             <span>API Url</span>
-            <input v-model="vendorDraft.apiUrl" placeholder="请输入 API Base URL" />
+            <input v-model="vendorDraft.apiUrl" placeholder="https://api.openai.com/v1" />
           </label>
 
           <label class="field">
@@ -530,10 +529,10 @@
 
         <div class="composer-footer">
           <button class="footer-button footer-delete" type="button" :disabled="!editingVendorId" @click="removeVendor">
-            删除供应商
+            删除
           </button>
           <button class="footer-button footer-cancel" type="button" @click="showVendorComposer = false">取消</button>
-          <button class="footer-button footer-save" type="submit">保存供应商</button>
+          <button class="footer-button footer-save" type="submit">保存</button>
         </div>
       </form>
     </AppModal>
@@ -1225,7 +1224,10 @@ function removeVendor() {
   font-size: 15px;
   line-height: 1.2;
   font-weight: 800;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer-hero strong {
@@ -1266,12 +1268,19 @@ function removeVendor() {
 .section-action,
 .sync-button,
 .footer-button {
+  display: inline-grid;
+  align-items: center;
+  justify-content: center;
   min-height: 34px;
   min-width: 0;
   padding: 8px 12px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 800;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .hero-generate {
@@ -1285,17 +1294,30 @@ function removeVendor() {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.section-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
 }
 
 .section-head > div,
 .sync-copy {
-  flex: 1 1 150px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .section-action {
   flex: 0 1 auto;
   background: rgba(243, 244, 245, 0.92);
+}
+
+.image-module-configurator :is(.section-action, .preset-action, .sync-button, .footer-button, .composer-tab) {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
 }
 
 .provider-list,
@@ -1571,9 +1593,15 @@ function removeVendor() {
 }
 
 .field > span {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
   color: #686d72;
   font-size: 11px;
   font-weight: 800;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .field input,
@@ -1595,6 +1623,7 @@ function removeVendor() {
 .field select {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .field textarea {
@@ -1632,7 +1661,10 @@ function removeVendor() {
 
 .toggle-card strong,
 .toggle-card small {
-  overflow-wrap: anywhere;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .vendor-avatar-upload {
@@ -1798,13 +1830,21 @@ function removeVendor() {
 }
 
 .composer-tab {
+  display: inline-grid;
+  align-items: center;
+  justify-content: center;
   min-height: 40px;
   min-width: 0;
+  padding-inline: 8px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.78);
   color: #6f7079;
   font-size: 12px;
   font-weight: 800;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer-tab.active {
@@ -1816,11 +1856,15 @@ function removeVendor() {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  align-self: end;
+  align-self: stretch;
+  justify-self: stretch;
+  width: 100%;
+  min-width: 0;
 }
 
 .footer-button {
   width: 100%;
+  min-width: 0;
   min-height: 42px;
   border-radius: 16px;
   font-size: 13px;
@@ -1968,10 +2012,16 @@ function removeVendor() {
     font-size: 10px;
   }
 
-  .preset-actions,
-  .composer-footer {
+  .preset-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .composer-footer {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
     width: 100%;
   }
 
@@ -1982,7 +2032,7 @@ function removeVendor() {
   }
 
   .footer-delete {
-    grid-column: 1 / -1;
+    grid-column: auto;
   }
 }
 </style>
