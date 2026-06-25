@@ -6,16 +6,20 @@
       <p>{{ store.configAlert.message }}</p>
     </section>
   </AppModal>
+  <audio ref="musicAudioRef" class="global-music-audio" preload="metadata"></audio>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import MobileShell from '@/components/layout/MobileShell.vue';
 import AppModal from '@/components/common/AppModal.vue';
 import FirstRunDisclaimer from '@/components/common/FirstRunDisclaimer.vue';
 import { useAppStore } from '@/stores/appStore';
+import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 
 const store = useAppStore();
+const musicPlayer = useMusicPlayerStore();
+const musicAudioRef = ref<HTMLAudioElement | null>(null);
 let githubAutoBackupTimer: number | undefined;
 
 const showDisclaimer = computed(() => store.ready && !store.settings?.disclaimerAccepted);
@@ -64,8 +68,13 @@ watch(
   { immediate: true }
 );
 
+onMounted(() => {
+  musicPlayer.setAudioElement(musicAudioRef.value);
+});
+
 onBeforeUnmount(() => {
   clearGitHubAutoBackupTimer();
+  musicPlayer.setAudioElement(null);
 });
 
 async function handleDisclaimerComplete() {
@@ -85,5 +94,9 @@ async function handleDisclaimerComplete() {
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.global-music-audio {
+  display: none;
 }
 </style>

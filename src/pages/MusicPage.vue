@@ -15,7 +15,7 @@
       </div>
     </header>
 
-    <main class="music-content">
+    <main class="music-content" :class="{ 'player-content': pageMode === 'player' }">
       <section v-if="pageMode === 'player'" class="player-panel">
         <div class="player-stage">
           <div class="flip-card" :class="{ flipped: lyricCardFlipped }" role="button" tabindex="0" :aria-label="lyricCardFlipped ? '切回唱片' : '查看完整歌词'" @click.stop="toggleLyricCard" @keydown.enter.prevent.stop="toggleLyricCard" @keydown.space.prevent.stop="toggleLyricCard">
@@ -57,7 +57,7 @@
           <section class="progress-panel" aria-label="播放控制">
             <div class="progress-row">
               <span>{{ currentTimeLabel }}</span>
-              <input v-model.number="progressValue" type="range" min="0" max="100" step="0.1" aria-label="播放进度" @input="seekAudio" />
+              <input :value="progressValue" type="range" min="0" max="100" step="0.1" aria-label="播放进度" @input="seekAudio" />
               <span>{{ durationLabel }}</span>
             </div>
             <div class="now-playing-line">
@@ -223,8 +223,6 @@
         <div v-else class="message">加入喜欢的歌曲会保存在这里。</div>
       </section>
     </main>
-
-    <audio ref="audioRef" @timeupdate="syncAudioProgress" @loadedmetadata="syncAudioProgress" @ended="isPlaying = false" @pause="isPlaying = false" @play="isPlaying = true"></audio>
   </section>
 </template>
 
@@ -235,12 +233,14 @@ import { deleteEntity, getDb, putEntity } from '@/data/db';
 import { generateMusicCommentThread, hasTextGenerationConfig } from '@/services/ai';
 import { fetchMusicAudioUrl, fetchMusicCoverUrl, fetchMusicLyricText, mergeMusicTrack, searchMusicTracks } from '@/services/music';
 import { useAppStore } from '@/stores/appStore';
+import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 import type { MusicComment, MusicCommentThread, MusicSource, MusicTrack } from '@/types/domain';
 import { createId } from '@/utils/id';
 
 type MusicPageMode = 'player' | 'search' | 'comments' | 'likes';
 
 const store = useAppStore();
+const musicPlayer = useMusicPlayerStore();
 const pageMode = ref<MusicPageMode>('player');
 const query = ref('');
 const selectedSource = ref<MusicSource>('netease');
@@ -249,27 +249,36 @@ const searchResults = ref<MusicTrack[]>([]);
 const favoriteTracks = ref<MusicTrack[]>([]);
 const commentThreads = ref<MusicCommentThread[]>([]);
 const sourceLabels: Partial<Record<MusicSource, string>> = { netease: '网易云', kuwo: '酷我', joox: 'JOOX' };
-const activeTrackId = ref('');
 const searching = ref(false);
 const searchError = ref('');
 const commentError = ref('');
-const loadingAudioTrackId = ref('');
 const loadingLyricTrackId = ref('');
 const generatingCommentTrackId = ref('');
-const isPlaying = ref(false);
 const commentDraft = ref('');
 const replyTargetId = ref('');
-const progressValue = ref(0);
-const currentTime = ref(0);
-const duration = ref(0);
 const lyricCardFlipped = ref(false);
 const screenRef = ref<HTMLElement | null>(null);
 const searchInputRef = ref<HTMLInputElement | null>(null);
-const audioRef = ref<HTMLAudioElement | null>(null);
 const lyricScrollRef = ref<HTMLElement | null>(null);
 const lyricTextByTrackId = ref<Record<string, string>>({});
 
-const activeTrack = computed(() => findTrack(activeTrackId.value));
+const activeTrackId = computed({
+  get: () => musicPlayer.activeTrackId,
+  set: (trackId: string) => {
+    if (!trackId) {
+      musicPlayer.setCurrentTrack(null);
+      return;
+    }
+    const track = findTrack(trackId);
+    if (track) musicPlayer.setCurrentTrack(track);
+  }
+});
+const loadingAudioTrackId = computed(() => musicPlayer.loadingAudioTrackId);
+const isPlaying = computed(() => musicPlayer.isPlaying);
+const currentTime = computed(() => musicPlayer.currentTime);
+const duration = computed(() => musicPlayer.duration);
+const progressValue = computed(() => musicPlayer.progressValue);
+const activeTrack = computed(() => findTrack(activeTrackId.value) ?? musicPlayer.currentTrack);
 const activeThread = computed(() => {
   const track = activeTrack.value;
   return track ? commentThreads.value.find((thread) => thread.trackKey === getTrackKey(track)) : undefined;
@@ -355,7 +364,7 @@ async function loadMusicData() {
   ]);
   favoriteTracks.value = favorites.sort((left, right) => (right.addedAt ?? 0) - (left.addedAt ?? 0));
   commentThreads.value = threads.sort((left, right) => right.updatedAt - left.updatedAt);
-  activeTrackId.value = favoriteTracks.value[0]?.id || '';
+  if (!activeTrack.value) activeTrackId.value = favoriteTracks.value[0]?.id || '';
 }
 
 function trackArtists(track: MusicTrack) {
@@ -387,6 +396,7 @@ function updateTrackEverywhere(nextTrack: MusicTrack) {
   const trackKey = getTrackKey(nextTrack);
   const threadIndex = commentThreads.value.findIndex((thread) => thread.trackKey === trackKey);
   if (threadIndex >= 0) commentThreads.value[threadIndex] = { ...commentThreads.value[threadIndex], track: nextTrack };
+  musicPlayer.updateCurrentTrack(nextTrack);
 }
 
 async function withCover(track: MusicTrack) {
@@ -479,7 +489,7 @@ function parseLyricLines(lyricText: string) {
 async function ensurePlayableTrack(track: MusicTrack) {
   const existing = findTrack(track.id) ?? track;
   if (existing.audioUrl) return existing;
-  loadingAudioTrackId.value = track.id;
+  musicPlayer.setLoadingAudioTrackId(track.id);
   try {
     const [audioUrl, coveredTrack] = await Promise.all([
       fetchMusicAudioUrl(existing),
@@ -490,24 +500,18 @@ async function ensurePlayableTrack(track: MusicTrack) {
     if (isFavorite(nextTrack.id)) await putEntity('musicFavoriteTracks', nextTrack);
     return nextTrack;
   } finally {
-    loadingAudioTrackId.value = '';
+    musicPlayer.setLoadingAudioTrackId('');
   }
 }
 
 async function togglePlay(track: MusicTrack) {
-  const audio = audioRef.value;
-  if (!audio || loadingAudioTrackId.value) return;
-  if (activeTrackId.value === track.id && isPlaying.value) {
-    audio.pause();
-    return;
-  }
+  if (loadingAudioTrackId.value) return;
   try {
     const playableTrack = await ensurePlayableTrack(track);
     activeTrackId.value = playableTrack.id;
     pageMode.value = 'player';
-    if (audio.src !== playableTrack.audioUrl) audio.src = playableTrack.audioUrl || '';
     await nextTick();
-    await audio.play();
+    await musicPlayer.toggleTrack(playableTrack);
   } catch (error) {
     const message = error instanceof Error ? error.message : '歌曲播放失败。';
     if (!/interrupted by a call to pause/i.test(message)) searchError.value = message;
@@ -630,18 +634,9 @@ function commentAuthorType(comment: MusicComment) {
   return '听友';
 }
 
-function syncAudioProgress() {
-  const audio = audioRef.value;
-  if (!audio) return;
-  currentTime.value = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
-  duration.value = Number.isFinite(audio.duration) ? audio.duration : 0;
-  progressValue.value = duration.value ? (currentTime.value / duration.value) * 100 : 0;
-}
-
-function seekAudio() {
-  const audio = audioRef.value;
-  if (!audio || !duration.value) return;
-  audio.currentTime = (progressValue.value / 100) * duration.value;
+function seekAudio(event: Event) {
+  const input = event.currentTarget as HTMLInputElement | null;
+  musicPlayer.seekToPercent(Number(input?.value ?? progressValue.value));
 }
 
 function formatDuration(seconds: number) {
@@ -682,6 +677,10 @@ function playNeighbor(direction: -1 | 1) {
   padding: 0 16px 22px;
 }
 
+.music-content.player-content {
+  padding: 0;
+}
+
 .track-list::-webkit-scrollbar {
   display: none;
 }
@@ -697,11 +696,10 @@ function playNeighbor(direction: -1 | 1) {
   grid-template-rows: minmax(0, 1fr) auto;
   min-height: calc(100dvh - var(--tab-height) - 58px - var(--safe-bottom));
   overflow: hidden;
-  border-radius: 8px;
   perspective: 1200px;
   background:
     linear-gradient(155deg, #f9fafb 0%, #cfd3d8 18%, #6b717a 46%, #171a1f 78%, #050608 100%);
-  box-shadow: 0 28px 56px rgba(12, 14, 18, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
 }
 
 .player-stage::before {
@@ -1857,6 +1855,10 @@ function playNeighbor(direction: -1 | 1) {
 @media (max-width: 370px) {
   .music-content {
     padding: 0 12px 18px;
+  }
+
+  .music-content.player-content {
+    padding: 0;
   }
 
   .player-panel,
