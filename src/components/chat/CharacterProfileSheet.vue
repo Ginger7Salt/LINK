@@ -71,7 +71,18 @@
       </form>
     </div>
 
-    <div class="sheet-flipper" role="button" tabindex="0" :aria-label="isFlipped ? '返回资料卡' : '查看历史资料'" @click="toggleFlip" @keydown.enter.prevent="toggleFlip" @keydown.space.prevent="toggleFlip">
+    <div
+      class="sheet-flipper"
+      role="button"
+      tabindex="0"
+      :aria-label="isFlipped ? '返回资料卡' : '查看历史资料'"
+      @pointerdown="startFlipGesture"
+      @pointermove="trackFlipGesture"
+      @pointerup="finishFlipGesture"
+      @pointercancel="cancelFlipGesture"
+      @keydown.enter.prevent="toggleFlip"
+      @keydown.space.prevent="toggleFlip"
+    >
       <div class="sheet-face sheet-face-front">
         <section class="sheet-cover"></section>
 
@@ -128,24 +139,26 @@
           <strong>历史资料</strong>
         </div>
 
-        <div v-if="profileHistoryItems.length" class="timeline-list">
-          <article v-for="item in profileHistoryItems" :key="item.id" class="timeline-item">
-            <div class="timeline-point"></div>
-            <div class="timeline-content">
-              <div class="timeline-meta">
-                <span>{{ item.label }}</span>
-                <time>{{ item.time }}</time>
+        <div class="timeline-scroll">
+          <div v-if="profileHistoryItems.length" class="timeline-list">
+            <article v-for="item in profileHistoryItems" :key="item.id" class="timeline-item">
+              <div class="timeline-point"></div>
+              <div class="timeline-content">
+                <div class="timeline-meta">
+                  <span>{{ item.label }}</span>
+                  <time>{{ item.time }}</time>
+                </div>
+                <div class="timeline-change">
+                  <p>{{ item.previousValue || '空白' }}</p>
+                  <b>→</b>
+                  <p>{{ item.nextValue || '空白' }}</p>
+                </div>
               </div>
-              <div class="timeline-change">
-                <p>{{ item.previousValue || '空白' }}</p>
-                <b>→</b>
-                <p>{{ item.nextValue || '空白' }}</p>
-              </div>
-            </div>
-          </article>
-        </div>
+            </article>
+          </div>
 
-        <div v-else class="timeline-empty">还没有资料更改记录</div>
+          <div v-else class="timeline-empty">还没有资料更改记录</div>
+        </div>
       </section>
     </div>
 
@@ -188,6 +201,9 @@ const isEditing = ref(false);
 const isFlipped = ref(false);
 const showAvatarEditor = ref(false);
 const avatarEditorSource = ref('');
+let flipGestureStart: { x: number; y: number } | null = null;
+let flipGestureMoved = false;
+const flipGestureMoveThreshold = 10;
 
 const recentPosts = computed(() => props.posts
   .filter((post) => post.charId === props.character.id || post.visibleCharacterIds?.includes(props.character.id))
@@ -277,6 +293,31 @@ function toggleFlip() {
   isFlipped.value = !isFlipped.value;
 }
 
+function startFlipGesture(event: PointerEvent) {
+  if (isEditing.value || (event.pointerType === 'mouse' && event.button !== 0)) return;
+  flipGestureStart = { x: event.clientX, y: event.clientY };
+  flipGestureMoved = false;
+}
+
+function trackFlipGesture(event: PointerEvent) {
+  if (!flipGestureStart) return;
+  const movedX = Math.abs(event.clientX - flipGestureStart.x);
+  const movedY = Math.abs(event.clientY - flipGestureStart.y);
+  if (movedX > flipGestureMoveThreshold || movedY > flipGestureMoveThreshold) {
+    flipGestureMoved = true;
+  }
+}
+
+function finishFlipGesture() {
+  if (flipGestureStart && !flipGestureMoved) toggleFlip();
+  cancelFlipGesture();
+}
+
+function cancelFlipGesture() {
+  flipGestureStart = null;
+  flipGestureMoved = false;
+}
+
 function cancelEditor() {
   isEditing.value = false;
 }
@@ -353,6 +394,7 @@ function saveEditor() {
   -webkit-transform-style: preserve-3d;
   transition: transform 0.48s cubic-bezier(0.2, 0.72, 0.2, 1);
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .character-sheet.flipped .sheet-flipper {
@@ -373,13 +415,15 @@ function saveEditor() {
   position: absolute;
   inset: 0;
   display: grid;
-  align-content: start;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 18px;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
   padding: 52px 20px 24px;
   transform: rotateY(180deg);
   background: linear-gradient(180deg, rgba(8, 10, 14, 0.72), rgba(8, 10, 14, 0.96));
   color: currentColor;
+  touch-action: pan-y;
 }
 
 .sheet-cover {
@@ -800,6 +844,7 @@ function saveEditor() {
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
+  line-clamp: 4;
 }
 
 .timeline-head {
@@ -818,6 +863,21 @@ function saveEditor() {
   display: grid;
   gap: 12px;
   min-width: 0;
+  padding-bottom: 6px;
+}
+
+.timeline-scroll {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scrollbar-width: none;
+}
+
+.timeline-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 .timeline-list::before {
