@@ -81,8 +81,8 @@ const filterTabs: Array<{ label: string; value: ChatFilter }> = [
 ];
 
 const friendRows = computed<ChatListRow[]>(() =>
-  store.charactersForActiveUser.flatMap((character) => {
-    const conversation = store.conversationsForActiveUser.find((item) => item.charId === character.id);
+  store.characters.flatMap((character) => {
+    const conversation = store.conversations.find((item) => item.charId === character.id && item.userId === character.boundUserId);
     if (!conversation) return [];
     return [
       {
@@ -97,7 +97,7 @@ const friendRows = computed<ChatListRow[]>(() =>
 );
 
 const chatRows = computed<ChatListRow[]>(() =>
-  store.sortedConversations.flatMap((conversation) => {
+  [...store.conversations].sort((a, b) => b.updatedAt - a.updatedAt).flatMap((conversation) => {
     const character = store.characterById(conversation.charId);
     const lastMessage = store.lastMessageForConversation(conversation.id);
     if (!character || !lastMessage) return [];
@@ -106,7 +106,14 @@ const chatRows = computed<ChatListRow[]>(() =>
 );
 
 const groupRows = computed<ChatListRow[]>(() => []);
-const allRows = computed<ChatListRow[]>(() => [...friendRows.value, ...groupRows.value]);
+const allRows = computed<ChatListRow[]>(() => {
+  const activeConversationIds = new Set(chatRows.value.map((row) => row.conversation.id));
+  return [
+    ...chatRows.value,
+    ...friendRows.value.filter((row) => !activeConversationIds.has(row.conversation.id)),
+    ...groupRows.value
+  ];
+});
 
 const visibleRows = computed(() => {
   if (activeFilter.value === 'group') return groupRows.value;
