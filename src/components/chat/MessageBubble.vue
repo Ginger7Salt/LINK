@@ -41,7 +41,7 @@
             </div>
           </template>
           <template v-else-if="message.location">
-            <section class="location-message" aria-label="定位消息">
+            <section class="location-message" :style="cardAccentStyle" aria-label="定位消息">
               <span class="location-map" aria-hidden="true">
                 <MapPin :size="22" />
               </span>
@@ -53,10 +53,8 @@
             </section>
           </template>
           <template v-else-if="message.transfer">
-            <section class="transfer-message" :class="`transfer-message--${message.transfer.status}`" aria-label="转账消息">
-              <span class="transfer-mark">
-                <small>¥</small>
-              </span>
+            <section class="transfer-message" :class="`transfer-message--${message.transfer.status}`" :style="cardAccentStyle" aria-label="转账消息">
+              <span class="transfer-mark" aria-hidden="true"></span>
               <span class="transfer-copy">
                 <span class="transfer-title">{{ transferTitle }}</span>
                 <strong>¥{{ message.transfer.amount }}</strong>
@@ -338,6 +336,22 @@ const bubbleStyle = computed(() => {
     return {
       background: props.appearance.characterBubbleColor,
       color: props.appearance.characterTextColor
+    };
+  }
+  return {};
+});
+
+const cardAccentStyle = computed(() => {
+  if (props.message.sender === 'user') {
+    return {
+      '--message-card-accent-bg': props.appearance.userBubbleColor,
+      '--message-card-accent-fg': props.appearance.userTextColor
+    };
+  }
+  if (props.message.sender === 'char') {
+    return {
+      '--message-card-accent-bg': props.appearance.characterBubbleColor,
+      '--message-card-accent-fg': props.appearance.characterTextColor
     };
   }
   return {};
@@ -847,8 +861,8 @@ onBeforeUnmount(stopVoicePlayback);
 .location-map {
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, #f0f1f3, #e2e4e7);
-  color: #30343a;
+  background: var(--message-card-accent-bg, linear-gradient(135deg, #f0f1f3, #e2e4e7));
+  color: var(--message-card-accent-fg, #30343a);
 }
 
 .location-copy {
@@ -897,15 +911,8 @@ onBeforeUnmount(stopVoicePlayback);
 .transfer-mark {
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, #f0f1f3, #e2e4e7);
-  color: #30343a;
-}
-
-.transfer-mark small {
-  color: currentColor;
-  font-size: 17px;
-  font-weight: 950;
-  line-height: 1;
+  background: var(--message-card-accent-bg, linear-gradient(135deg, #f0f1f3, #e2e4e7));
+  color: var(--message-card-accent-fg, #30343a);
 }
 
 .transfer-copy {
@@ -943,16 +950,6 @@ onBeforeUnmount(stopVoicePlayback);
   color: #69717b;
   font-size: 11px;
   font-weight: 760;
-}
-
-.transfer-message--accepted .transfer-mark {
-  background: linear-gradient(135deg, #f4f5f6, #d5d9de);
-  color: #17191c;
-}
-
-.transfer-message--rejected .transfer-mark {
-  background: linear-gradient(135deg, #eeeeef, #cfd3d8);
-  color: #30343a;
 }
 
 .voice-message {

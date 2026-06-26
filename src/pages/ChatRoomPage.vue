@@ -355,7 +355,7 @@
     </AppModal>
 
     <AppModal v-model="showCardDetailModal" title="卡片详情" :show-header="false" variant="ins">
-      <section v-if="activeCardDetailMessage?.location" class="card-detail-sheet card-detail-sheet-location">
+      <section v-if="activeCardDetailMessage?.location" class="card-detail-sheet card-detail-sheet-location" :style="detailCardAccentStyle(activeCardDetailMessage)">
         <div class="card-detail-icon location-detail-icon" aria-hidden="true">
           <MapPin :size="24" />
         </div>
@@ -366,8 +366,8 @@
           <em>{{ detailLocationDistanceLabel(activeCardDetailMessage) }}</em>
         </div>
       </section>
-      <section v-else-if="activeCardDetailMessage?.transfer" class="card-detail-sheet card-detail-sheet-transfer">
-        <div class="card-detail-icon transfer-detail-icon" aria-hidden="true">¥</div>
+      <section v-else-if="activeCardDetailMessage?.transfer" class="card-detail-sheet card-detail-sheet-transfer" :style="detailCardAccentStyle(activeCardDetailMessage)">
+        <div class="card-detail-icon transfer-detail-icon" aria-hidden="true"></div>
         <div class="card-detail-content">
           <span>{{ detailTransferTitle(activeCardDetailMessage) }}</span>
           <strong>¥{{ activeCardDetailMessage.transfer.amount }}</strong>
@@ -1286,6 +1286,22 @@ function detailTransferStatusLabel(message: ChatMessage) {
   if (message.transfer?.status === 'accepted') return message.sender === 'user' ? '对方已接收' : '你已接收';
   if (message.transfer?.status === 'rejected') return message.sender === 'user' ? '对方已拒绝' : '你已拒绝';
   return message.sender === 'user' ? '等待对方处理' : '等待你处理';
+}
+
+function detailCardAccentStyle(message: ChatMessage) {
+  if (message.sender === 'user') {
+    return {
+      '--card-detail-accent-bg': chatSettings.value.appearance.userBubbleColor,
+      '--card-detail-accent-fg': chatSettings.value.appearance.userTextColor
+    };
+  }
+  if (message.sender === 'char') {
+    return {
+      '--card-detail-accent-bg': chatSettings.value.appearance.characterBubbleColor,
+      '--card-detail-accent-fg': chatSettings.value.appearance.characterTextColor
+    };
+  }
+  return {};
 }
 
 function openCardDetail(message: ChatMessage) {
@@ -2493,8 +2509,8 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   min-height: 96px;
-  background: linear-gradient(135deg, #f0f1f3, #e2e4e7);
-  color: #30343a;
+  background: var(--card-detail-accent-bg, linear-gradient(135deg, #f0f1f3, #e2e4e7));
+  color: var(--card-detail-accent-fg, #30343a);
   font-size: 18px;
   font-weight: 950;
 }
