@@ -206,24 +206,66 @@
             </div>
             <div class="preview-row user-preview-row">
               <div class="preview-bubble" :style="userBubblePreviewStyle">用户气泡颜色在这里预览。</div>
+              <img v-if="draft.appearance.showUserAvatar" class="avatar mini" :src="userAvatarPreview" :alt="userAvatarAlt" />
+            </div>
+            <div class="preview-row narration-preview-row">
+              <div class="preview-bubble narration-preview-bubble" :style="narrationBubblePreviewStyle">旁白会像这样显示。</div>
             </div>
           </section>
-          <div class="color-grid">
+          <div class="color-grid bubble-color-grid">
             <label class="field color-card">
               <span>我方气泡</span>
               <input v-model="draft.appearance.userBubbleColor" type="color" @change="saveDraft" />
+              <div class="rgb-input-row" aria-label="我方气泡 RGB">
+                <input :value="rgbParts(draft.appearance.userBubbleColor).red" aria-label="我方气泡 R" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('userBubbleColor', 'red', $event)" />
+                <input :value="rgbParts(draft.appearance.userBubbleColor).green" aria-label="我方气泡 G" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('userBubbleColor', 'green', $event)" />
+                <input :value="rgbParts(draft.appearance.userBubbleColor).blue" aria-label="我方气泡 B" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('userBubbleColor', 'blue', $event)" />
+              </div>
             </label>
             <label class="field color-card">
               <span>我方文字</span>
               <input v-model="draft.appearance.userTextColor" type="color" @change="saveDraft" />
+              <div class="rgb-input-row" aria-label="我方文字 RGB">
+                <input :value="rgbParts(draft.appearance.userTextColor).red" aria-label="我方文字 R" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('userTextColor', 'red', $event)" />
+                <input :value="rgbParts(draft.appearance.userTextColor).green" aria-label="我方文字 G" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('userTextColor', 'green', $event)" />
+                <input :value="rgbParts(draft.appearance.userTextColor).blue" aria-label="我方文字 B" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('userTextColor', 'blue', $event)" />
+              </div>
             </label>
             <label class="field color-card">
               <span>对方气泡</span>
               <input v-model="draft.appearance.characterBubbleColor" type="color" @change="saveDraft" />
+              <div class="rgb-input-row" aria-label="对方气泡 RGB">
+                <input :value="rgbParts(draft.appearance.characterBubbleColor).red" aria-label="对方气泡 R" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('characterBubbleColor', 'red', $event)" />
+                <input :value="rgbParts(draft.appearance.characterBubbleColor).green" aria-label="对方气泡 G" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('characterBubbleColor', 'green', $event)" />
+                <input :value="rgbParts(draft.appearance.characterBubbleColor).blue" aria-label="对方气泡 B" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('characterBubbleColor', 'blue', $event)" />
+              </div>
             </label>
             <label class="field color-card">
               <span>对方文字</span>
               <input v-model="draft.appearance.characterTextColor" type="color" @change="saveDraft" />
+              <div class="rgb-input-row" aria-label="对方文字 RGB">
+                <input :value="rgbParts(draft.appearance.characterTextColor).red" aria-label="对方文字 R" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('characterTextColor', 'red', $event)" />
+                <input :value="rgbParts(draft.appearance.characterTextColor).green" aria-label="对方文字 G" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('characterTextColor', 'green', $event)" />
+                <input :value="rgbParts(draft.appearance.characterTextColor).blue" aria-label="对方文字 B" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('characterTextColor', 'blue', $event)" />
+              </div>
+            </label>
+            <label class="field color-card">
+              <span>旁白背景</span>
+              <input v-model="draft.appearance.narrationBubbleColor" type="color" @change="saveDraft" />
+              <div class="rgb-input-row" aria-label="旁白背景 RGB">
+                <input :value="rgbParts(draft.appearance.narrationBubbleColor).red" aria-label="旁白背景 R" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('narrationBubbleColor', 'red', $event)" />
+                <input :value="rgbParts(draft.appearance.narrationBubbleColor).green" aria-label="旁白背景 G" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('narrationBubbleColor', 'green', $event)" />
+                <input :value="rgbParts(draft.appearance.narrationBubbleColor).blue" aria-label="旁白背景 B" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('narrationBubbleColor', 'blue', $event)" />
+              </div>
+            </label>
+            <label class="field color-card">
+              <span>旁白文字</span>
+              <input v-model="draft.appearance.narrationTextColor" type="color" @change="saveDraft" />
+              <div class="rgb-input-row" aria-label="旁白文字 RGB">
+                <input :value="rgbParts(draft.appearance.narrationTextColor).red" aria-label="旁白文字 R" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('narrationTextColor', 'red', $event)" />
+                <input :value="rgbParts(draft.appearance.narrationTextColor).green" aria-label="旁白文字 G" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('narrationTextColor', 'green', $event)" />
+                <input :value="rgbParts(draft.appearance.narrationTextColor).blue" aria-label="旁白文字 B" inputmode="numeric" max="255" min="0" type="number" @change="updateRgbColor('narrationTextColor', 'blue', $event)" />
+              </div>
             </label>
           </div>
         </section>
@@ -448,11 +490,16 @@ import { ChevronDown, Plus } from 'lucide-vue-next';
 import { computed, reactive, ref, watch } from 'vue';
 import AvatarCropperModal from '@/components/image/AvatarCropperModal.vue';
 import { useAppStore } from '@/stores/appStore';
-import type { CharacterProfile, ConversationMemoryRecord, ConversationSettings } from '@/types/domain';
+import type { CharacterProfile, ChatAppearanceSettings, ConversationMemoryRecord, ConversationSettings } from '@/types/domain';
 import { readImageFileFromInput } from '@/utils/imageFile';
 import { estimateTokenCount, getConversationFloorCount, normalizeConversationSettings } from '@/utils/memory';
+import { defaultProfileAvatar } from '@/utils/profile';
 import { normalizeChatModelOverrides } from '@/utils/settings';
 import { normalizeVoomFrequency, voomFrequencyOptions } from '@/utils/voom';
+
+type ColorField = 'userBubbleColor' | 'userTextColor' | 'characterBubbleColor' | 'characterTextColor' | 'narrationBubbleColor' | 'narrationTextColor';
+type RgbChannel = 'red' | 'green' | 'blue';
+type RgbParts = Record<RgbChannel, number>;
 
 const props = defineProps<{
   conversationId: string;
@@ -500,6 +547,8 @@ const mergeDisabled = computed(() => hasMergedSummary.value || memories.value.fi
 const mergeableMemories = computed(() => memories.value.filter((memory) => !memory.isMergedSummary));
 const mergedMemories = computed(() => memories.value.filter((memory) => memory.isMergedSummary));
 const characterDraftNickname = computed(() => characterDraft.nickname || 'new.friend');
+const userAvatarPreview = computed(() => store.user?.avatar || defaultProfileAvatar);
+const userAvatarAlt = computed(() => store.user?.nickname || store.user?.name || '我');
 const backgroundImageOptions = computed(() => draft.appearance.backgroundImages);
 const localWorldBooks = computed(() => store.worldBooks.filter((book) => book.scope === 'local'));
 const bubblePreviewStyle = computed(() => ({
@@ -513,6 +562,10 @@ const userBubblePreviewStyle = computed(() => ({
 const characterBubblePreviewStyle = computed(() => ({
   background: draft.appearance.characterBubbleColor,
   color: draft.appearance.characterTextColor
+}));
+const narrationBubblePreviewStyle = computed(() => ({
+  background: draft.appearance.narrationBubbleColor,
+  color: draft.appearance.narrationTextColor
 }));
 const groupedModels = computed(() => {
   return (store.settings?.apiVendors ?? [])
@@ -572,6 +625,52 @@ watch(
 
 function saveDraft() {
   void store.saveConversationSettings({ ...draft, conversationId: props.conversationId });
+}
+
+function clampRgbValue(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(255, Math.max(0, Math.round(value)));
+}
+
+function componentToHex(value: number) {
+  return clampRgbValue(value).toString(16).padStart(2, '0');
+}
+
+function rgbToHex({ red, green, blue }: RgbParts) {
+  return `#${componentToHex(red)}${componentToHex(green)}${componentToHex(blue)}`;
+}
+
+function rgbParts(color: string): RgbParts {
+  const normalized = color.trim();
+  const hexMatch = normalized.match(/^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
+  if (hexMatch) {
+    return {
+      red: Number.parseInt(hexMatch[1], 16),
+      green: Number.parseInt(hexMatch[2], 16),
+      blue: Number.parseInt(hexMatch[3], 16)
+    };
+  }
+
+  const rgbMatch = normalized.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i);
+  if (rgbMatch) {
+    return {
+      red: clampRgbValue(Number(rgbMatch[1])),
+      green: clampRgbValue(Number(rgbMatch[2])),
+      blue: clampRgbValue(Number(rgbMatch[3]))
+    };
+  }
+
+  return { red: 255, green: 255, blue: 255 };
+}
+
+function updateRgbColor(field: ColorField, channel: RgbChannel, event: Event) {
+  const input = event.target as HTMLInputElement;
+  const nextParts = {
+    ...rgbParts(draft.appearance[field]),
+    [channel]: clampRgbValue(Number(input.value))
+  };
+  draft.appearance[field] = rgbToHex(nextParts) as ChatAppearanceSettings[ColorField];
+  saveDraft();
 }
 
 function updateSummaryModel(event: Event) {
@@ -2074,6 +2173,10 @@ function applyEditedAvatar(value: string) {
   justify-content: flex-end;
 }
 
+.narration-preview-row {
+  justify-content: center;
+}
+
 .preview-bubble {
   max-width: 76%;
   padding: 9px 12px;
@@ -2090,6 +2193,73 @@ function applyEditedAvatar(value: string) {
 
 .user-preview-row .preview-bubble {
   border-bottom-right-radius: 6px;
+}
+
+.narration-preview-bubble {
+  font-style: italic;
+}
+
+.rgb-input-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.rgb-input-row input {
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 4px;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.beauty-panel .bubble-color-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 8px;
+}
+
+.beauty-panel .bubble-color-grid .color-card {
+  gap: 7px;
+  min-height: 0;
+  padding: 10px;
+  overflow: hidden;
+  border-radius: 16px;
+}
+
+.beauty-panel .bubble-color-grid .color-card > span {
+  overflow: hidden;
+  color: #626d68;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.beauty-panel .bubble-color-grid .color-card input[type='color'] {
+  min-height: 30px;
+  height: 30px;
+  padding: 3px;
+  border-radius: 10px;
+}
+
+.beauty-panel .bubble-color-grid .rgb-input-row {
+  gap: 4px;
+}
+
+.beauty-panel .bubble-color-grid .rgb-input-row input {
+  min-height: 30px;
+  padding: 0 1px;
+  font-size: 11px;
+  font-weight: 800;
+  appearance: textfield;
+}
+
+.beauty-panel .bubble-color-grid .rgb-input-row input::-webkit-inner-spin-button,
+.beauty-panel .bubble-color-grid .rgb-input-row input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
 }
 
 .display-options-grid {
@@ -2319,6 +2489,26 @@ function applyEditedAvatar(value: string) {
   .local-book-list,
   .profile-avatar-stack {
     grid-template-columns: 1fr;
+  }
+
+  .beauty-panel .bubble-color-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .beauty-panel .bubble-color-grid .color-card {
+    gap: 6px;
+    padding: 8px;
+    border-radius: 14px;
+  }
+
+  .beauty-panel .bubble-color-grid .rgb-input-row {
+    gap: 3px;
+  }
+
+  .beauty-panel .bubble-color-grid .rgb-input-row input {
+    min-height: 28px;
+    font-size: 10px;
   }
 
   .appearance-tools-grid {

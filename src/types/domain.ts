@@ -106,6 +106,8 @@ export interface ChatAppearanceSettings {
   userTextColor: string;
   characterBubbleColor: string;
   characterTextColor: string;
+  narrationBubbleColor: string;
+  narrationTextColor: string;
   showMessageTime: boolean;
   showReadStatus: boolean;
   showUserAvatar: boolean;

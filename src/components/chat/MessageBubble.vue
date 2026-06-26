@@ -322,6 +322,12 @@ const quoteAuthorLabel = computed(() => (props.message.quote?.authorName ? `${pr
 
 const bubbleStyle = computed(() => {
   if (props.message.sticker || props.message.image || props.message.location || props.message.transfer) return {};
+  if (props.message.displayStyle === 'narration') {
+    return {
+      background: props.appearance.narrationBubbleColor,
+      color: props.appearance.narrationTextColor
+    };
+  }
   if (props.message.sender === 'user') {
     return {
       background: props.appearance.userBubbleColor,
