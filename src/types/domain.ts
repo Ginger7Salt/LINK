@@ -101,6 +101,7 @@ export interface CharacterProfile {
   voomFrequency: VoomFrequency;
   initialProfile?: CharacterInitialProfile;
   profileHistory?: CharacterProfileHistoryEntry[];
+  boundUserProfile?: VisualProfile;
   profile?: VisualProfile;
   mindState?: CharacterMindState;
   modelOverrides?: ChatModelOverrides;

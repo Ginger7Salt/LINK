@@ -1,4 +1,4 @@
-import type { CharacterInitialProfile, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField } from '@/types/domain';
+import type { CharacterInitialProfile, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, VisualProfile } from '@/types/domain';
 import { normalizeVisualProfile } from '@/utils/profile';
 import { normalizeChatModelOverrides } from '@/utils/settings';
 import { normalizeVoomFrequency } from '@/utils/voom';
@@ -93,6 +93,9 @@ export function normalizeCharacterProfile(character: CharacterProfile, fallbackU
     avatar: character.avatar,
     signature
   });
+  const boundUserProfile = character.boundUserProfile
+    ? normalizeVisualProfile(character.boundUserProfile as Partial<VisualProfile>)
+    : undefined;
   const initialProfile = normalizeCharacterInitialProfile(rawInitialProfile, { nickname, signature });
   const profileHistory = normalizeCharacterProfileHistory(character.profileHistory);
 
@@ -110,6 +113,7 @@ export function normalizeCharacterProfile(character: CharacterProfile, fallbackU
     voomFrequency,
     modelOverrides: normalizeChatModelOverrides(character.modelOverrides),
     profile,
+    ...(boundUserProfile ? { boundUserProfile } : {}),
     ...(initialProfile ? { initialProfile } : {}),
     ...(profileHistory.length ? { profileHistory } : {}),
     mindState: mindStateLines.length

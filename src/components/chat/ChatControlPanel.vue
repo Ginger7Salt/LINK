@@ -554,8 +554,10 @@ const mergeDisabled = computed(() => hasMergedSummary.value || memories.value.fi
 const mergeableMemories = computed(() => memories.value.filter((memory) => !memory.isMergedSummary));
 const mergedMemories = computed(() => memories.value.filter((memory) => memory.isMergedSummary));
 const characterDraftNickname = computed(() => characterDraft.nickname || 'new.friend');
-const userAvatarPreview = computed(() => getVisualProfile(store.user)?.avatar || store.user?.avatar || defaultProfileAvatar);
-const userAvatarAlt = computed(() => store.user?.nickname || store.user?.name || '我');
+const boundUser = computed(() => store.userById(props.character.boundUserId) ?? store.user ?? null);
+const boundUserVisualProfile = computed(() => props.character.boundUserProfile ?? getVisualProfile(boundUser.value));
+const userAvatarPreview = computed(() => boundUserVisualProfile.value?.avatar || boundUser.value?.avatar || defaultProfileAvatar);
+const userAvatarAlt = computed(() => boundUserVisualProfile.value?.nickname || boundUser.value?.nickname || boundUser.value?.name || '我');
 const backgroundImageOptions = computed(() => draft.appearance.backgroundImages);
 const localWorldBooks = computed(() => store.worldBooks.filter((book) => book.scope === 'local'));
 const bubblePreviewStyle = computed(() => ({

@@ -15,7 +15,7 @@
         :key="message.id"
         :message="message"
         :character="character"
-        :user="boundUser ?? undefined"
+        :user="conversationUser ?? undefined"
         :appearance="chatSettings.appearance"
         :hide-avatar="shouldHideAvatar(index)"
         :profile-alert="hasUnreadMindState"
@@ -456,7 +456,7 @@
     </AppModal>
 
     <AppModal v-model="showUserProfile" title="我的主页" :show-header="false" variant="profile-ins">
-      <UserProfileSheet v-if="boundUser" :user="boundUser" :posts="store.sortedVoomPosts" @save="saveUserProfile" />
+      <UserProfileSheet v-if="conversationUser" :user="conversationUser" :posts="store.sortedVoomPosts" @save="saveUserProfile" />
     </AppModal>
 
     <AppModal v-model="showProfile" title="角色主页" :show-header="false" variant="profile-ins">
@@ -491,6 +491,7 @@ import { useAppStore } from '@/stores/appStore';
 import type { CharacterProfile, ChatImageAttachment, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatTransferStatus, ChatVoiceAttachment, Sticker, UserProfile } from '@/types/domain';
 import { readChatImageFile } from '@/utils/imageFile';
 import { useKeyboardScrollGuard } from '@/utils/keyboardScrollGuard';
+import { getVisualProfile, normalizeVisualProfile } from '@/utils/profile';
 import { getSelectedImageModelOption } from '@/utils/settings';
 import { recommendStickers } from '@/utils/stickerRecommendations';
 import { isVoomNarrationMessage, mergeVoomLikeMessages } from '@/utils/voomMessages';
@@ -633,6 +634,18 @@ const characterDisplayName = computed(() => character.value?.nickname || charact
 const boundUser = computed(() => {
   const userId = conversation.value?.userId || character.value?.boundUserId || '';
   return userId ? store.userById(userId) ?? null : null;
+});
+const conversationUser = computed(() => {
+  const user = boundUser.value;
+  if (!user) return null;
+
+  const profile = normalizeVisualProfile(character.value?.boundUserProfile ?? getVisualProfile(user) ?? user.profile, user);
+  return {
+    ...user,
+    nickname: profile.nickname || user.nickname,
+    signature: profile.bio || user.signature,
+    profile
+  };
 });
 const chatSettings = computed(() => store.settingsForConversation(props.id));
 const allOnlineMessages = computed(() => {
@@ -1673,7 +1686,19 @@ async function generateVoomPost() {
 }
 
 async function saveUserProfile(user: UserProfile) {
-  await store.saveUserProfile(user);
+  if (!character.value || !boundUser.value) {
+    await store.saveUserProfile(user);
+    return;
+  }
+
+  await store.saveCharacter({
+    ...character.value,
+    boundUserProfile: normalizeVisualProfile(user.profile, {
+      ...boundUser.value,
+      nickname: user.nickname,
+      signature: user.signature
+    })
+  });
 }
 
 async function saveCharacterProfile(nextCharacter: CharacterProfile) {
