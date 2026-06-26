@@ -2692,22 +2692,6 @@ export const useAppStore = defineStore('app', () => {
           subtitle: profileUpdate.signature || character.subtitle
         }, character.boundUserId);
         await saveCharacter(nextCharacter);
-        if (profileUpdate.narration.trim()) {
-          const narrationMessage: ChatMessage = {
-            id: createId('msg'),
-            conversationId,
-            sender: 'system',
-            mode: conversation.activeMode,
-            content: profileUpdate.narration.trim(),
-            createdAt: Date.now(),
-            displayStyle: 'narration',
-            replyBatchId,
-            ...replyVariantFields,
-            status: 'sent'
-          };
-          messages.value.push(narrationMessage);
-          await putEntity('messages', narrationMessage);
-        }
       }
       if (conversation.activeMode === 'online' && profileUpdate?.innerMonologue?.length) {
         await updateCharacterMindState(character.id, profileUpdate.innerMonologue, conversationId);

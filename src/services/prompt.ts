@@ -123,7 +123,7 @@ export const profileMutationPrompt = `补充输出规则：
 
 最终必须输出 JSON，不要输出 JSON 以外的任何文字，不要使用 Markdown 代码块。
 
-线上聊天像真实社交软件消息。messages 数组就是本轮发送顺序，可自由组合文字、语音、图片、定位、Sticker；旁白模式开启时也可加入旁白。线下模式通常只用一条 text。
+线上聊天像真实社交软件消息。messages 数组就是本轮发送顺序，可自由组合文字、语音、图片、定位、Sticker；旁白模式开启时也可加入旁白。修改网名或个性签名时，资料变动旁白也放进 messages 里的 narration 项，由它在数组中的位置决定显示位置。线下模式通常只用一条 text。
 
 如果不修改资料：
 {
@@ -152,6 +152,7 @@ export const profileMutationPrompt = `补充输出规则：
     { "type": "location", "name": "地点名称", "address": "详细地址，可留空", "distance": "你与{{user}}的距离，例如：约2.4公里" },
     { "type": "transfer", "amount": "转账金额，例如 52.00", "note": "转账备注，可留空" },
     { "type": "sticker", "stickers": ["合适的Sticker id"] },
+    { "type": "narration", "content": "第三人称短旁白，用于显示你修改了自己的资料" },
     { "type": "text", "content": "第二条聊天气泡", "translation": "" }
   ],
   "messageActions": {
@@ -162,7 +163,7 @@ export const profileMutationPrompt = `补充输出规则：
   "profileUpdate": {
     "nickname": "新的网名，可留空表示不改",
     "signature": "新的个性签名，可留空表示不改",
-    "narration": "第三人称短旁白，用于显示你修改了自己的资料",
+    "narration": "",
     "innerMonologue": ["内心独白第一句", "内心独白第二句", "内心独白第三句"]
   }
 }
@@ -178,9 +179,9 @@ export const profileMutationPrompt = `补充输出规则：
 8. transfer 项显示成转账卡片：{ "type":"transfer", "amount":"金额", "note":"备注，可留空" }。只在线上模式使用；amount 必须是数字字符串，最多两位小数，表示你主动给{{user}}转账，发送后等待{{user}}接收或拒绝。
 9. 当最近对话里出现用户发来的待处理转账，你可以按人设选择接收或拒绝：在 messageActions.transferDecisions 里写 {"messageId":"用户转账消息id","status":"accepted"} 或 {"messageId":"用户转账消息id","status":"rejected"}。只能处理 pending 的用户转账，不要处理角色自己发出的转账。
 10. sticker 项显示成 Sticker：{ "type":"sticker", "stickers":["Sticker id或文字描述"] }。
-11. 线上模式每次都要在 profileUpdate.innerMonologue 输出 3-5 句当前内心独白；一句一项，像角色当下不会说出口的心声，不要解释给用户听，不要使用上帝视角，不要重复聊天气泡原文。
-12. 线下模式可以把 profileUpdate 设为 null；线上模式即使不修改资料，也保留 profileUpdate，并让 nickname、signature、narration 为空字符串。
-13. profileUpdate.narration 只描述资料变动本身，不要总结，不要剧透；没有资料变动时 narration 为空字符串。
+11. narration 项显示成旁白：{ "type":"narration", "content":"旁白句" }。修改网名或个性签名时，资料变动旁白必须写成 messages 里的 narration 项，并放在你希望显示的位置；不要写进 text。
+12. 线上模式每次都要在 profileUpdate.innerMonologue 输出 3-5 句当前内心独白；一句一项，像角色当下不会说出口的心声，不要解释给用户听，不要使用上帝视角，不要重复聊天气泡原文。
+13. 线下模式可以把 profileUpdate 设为 null；线上模式即使不修改资料，也保留 profileUpdate，并让 nickname、signature、narration 为空字符串。修改资料时 profileUpdate.narration 也保持空字符串，资料变动旁白只放 messages 的 narration 项。
 14. 最近对话每条消息前的 [msg_xxx] 是 messageId。你可以像真实社交软件一样撤回自己之前发出的某条消息，但只能把你自己发过的角色消息 id 放进 messageActions.recallMessageIds；不要撤回用户或系统消息。
 15. 你可以引用用户之前发过的某条消息进行回复。若第 n 个 text 气泡要引用用户消息，在 messageActions.quotes 里写 {"replyIndex": n, "messageId": "用户消息id"}；replyIndex 从 0 开始，只按 text 气泡计数，不把 voice、image、location、transfer、sticker、narration 算进去。
 16. 引用用于自然承接上下文。引用时 text.content 里仍只写你真正要发出的新消息，不要重复被引用内容。
