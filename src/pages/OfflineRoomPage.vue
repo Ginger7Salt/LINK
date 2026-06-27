@@ -731,7 +731,7 @@ async function regenerateLatestReply() {
 }
 
 function openOfflineSettings() {
-  void router.push({ name: 'offline-chat-settings', params: { id: props.id } });
+  void router.replace({ name: 'offline-chat-settings', params: { id: props.id } });
 }
 
 function goBack() {

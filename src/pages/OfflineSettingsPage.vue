@@ -368,7 +368,7 @@ function deletePreset(kind: PresetKind) {
 }
 
 function goBack() {
-  void router.push({ name: 'offline-room', params: { id: props.id } });
+  void router.replace({ name: 'offline-room', params: { id: props.id } });
 }
 </script>
 
