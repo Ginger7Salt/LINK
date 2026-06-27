@@ -83,7 +83,11 @@ const friendRows = computed(() =>
 );
 
 function openCharacterChat(conversationId: string) {
-  void router.push({ name: 'chat-room', params: { id: conversationId } });
+  const conversation = store.conversationById(conversationId);
+  void router.push({
+    name: conversation?.activeMode === 'offline' ? 'offline-room' : 'chat-room',
+    params: { id: conversationId }
+  });
 }
 
 function openProfilePage() {

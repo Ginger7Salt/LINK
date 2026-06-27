@@ -20,7 +20,7 @@
         <p>这些选项会写入线下章节提示词。</p>
       </section>
 
-      <section class="settings-section" aria-label="描写增强">
+      <section v-if="activeTab === 'enhance'" class="settings-section" aria-label="描写增强">
         <h2>描写增强</h2>
         <label v-for="item in toggleItems" :key="item.key" class="toggle-row">
           <span>
@@ -31,6 +31,7 @@
         </label>
       </section>
 
+      <template v-if="activeTab === 'structure'">
       <section class="settings-section" aria-label="章节结构">
         <h2>章节结构</h2>
         <div class="setting-block">
@@ -59,17 +60,29 @@
             </button>
           </div>
         </div>
+
+        <div class="setting-block">
+          <span class="setting-label">转述方式</span>
+          <div class="segmented-control">
+            <button v-for="option in retellOptions" :key="option.id" type="button" :class="{ active: offlineSettings.retellMode === option.id }" @click="updateOfflineSettings({ retellMode: option.id })">
+              {{ option.label }}
+            </button>
+          </div>
+          <p class="setting-note">转述会在章节前原样承接用户输出，并润色扩写动作、行为、神情和话语。</p>
+        </div>
       </section>
 
       <section class="settings-section" aria-label="文字风格">
         <h2>文字规格</h2>
         <label class="text-field">
           <span>正文字数</span>
-          <input v-model="wordCountDraft" placeholder="1200-1800字" @change="commitTextSetting('wordCount')" @blur="commitTextSetting('wordCount')" />
+          <input v-model="wordCountDraft" placeholder="800-1200字" @change="commitTextSetting('wordCount')" @blur="commitTextSetting('wordCount')" />
         </label>
       </section>
+      </template>
 
-      <section class="settings-section" aria-label="写作文风预设">
+      <template v-if="activeTab === 'style'">
+      <section class="settings-section preset-editor-section" aria-label="写作文风预设">
         <div class="section-title-row">
           <h2>写作文风</h2>
           <button class="small-action" type="button" @click="addPreset('writingStyle')">
@@ -77,18 +90,14 @@
             新增
           </button>
         </div>
-        <div class="preset-strip">
-          <button
-            v-for="preset in writingStylePresets"
-            :key="preset.id"
-            type="button"
-            :class="['preset-chip', { active: offlineSettings.writingStylePresetId === preset.id, editing: selectedWritingStylePresetId === preset.id }]"
-            @click="selectPreset('writingStyle', preset.id)"
-          >
-            <strong>{{ preset.name }}</strong>
-            <span>{{ offlineSettings.writingStylePresetId === preset.id ? '应用中' : selectedWritingStylePresetId === preset.id ? '编辑中' : '可切换' }}</span>
-          </button>
-        </div>
+        <label class="preset-select-field">
+          <span>选择文风</span>
+          <select :value="selectedWritingStylePresetId" @change="selectPresetFromEvent('writingStyle', $event)">
+            <option v-for="preset in writingStylePresets" :key="preset.id" :value="preset.id">
+              {{ preset.name }}{{ offlineSettings.writingStylePresetId === preset.id ? ' · 应用中' : '' }}
+            </option>
+          </select>
+        </label>
         <label class="text-field">
           <span>预设名称</span>
           <input v-model="writingStyleNameDraft" placeholder="例如：白描" />
@@ -110,7 +119,7 @@
         </div>
       </section>
 
-      <section class="settings-section" aria-label="基调预设">
+      <section class="settings-section preset-editor-section" aria-label="基调预设">
         <div class="section-title-row">
           <h2>基调</h2>
           <button class="small-action" type="button" @click="addPreset('tone')">
@@ -118,18 +127,14 @@
             新增
           </button>
         </div>
-        <div class="preset-strip">
-          <button
-            v-for="preset in tonePresets"
-            :key="preset.id"
-            type="button"
-            :class="['preset-chip', { active: offlineSettings.tonePresetId === preset.id, editing: selectedTonePresetId === preset.id }]"
-            @click="selectPreset('tone', preset.id)"
-          >
-            <strong>{{ preset.name }}</strong>
-            <span>{{ offlineSettings.tonePresetId === preset.id ? '应用中' : selectedTonePresetId === preset.id ? '编辑中' : '可切换' }}</span>
-          </button>
-        </div>
+        <label class="preset-select-field">
+          <span>选择基调</span>
+          <select :value="selectedTonePresetId" @change="selectPresetFromEvent('tone', $event)">
+            <option v-for="preset in tonePresets" :key="preset.id" :value="preset.id">
+              {{ preset.name }}{{ offlineSettings.tonePresetId === preset.id ? ' · 应用中' : '' }}
+            </option>
+          </select>
+        </label>
         <label class="text-field">
           <span>预设名称</span>
           <input v-model="toneNameDraft" placeholder="例如：日常" />
@@ -150,7 +155,15 @@
           </button>
         </div>
       </section>
+      </template>
     </main>
+
+    <footer class="offline-settings-tabs" aria-label="线下设置分类">
+      <button v-for="tab in tabs" :key="tab.id" type="button" :class="{ active: activeTab === tab.id }" @click="activeTab = tab.id">
+        <component :is="tab.icon" :size="17" />
+        <span>{{ tab.label }}</span>
+      </button>
+    </footer>
   </section>
   <section v-else class="screen no-tabs empty-state">会话不存在</section>
 </template>
@@ -158,15 +171,23 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { ArrowLeft, Check, Plus, Trash2 } from 'lucide-vue-next';
+import { ArrowLeft, Check, Feather, Layers3, Plus, SlidersHorizontal, Trash2 } from 'lucide-vue-next';
 import { useAppStore } from '@/stores/appStore';
-import type { ConversationOfflineSettings, OfflineInterruptionMode, OfflineParagraphMode, OfflinePerspective, OfflinePromptPreset } from '@/types/domain';
+import type { ConversationOfflineSettings, OfflineInterruptionMode, OfflineParagraphMode, OfflinePerspective, OfflinePromptPreset, OfflineRetellMode } from '@/types/domain';
 import { getCharacterDisplayName } from '@/utils/character';
 import { createId } from '@/utils/id';
 
 const props = defineProps<{
   id: string;
 }>();
+
+type SettingsTab = 'enhance' | 'structure' | 'style';
+
+const tabs: Array<{ id: SettingsTab; label: string; icon: typeof SlidersHorizontal }> = [
+  { id: 'enhance', label: '描写增强', icon: SlidersHorizontal },
+  { id: 'structure', label: '章节结构', icon: Layers3 },
+  { id: 'style', label: '文风基调', icon: Feather }
+];
 
 const paragraphOptions: Array<{ id: OfflineParagraphMode; label: string }> = [
   { id: 'long', label: '长段落' },
@@ -187,6 +208,11 @@ const interruptionOptions: Array<{ id: OfflineInterruptionMode; label: string }>
   { id: 'strict', label: '不抢话' }
 ];
 
+const retellOptions: Array<{ id: OfflineRetellMode; label: string }> = [
+  { id: 'retell', label: '转述' },
+  { id: 'direct', label: '不转述' }
+];
+
 const toggleItems: Array<{ key: keyof Pick<ConversationOfflineSettings, 'enhanceAppearance' | 'enhanceOutfit' | 'expandLength' | 'characterPsychology'>; label: string; description: string }> = [
   { key: 'enhanceAppearance', label: '增强外貌描写', description: '更细地写神态、距离、光线下的外貌细节' },
   { key: 'enhanceOutfit', label: '增强服饰描写', description: '把衣着、材质、穿搭状态自然写入场景' },
@@ -203,6 +229,7 @@ const chatSettings = computed(() => store.settingsForConversation(props.id));
 const offlineSettings = computed(() => chatSettings.value.offline);
 const writingStylePresets = computed(() => offlineSettings.value.writingStylePresets);
 const tonePresets = computed(() => offlineSettings.value.tonePresets);
+const activeTab = ref<SettingsTab>('enhance');
 const wordCountDraft = ref('');
 const selectedWritingStylePresetId = ref('');
 const selectedTonePresetId = ref('');
@@ -278,6 +305,10 @@ function selectPreset(kind: PresetKind, presetId: string) {
     selectedTonePresetId.value = presetId;
   }
   syncPresetDraft(kind);
+}
+
+function selectPresetFromEvent(kind: PresetKind, event: Event) {
+  selectPreset(kind, (event.target as HTMLSelectElement).value);
 }
 
 function presetDraft(kind: PresetKind) {
@@ -421,7 +452,7 @@ function goBack() {
   width: 100%;
   max-width: 720px;
   margin: 0 auto;
-  padding: 14px calc(14px + var(--safe-right)) calc(20px + var(--safe-bottom)) calc(14px + var(--safe-left));
+  padding: 14px calc(14px + var(--safe-right)) 14px calc(14px + var(--safe-left));
 }
 
 .settings-hero,
@@ -560,59 +591,18 @@ function goBack() {
 }
 
 .setting-block,
-.text-field {
+.text-field,
+.preset-select-field {
   display: grid;
   gap: 8px;
 }
 
-.preset-strip {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.preset-chip {
-  display: grid;
-  gap: 5px;
-  min-height: 58px;
-  padding: 10px;
-  border: 1px solid rgba(182, 154, 166, 0.24);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.7);
-  color: #695d65;
-  text-align: left;
-}
-
-.preset-chip strong {
-  overflow: hidden;
-  color: inherit;
-  font-size: 13px;
-  font-weight: 900;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.preset-chip span {
-  color: #aa8f9b;
+.setting-note {
+  margin: -2px 0 0;
+  color: #92878e;
   font-size: 11px;
-  font-weight: 900;
-  line-height: 1.2;
-}
-
-.preset-chip.active {
-  border-color: #262126;
-  background: #262126;
-  color: #ffffff;
-}
-
-.preset-chip.active span {
-  color: rgba(255, 255, 255, 0.72);
-}
-
-.preset-chip.editing:not(.active) {
-  border-color: rgba(38, 33, 38, 0.5);
-  box-shadow: inset 0 0 0 1px rgba(38, 33, 38, 0.16);
+  font-weight: 760;
+  line-height: 1.45;
 }
 
 .preset-actions {
@@ -696,7 +686,8 @@ function goBack() {
 }
 
 .text-field input,
-.text-field textarea {
+.text-field textarea,
+.preset-select-field select {
   min-height: 42px;
   padding: 0 12px;
   border: 1px solid rgba(182, 154, 166, 0.24);
@@ -707,6 +698,21 @@ function goBack() {
   font-weight: 800;
 }
 
+.preset-select-field span {
+  color: #302a30;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.preset-select-field select {
+  appearance: none;
+  background:
+    linear-gradient(45deg, transparent 50%, #6b6068 50%) calc(100% - 18px) 52% / 6px 6px no-repeat,
+    linear-gradient(135deg, #fff, rgba(255, 255, 255, 0.72));
+  color: #262126;
+}
+
 .text-field textarea {
   min-height: 96px;
   resize: vertical;
@@ -714,14 +720,58 @@ function goBack() {
   line-height: 1.45;
 }
 
+.preset-editor-section {
+  gap: 12px;
+}
+
 .text-field input::placeholder,
 .text-field textarea::placeholder {
   color: #aaa0a7;
 }
 
-@media (max-width: 420px) {
-  .preset-strip {
-    grid-template-columns: 1fr;
-  }
+.offline-settings-tabs {
+  position: relative;
+  flex: 0 0 auto;
+  z-index: 18;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 9px calc(12px + var(--safe-right)) calc(9px + var(--safe-bottom)) calc(12px + var(--safe-left));
+  border-top: 1px solid rgba(255, 255, 255, 0.66);
+  background: rgba(255, 255, 255, 0.78);
+  -webkit-backdrop-filter: blur(22px);
+  backdrop-filter: blur(22px);
+}
+
+.offline-settings-tabs button {
+  display: grid;
+  place-items: center;
+  gap: 3px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 5px 4px;
+  border: 1px solid rgba(182, 154, 166, 0.22);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.64);
+  color: #71666e;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.offline-settings-tabs button.active {
+  border-color: #262126;
+  background: #262126;
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(38, 33, 38, 0.16);
+}
+
+.offline-settings-tabs span {
+  overflow: hidden;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

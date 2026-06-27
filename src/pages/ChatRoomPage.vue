@@ -1058,7 +1058,7 @@ async function acceptOfflineInvitation(message: ChatMessage) {
   if (!message.offlineInvitation || message.offlineInvitation.status !== 'pending') return;
   const accepted = await store.acceptOfflineInvitation(message.id);
   if (!accepted) return;
-  await router.push({ name: 'offline-room', params: { id: props.id } });
+  await router.replace({ name: 'offline-room', params: { id: props.id } });
 }
 
 async function appendLocationMessage(location: ChatLocationAttachment) {
@@ -1742,7 +1742,7 @@ async function saveCharacterProfile(nextCharacter: CharacterProfile) {
 async function enterOffline() {
   showOfflineConfirm.value = false;
   await store.updateConversationMode(props.id, 'offline');
-  await router.push(`/offline/${props.id}`);
+  await router.replace({ name: 'offline-room', params: { id: props.id } });
 }
 
 onBeforeUnmount(() => {

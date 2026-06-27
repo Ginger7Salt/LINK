@@ -1,5 +1,5 @@
 <template>
-  <RouterLink class="conversation-row" :to="`/chats/${conversation.id}`">
+  <RouterLink class="conversation-row" :to="conversationRoute">
     <img class="avatar" :src="character.avatar" :alt="displayName" />
     <div class="conversation-main">
       <div class="conversation-top">
@@ -32,6 +32,10 @@ const preview = computed(() => {
   return props.lastMessage?.content || props.character.subtitle || '开始聊天';
 });
 const displayName = computed(() => getCharacterDisplayName(props.character));
+const conversationRoute = computed(() => ({
+  name: props.conversation.activeMode === 'offline' ? 'offline-room' : 'chat-room',
+  params: { id: props.conversation.id }
+}));
 </script>
 
 <style scoped>

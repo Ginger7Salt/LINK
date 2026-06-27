@@ -1,4 +1,4 @@
-import type { ChatMemorySettings, ChatMessage, ChatMode, ConversationMemoryRecord, ConversationOfflineSettings, ConversationSettings, OfflineInterruptionMode, OfflineParagraphMode, OfflinePerspective, OfflinePromptPreset, OfflineTonePreset } from '@/types/domain';
+import type { ChatMemorySettings, ChatMessage, ChatMode, ConversationMemoryRecord, ConversationOfflineSettings, ConversationSettings, OfflineInterruptionMode, OfflineParagraphMode, OfflinePerspective, OfflinePromptPreset, OfflineRetellMode, OfflineTonePreset } from '@/types/domain';
 import { createId } from './id';
 import { normalizeChatModelOverrides } from './settings';
 import { defaultTimeAwarenessSettings, normalizeTimeAwarenessSettings } from './timeAwareness';
@@ -67,12 +67,13 @@ const defaultTonePresetId = defaultOfflineTonePresets[0].id;
 export const defaultOfflineSettings: ConversationOfflineSettings = {
   enhanceAppearance: true,
   enhanceOutfit: true,
-  expandLength: false,
+  expandLength: true,
   characterPsychology: true,
   paragraphMode: 'mixed',
   perspective: 'omniscient-third',
   interruptionMode: 'strict',
-  wordCount: '1200-1800字',
+  retellMode: 'retell',
+  wordCount: '800-1200字',
   writingStylePresetId: defaultWritingStylePresetId,
   writingStylePresets: defaultOfflineWritingStylePresets,
   writingStyle: defaultOfflineWritingStylePresets[0].content,
@@ -85,6 +86,7 @@ export const defaultOfflineSettings: ConversationOfflineSettings = {
 const offlineParagraphModes: OfflineParagraphMode[] = ['long', 'short', 'mixed'];
 const offlinePerspectives: OfflinePerspective[] = ['omniscient-third', 'character-third', 'character-second', 'user-first', 'user-second'];
 const offlineInterruptionModes: OfflineInterruptionMode[] = ['advance', 'strict'];
+const offlineRetellModes: OfflineRetellMode[] = ['retell', 'direct'];
 const offlineTonePresets: OfflineTonePreset[] = ['daily', 'push-pull', 'ambiguous', 'romance', 'bittersweet', 'custom'];
 
 function normalizeStringOption<T extends string>(value: unknown, allowed: readonly T[], fallback: T) {
@@ -133,6 +135,7 @@ export function activeOfflineTonePreset(settings: ConversationOfflineSettings) {
 }
 
 export function normalizeOfflineSettings(settings: Partial<ConversationOfflineSettings> | null | undefined): ConversationOfflineSettings {
+  const isLegacyOfflineSettings = Boolean(settings && !('retellMode' in settings));
   const legacyWritingStyle = String(settings?.writingStyle ?? '').trim();
   const writingStylePresets = mergePromptPresets(defaultOfflineWritingStylePresets, settings?.writingStylePresets);
   if (legacyWritingStyle && !['白描', defaultOfflineWritingStylePresets[0].content].includes(legacyWritingStyle) && !writingStylePresets.some((preset) => preset.content === legacyWritingStyle)) {
@@ -152,12 +155,15 @@ export function normalizeOfflineSettings(settings: Partial<ConversationOfflineSe
   return {
     enhanceAppearance: settings?.enhanceAppearance ?? defaultOfflineSettings.enhanceAppearance,
     enhanceOutfit: settings?.enhanceOutfit ?? defaultOfflineSettings.enhanceOutfit,
-    expandLength: settings?.expandLength ?? defaultOfflineSettings.expandLength,
+    expandLength: isLegacyOfflineSettings ? defaultOfflineSettings.expandLength : settings?.expandLength ?? defaultOfflineSettings.expandLength,
     characterPsychology: settings?.characterPsychology ?? defaultOfflineSettings.characterPsychology,
     paragraphMode: normalizeStringOption(settings?.paragraphMode, offlineParagraphModes, defaultOfflineSettings.paragraphMode),
     perspective: normalizeStringOption(settings?.perspective, offlinePerspectives, defaultOfflineSettings.perspective),
     interruptionMode: normalizeStringOption(settings?.interruptionMode, offlineInterruptionModes, defaultOfflineSettings.interruptionMode),
-    wordCount: String(settings?.wordCount ?? defaultOfflineSettings.wordCount).trim() || defaultOfflineSettings.wordCount,
+    retellMode: normalizeStringOption(settings?.retellMode, offlineRetellModes, defaultOfflineSettings.retellMode),
+    wordCount: isLegacyOfflineSettings && String(settings?.wordCount ?? '').trim() === '1200-1800字'
+      ? defaultOfflineSettings.wordCount
+      : String(settings?.wordCount ?? defaultOfflineSettings.wordCount).trim() || defaultOfflineSettings.wordCount,
     writingStylePresetId,
     writingStylePresets,
     writingStyle: activeWritingStyle.content,

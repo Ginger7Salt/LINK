@@ -1,16 +1,29 @@
 <template>
   <section v-if="conversation && character" class="screen no-tabs offline-room">
+    <OfflineMemoryPanel v-if="showMemoryPanel" :conversation-id="props.id" :character="character" @back="showMemoryPanel = false" />
+
+    <template v-else>
     <header class="offline-topbar">
-      <button class="offline-icon-button" type="button" aria-label="返回线上聊天" @click="exitOffline">
-        <ArrowLeft :size="21" />
-      </button>
+      <div class="offline-topbar-actions">
+        <button class="offline-icon-button" type="button" aria-label="返回" @click="goBack">
+          <ArrowLeft :size="21" />
+        </button>
+        <button class="offline-icon-button" type="button" aria-label="回到线上聊天" @click="exitOffline">
+          <MessageCircle :size="20" />
+        </button>
+      </div>
       <div class="offline-title-block">
         <span>offline chapter</span>
         <strong>{{ characterDisplayName }}</strong>
       </div>
-      <button class="offline-icon-button" type="button" aria-label="线下设置" @click="openOfflineSettings">
-        <Settings2 :size="20" />
-      </button>
+      <div class="offline-topbar-actions offline-topbar-actions--right">
+        <button class="offline-icon-button" type="button" aria-label="线下总结" @click="showMemoryPanel = true">
+          <BookOpenText :size="20" />
+        </button>
+        <button class="offline-icon-button" type="button" aria-label="线下设置" @click="openOfflineSettings">
+          <Settings2 :size="20" />
+        </button>
+      </div>
     </header>
 
     <main ref="offlineScrollRef" class="offline-scroll">
@@ -19,12 +32,13 @@
           v-for="floor in chapterFloors"
           :key="floor.id"
           :data-floor-id="floor.id"
-          :class="['chapter-entry', `chapter-entry--${floor.sender}`, { 'chapter-entry--delete-target': truncateDeleteMode, 'chapter-entry--editing': isEditingFloor(floor) }]"
+          :class="['chapter-entry', `chapter-entry--${floor.sender}`, { 'chapter-entry--hidden': floor.hidden, 'chapter-entry--delete-target': truncateDeleteMode, 'chapter-entry--editing': isEditingFloor(floor) }]"
           @click="handleFloorClick(floor)"
         >
           <div class="chapter-entry-meta">
             <span>{{ floor.floorNumber }}F {{ floorSenderName(floor) }}</span>
             <div class="chapter-entry-tools">
+              <em v-if="floor.hidden">已隐藏</em>
               <time>{{ formatChatTime(floor.createdAt) }}</time>
               <button type="button" aria-label="编辑该楼层" @click.stop="startEditFloor(floor)">
                 <PencilLine :size="14" />
@@ -103,21 +117,20 @@
         <button class="tool-button tool-button--danger" type="button" :class="{ active: truncateDeleteMode }" :disabled="!chapterFloors.length" @click="toggleTruncateDeleteMode">
           <span>删除</span>
         </button>
-        <button class="icon-tool-button" type="button" :disabled="!chapterFloors.length" aria-label="回到顶部" @click="scrollToTop">
+        <button class="icon-tool-button" type="button" :disabled="!chapterFloors.length" aria-label="跳转首楼" @click="jumpToFirstFloor">
+          <ChevronsUp :size="16" />
+        </button>
+        <button class="icon-tool-button" type="button" :disabled="!chapterFloors.length" aria-label="跳转上一楼" @click="jumpToPreviousFloor">
           <ChevronUp :size="17" />
         </button>
-        <button class="icon-tool-button" type="button" :class="{ active: showJumpPanel }" :disabled="!chapterFloors.length" aria-label="选择楼层跳转" @click="showJumpPanel = !showJumpPanel">
+        <button class="icon-tool-button" type="button" :class="{ active: showJumpDialog }" :disabled="!chapterFloors.length" aria-label="选择楼层跳转" @click="openJumpDialog">
           <ListTree :size="17" />
         </button>
-        <button class="icon-tool-button" type="button" :disabled="!chapterFloors.length" aria-label="回到底部" @click="scrollToBottom">
+        <button class="icon-tool-button" type="button" :disabled="!chapterFloors.length" aria-label="跳转下一楼" @click="jumpToNextFloor">
           <ChevronDown :size="17" />
         </button>
-      </div>
-
-      <div v-if="showJumpPanel" class="floor-jump-panel">
-        <button v-for="floor in chapterFloors" :key="floor.id" type="button" @click="jumpToFloor(floor)">
-          <span>{{ floor.floorNumber }}F</span>
-          <strong>{{ floorSenderName(floor) }}</strong>
+        <button class="icon-tool-button" type="button" :disabled="!chapterFloors.length" aria-label="跳转底楼" @click="jumpToLastFloor">
+          <ChevronsDown :size="16" />
         </button>
       </div>
 
@@ -139,6 +152,22 @@
       </form>
     </footer>
 
+    <div v-if="showJumpDialog" class="floor-jump-backdrop" role="dialog" aria-modal="true" aria-label="选择楼层跳转" @click.self="closeJumpDialog">
+      <form class="floor-jump-sheet" @submit.prevent="confirmFloorJump">
+        <span>楼层跳转</span>
+        <h2>前往指定楼层</h2>
+        <p>输入 1 到 {{ chapterFloors.length }} 之间的楼层，确认后会跳到该楼层开头。</p>
+        <label>
+          <span>楼层</span>
+          <input v-model="jumpFloorDraft" inputmode="numeric" pattern="[0-9]*" type="number" min="1" :max="chapterFloors.length" />
+        </label>
+        <div class="floor-jump-actions">
+          <button type="button" @click="closeJumpDialog">取消</button>
+          <button type="submit">跳转</button>
+        </div>
+      </form>
+    </div>
+
     <div v-if="pendingDelete" class="delete-confirm-backdrop" role="dialog" aria-modal="true" @click.self="cancelPendingDelete">
       <section class="delete-confirm-sheet">
         <span>删除确认</span>
@@ -150,6 +179,8 @@
         </div>
       </section>
     </div>
+
+    </template>
   </section>
   <section v-else class="screen no-tabs empty-state">会话不存在</section>
 </template>
@@ -157,7 +188,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ArrowLeft, BookOpenText, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ListTree, PencilLine, SendHorizontal, Settings2 } from 'lucide-vue-next';
+import { ArrowLeft, BookOpenText, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, ListTree, MessageCircle, PencilLine, SendHorizontal, Settings2 } from 'lucide-vue-next';
+import OfflineMemoryPanel from '@/components/chat/OfflineMemoryPanel.vue';
 import { useAppStore } from '@/stores/appStore';
 import type { ChatMessage } from '@/types/domain';
 import { getCharacterDisplayName } from '@/utils/character';
@@ -175,7 +207,9 @@ const router = useRouter();
 const route = useRoute();
 const draft = ref('');
 const truncateDeleteMode = ref(false);
-const showJumpPanel = ref(false);
+const showJumpDialog = ref(false);
+const jumpFloorDraft = ref('1');
+const showMemoryPanel = ref(false);
 const selectedReplyOptionIds = ref<Record<string, string>>({});
 const selectedPlotChoiceKey = ref('');
 const expandedPlotChoiceFloorIds = ref<Set<string>>(new Set());
@@ -191,9 +225,9 @@ const characterTrueName = computed(() => character.value?.name.trim() || charact
 const userTrueName = computed(() => conversationUser.value?.name.trim() || conversationUser.value?.nickname.trim() || '用户');
 const currentConversationReplying = computed(() => store.isConversationReplying(props.id));
 const offlineAllMessages = computed(() => store.messagesForConversation(props.id).filter((message) => message.mode === 'offline' && !isVoomNarrationMessage(message)));
-const offlineMessages = computed(() => store.visibleMessagesForConversation(props.id).filter((message) => message.mode === 'offline' && !isVoomNarrationMessage(message)));
-const chapterFloors = computed(() => getConversationFloors(offlineMessages.value).map((messages, index) => createChapterFloor(messages, index)));
-const latestOfflineMessage = computed(() => offlineMessages.value.at(-1));
+const hiddenMessageIds = computed(() => store.hiddenMessageIdsForConversation(props.id));
+const chapterFloors = computed(() => getConversationFloors(offlineAllMessages.value).map((messages, index) => createChapterFloor(messages, index)));
+const latestOfflineMessage = computed(() => offlineAllMessages.value.filter((message) => message.replyVariantState !== 'inactive').at(-1));
 const canRegenerate = computed(() => latestOfflineMessage.value?.sender === 'char');
 const { captureKeyboardScrollAnchor, releaseKeyboardScrollGuard, startKeyboardScrollGuard, stopKeyboardScrollGuard } = useKeyboardScrollGuard(offlineScrollRef);
 
@@ -206,6 +240,7 @@ interface ChapterFloor {
   content: string;
   replyBatchId: string;
   replyVariantGroupId: string;
+  hidden: boolean;
 }
 
 interface ReplyOption {
@@ -245,7 +280,8 @@ function createChapterFloor(messages: ChatMessage[], index: number): ChapterFloo
     createdAt: primary?.createdAt ?? Date.now(),
     content: floorContent(messages),
     replyBatchId: primary?.replyBatchId ?? '',
-    replyVariantGroupId: primary?.replyVariantGroupId ?? ''
+    replyVariantGroupId: primary?.replyVariantGroupId ?? '',
+    hidden: messages.some((message) => hiddenMessageIds.value.has(message.id))
   };
 }
 
@@ -417,7 +453,8 @@ function startEditFloor(floor: ChapterFloor) {
   editingFloorId.value = floor.id;
   floorEditDraft.value = displayContentForFloor(floor);
   truncateDeleteMode.value = false;
-  showJumpPanel.value = false;
+  showJumpDialog.value = false;
+  showMemoryPanel.value = false;
 }
 
 function cancelFloorEdit() {
@@ -532,24 +569,71 @@ function handleFloorClick(floor: ChapterFloor) {
 
 function toggleTruncateDeleteMode() {
   truncateDeleteMode.value = !truncateDeleteMode.value;
-  showJumpPanel.value = false;
+  showJumpDialog.value = false;
   cancelFloorEdit();
 }
 
-function scrollToTop() {
-  offlineScrollRef.value?.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function scrollToBottom() {
+function floorScrollTop(floor: ChapterFloor) {
   const scrollElement = offlineScrollRef.value;
-  if (!scrollElement) return;
-  scrollElement.scrollTo({ top: scrollElement.scrollHeight, behavior: 'smooth' });
+  const target = scrollElement?.querySelector<HTMLElement>(`[data-floor-id="${floor.id}"]`);
+  if (!scrollElement || !target) return null;
+  const scrollRect = scrollElement.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  return scrollElement.scrollTop + targetRect.top - scrollRect.top;
 }
 
-function jumpToFloor(floor: ChapterFloor) {
-  const target = offlineScrollRef.value?.querySelector<HTMLElement>(`[data-floor-id="${floor.id}"]`);
-  target?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-  showJumpPanel.value = false;
+function jumpToFloorStart(floor: ChapterFloor | undefined, behavior: ScrollBehavior = 'auto') {
+  if (!floor) return;
+  const scrollElement = offlineScrollRef.value;
+  const top = floorScrollTop(floor);
+  if (!scrollElement || top === null) return;
+  scrollElement.scrollTo({ top, behavior });
+}
+
+function currentFloorIndex() {
+  const scrollElement = offlineScrollRef.value;
+  if (!scrollElement || !chapterFloors.value.length) return 0;
+  const currentTop = scrollElement.scrollTop + 2;
+  let activeIndex = 0;
+  chapterFloors.value.forEach((floor, index) => {
+    const top = floorScrollTop(floor);
+    if (top !== null && top <= currentTop) activeIndex = index;
+  });
+  return activeIndex;
+}
+
+function jumpToFirstFloor() {
+  jumpToFloorStart(chapterFloors.value[0]);
+}
+
+function jumpToPreviousFloor() {
+  jumpToFloorStart(chapterFloors.value[Math.max(0, currentFloorIndex() - 1)]);
+}
+
+function jumpToNextFloor() {
+  jumpToFloorStart(chapterFloors.value[Math.min(chapterFloors.value.length - 1, currentFloorIndex() + 1)]);
+}
+
+function jumpToLastFloor() {
+  jumpToFloorStart(chapterFloors.value.at(-1));
+}
+
+function openJumpDialog() {
+  if (!chapterFloors.value.length) return;
+  jumpFloorDraft.value = String(chapterFloors.value[currentFloorIndex()]?.floorNumber ?? 1);
+  truncateDeleteMode.value = false;
+  showJumpDialog.value = true;
+  cancelFloorEdit();
+}
+
+function closeJumpDialog() {
+  showJumpDialog.value = false;
+}
+
+function confirmFloorJump() {
+  const floorNumber = Math.min(Math.max(1, Math.floor(Number(jumpFloorDraft.value) || 1)), chapterFloors.value.length);
+  jumpToFloorStart(chapterFloors.value[floorNumber - 1]);
+  closeJumpDialog();
 }
 
 function focusedMessageId() {
@@ -564,7 +648,7 @@ async function scrollToFocusedFloor(messageId: string) {
   if (!floor) return false;
   const target = offlineScrollRef.value?.querySelector<HTMLElement>(`[data-floor-id="${floor.id}"]`);
   if (!target) return false;
-  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  jumpToFloorStart(floor);
   target.classList.add('chapter-entry--focus');
   window.setTimeout(() => target.classList.remove('chapter-entry--focus'), 1400);
   return true;
@@ -595,7 +679,8 @@ watch(() => props.id, (id) => {
   selectedPlotChoiceKey.value = '';
   expandedPlotChoiceFloorIds.value = new Set();
   truncateDeleteMode.value = false;
-  showJumpPanel.value = false;
+  showJumpDialog.value = false;
+  jumpFloorDraft.value = '1';
   selectedReplyOptionIds.value = {};
   cancelFloorEdit();
   pendingDelete.value = null;
@@ -613,30 +698,49 @@ watch(() => route.query.focus, (value) => {
 
 watch(chapterFloors, () => {
   void nextTick(() => {
-    if (currentConversationReplying.value) scrollToBottom();
+    if (currentConversationReplying.value) jumpToLastFloor();
   });
 });
+
+function latestCharacterFloor() {
+  return [...chapterFloors.value].reverse().find((floor) => floor.sender === 'char');
+}
+
+async function jumpToLatestCharacterFloor(previousFloorId = '') {
+  await nextTick();
+  const latestFloor = latestCharacterFloor();
+  if (!latestFloor || latestFloor.id === previousFloorId) return;
+  jumpToFloorStart(latestFloor);
+}
 
 async function send() {
   const content = draft.value.trim();
   if (!content) return;
+  const previousCharacterFloorId = latestCharacterFloor()?.id ?? '';
   releaseKeyboardScrollGuard();
   draft.value = '';
   await store.sendMessage(props.id, content);
+  await jumpToLatestCharacterFloor(previousCharacterFloorId);
 }
 
 async function regenerateLatestReply() {
   if (!canRegenerate.value) return;
+  const previousCharacterFloorId = latestCharacterFloor()?.id ?? '';
   await store.regenerateLatestReply(props.id);
+  await jumpToLatestCharacterFloor(previousCharacterFloorId);
 }
 
 function openOfflineSettings() {
   void router.push({ name: 'offline-chat-settings', params: { id: props.id } });
 }
 
+function goBack() {
+  router.back();
+}
+
 async function exitOffline() {
   await store.updateConversationMode(props.id, 'online');
-  await router.replace(`/chats/${props.id}`);
+  await router.replace({ name: 'chat-room', params: { id: props.id } });
 }
 </script>
 
@@ -645,6 +749,7 @@ async function exitOffline() {
   --offline-ink: #252226;
   --offline-muted: #8f858c;
   --offline-line: rgba(46, 37, 43, 0.09);
+  position: relative;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -659,7 +764,7 @@ async function exitOffline() {
   position: relative;
   z-index: 10;
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 38px;
+  grid-template-columns: 84px minmax(0, 1fr) 84px;
   align-items: center;
   gap: 8px;
   padding: calc(10px + var(--safe-top)) calc(14px + var(--safe-right)) 10px calc(14px + var(--safe-left));
@@ -667,6 +772,17 @@ async function exitOffline() {
   background: rgba(255, 255, 255, 0.62);
   -webkit-backdrop-filter: blur(22px);
   backdrop-filter: blur(22px);
+}
+
+.offline-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.offline-topbar-actions--right {
+  justify-content: flex-end;
 }
 
 .offline-icon-button {
@@ -766,6 +882,17 @@ async function exitOffline() {
   background: rgba(255, 255, 255, 0.78);
 }
 
+.chapter-entry--hidden {
+  border-style: dashed;
+  border-color: rgba(143, 133, 140, 0.24);
+  background: rgba(245, 241, 244, 0.56);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.68), 0 10px 24px rgba(96, 74, 88, 0.05);
+}
+
+.chapter-entry--hidden p {
+  color: #716870;
+}
+
 .chapter-entry--editing {
   border-color: rgba(38, 33, 38, 0.18);
   background: rgba(255, 255, 255, 0.86);
@@ -806,6 +933,18 @@ async function exitOffline() {
   border-radius: 0;
   background: transparent;
   color: #6d6269;
+}
+
+.chapter-entry-tools em {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(143, 133, 140, 0.12);
+  color: #8d8188;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .floor-edit-panel {
@@ -1080,8 +1219,8 @@ async function exitOffline() {
 
 .offline-toolbar {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) 36px 36px 36px;
-  gap: 7px;
+  grid-template-columns: repeat(2, minmax(40px, 1fr)) repeat(5, 34px);
+  gap: 6px;
 }
 
 .tool-button,
@@ -1106,7 +1245,7 @@ async function exitOffline() {
 }
 
 .icon-tool-button {
-  width: 36px;
+  width: 34px;
   padding: 0;
 }
 
@@ -1126,42 +1265,6 @@ async function exitOffline() {
 .icon-tool-button:disabled {
   opacity: 0.42;
   cursor: default;
-}
-
-.floor-jump-panel {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-  max-height: 104px;
-  overflow-y: auto;
-  padding: 8px;
-  border: 1px solid rgba(182, 154, 166, 0.22);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.68);
-}
-
-.floor-jump-panel button {
-  display: grid;
-  gap: 2px;
-  min-height: 38px;
-  padding: 5px 6px;
-  border: 1px solid rgba(182, 154, 166, 0.2);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
-  color: #695d65;
-}
-
-.floor-jump-panel span {
-  font-size: 11px;
-  font-weight: 900;
-}
-
-.floor-jump-panel strong {
-  overflow: hidden;
-  font-size: 10px;
-  font-weight: 900;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .offline-composer {
@@ -1204,6 +1307,99 @@ async function exitOffline() {
   background: rgba(34, 32, 38, 0.24);
   box-shadow: none;
   cursor: default;
+}
+
+.floor-jump-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 44;
+  display: grid;
+  place-items: center;
+  padding: 18px calc(16px + var(--safe-right)) calc(18px + var(--safe-bottom)) calc(16px + var(--safe-left));
+  background: rgba(37, 34, 38, 0.22);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.floor-jump-sheet {
+  display: grid;
+  gap: 12px;
+  width: min(100%, 360px);
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 22px 52px rgba(79, 58, 72, 0.2);
+}
+
+.floor-jump-sheet > span {
+  color: #b28b99;
+  font-size: 10px;
+  font-weight: 950;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.floor-jump-sheet h2,
+.floor-jump-sheet p {
+  margin: 0;
+}
+
+.floor-jump-sheet h2 {
+  color: #211d21;
+  font-size: 18px;
+  font-weight: 950;
+  line-height: 1.2;
+}
+
+.floor-jump-sheet p {
+  color: #8f858c;
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.45;
+}
+
+.floor-jump-sheet label {
+  display: grid;
+  gap: 7px;
+}
+
+.floor-jump-sheet label span {
+  color: #695d65;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.floor-jump-sheet input {
+  min-height: 44px;
+  padding: 9px 11px;
+  border: 1px solid rgba(182, 154, 166, 0.22);
+  border-radius: 8px;
+  outline: 0;
+  background: rgba(255, 255, 255, 0.82);
+  color: #262126;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.floor-jump-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.floor-jump-actions button {
+  min-height: 38px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.74);
+  color: #695d65;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.floor-jump-actions button:last-child {
+  background: #262126;
+  color: #ffffff;
 }
 
 .delete-confirm-backdrop {

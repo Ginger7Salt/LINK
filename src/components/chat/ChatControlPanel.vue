@@ -175,11 +175,6 @@
               </div>
               <em>{{ memory.isMergedSummary ? '合并大总结' : '片段记忆' }}</em>
             </div>
-            <div class="memory-card-meta">
-              <span>{{ memoryMergeBadge(memory) }}</span>
-              <span>{{ memory.tokenCount }} tokens</span>
-              <span>隐藏 {{ hiddenRangeLabel(memory) }}</span>
-            </div>
             <textarea :value="memory.summary" @change="updateMemorySummary(memory, $event)"></textarea>
             <div class="memory-actions">
               <button class="secondary-action icon-action" type="button" :disabled="summarizing" @click="requestResummarizeMemory(memory.id)">
@@ -3894,8 +3889,7 @@ function applyEditedAvatar(value: string) {
 }
 
 .memory-merge-dashboard small,
-.merge-row-copy small,
-.memory-card-meta span {
+.merge-row-copy small {
   min-width: 0;
   overflow: hidden;
   color: #738079;
@@ -4002,19 +3996,6 @@ function applyEditedAvatar(value: string) {
   text-align: left;
 }
 
-.memory-card-meta {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.memory-card-meta span {
-  padding: 7px 8px;
-  border-radius: 999px;
-  background: rgba(248, 251, 249, 0.9);
-  text-align: center;
-}
-
 .memory-confirm-card {
   display: grid;
   gap: 12px;
@@ -4074,13 +4055,21 @@ function applyEditedAvatar(value: string) {
 }
 
 @media (max-width: 360px) {
-  .memory-merge-dashboard,
-  .memory-card-meta {
-    grid-template-columns: 1fr;
-  }
-
   .merge-picker-head {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 340px) {
+  .memory-records > .merge-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .memory-records > .merge-actions .secondary-action {
+    min-height: 38px;
+    padding-inline: 6px;
+    font-size: 11px;
   }
 }
 

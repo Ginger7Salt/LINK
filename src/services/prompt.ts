@@ -306,10 +306,10 @@ const offlineParagraphInstruction: Record<ConversationOfflineSettings['paragraph
 };
 
 const offlinePerspectiveInstruction: Record<ConversationOfflineSettings['perspective'], string> = {
-  'omniscient-third': '叙事视角：上帝视角第三人称。可以观察场景、角色和用户可见行为，但不要替用户做关键决策。',
+  'omniscient-third': '叙事视角：上帝视角第三人称。可以观察场景、角色和用户可见行为。',
   'character-third': '叙事视角：角色第三人称。以角色为叙事中心，使用第三人称描写角色的行动、感受和判断。',
   'character-second': '叙事视角：角色第二人称。以“你”指代角色，叙述角色正在经历的行动和感受。',
-  'user-first': '叙事视角：用户第一人称。以“我”承接用户已给出的行动和感受，不要替用户新增关键决策。',
+  'user-first': '叙事视角：用户第一人称。以“我”承接用户已给出的行动和感受，复述和细化用户已输入的内容。',
   'user-second': '叙事视角：用户第二人称。以“你”指代用户，复述和细化用户已给出的行动、对话和可见状态。'
 };
 
@@ -337,11 +337,11 @@ ${preset.content.trim() || preset.name}`;
 
 function renderOfflinePerspectiveInstruction(perspective: ConversationOfflineSettings['perspective'], characterName: string, userName: string) {
   return {
-    'omniscient-third': `视角设定：以第三方上帝视角叙述。像观察力敏锐、笔触细腻的第三方作家，忠实记录外部对话与互动，可以深入刻画${characterName}的内心世界，但不能替${userName}新增未输入的关键行为、台词或决定。`,
+    'omniscient-third': `视角设定：以第三方上帝视角叙述。像观察力敏锐、笔触细腻的第三方作家，忠实记录外部对话与互动，可以深入刻画${characterName}的内心世界。`,
     'character-third': `视角设定：以${characterName}为叙事中心的第三人称。重点写${characterName}能看见、听见、误解和感受到的内容；不要越过${characterName}的信息边界。`,
     'character-second': `视角设定：以“你”指代${characterName}。叙述${characterName}正在经历的行动、感受和判断；不要把“你”误写成${userName}。`,
-    'user-first': `视角设定：以“我”承接${userName}已经输入的行动和状态。只能细化${userName}输入过的内容，不能替${userName}新增关键台词、心理和决定。`,
-    'user-second': `视角设定：以“你”指代${userName}。只能复述和细化${userName}已经输入的动作、对话和可见状态，不能替${userName}做决定。`
+    'user-first': `视角设定：以“我”承接${userName}已经输入的行动和状态。`,
+    'user-second': `视角设定：以“你”指代${userName}。`
   }[perspective];
 }
 
@@ -361,14 +361,23 @@ function renderOfflinePsychologyInstruction(enabled: boolean, characterName: str
 function renderOfflineInterruptionInstruction(mode: ConversationOfflineSettings['interruptionMode'], characterName: string, userName: string) {
   if (mode === 'advance') {
     return `抢话模式：开启。
-章节前部先复述并细化${userName}最新输入的内容，后部可以基于当下因果进行合理剧情拓展。
-拓展只能推动${characterName}、环境、外部事件或可自然发生的后续反应；不得替${userName}做关键性决策，不得新增${userName}未输入的台词、情绪结论或行动选择。`;
+可以基于${userName}最新输入的内容进行合理剧情拓展。
+推动${characterName}、环境、外部事件或可自然发生的后续反应；可合理新增${userName}未输入的台词、情绪结论或行动选择，但不得替${userName}做关键性决策。`;
   }
   return `防抢话：
 禁止代替${userName}做出任何决定。
 ${userName}的所有言行必须严格来源于用户输入。
 如果用户输入“${userName}没有回答”，可以写沉默持续、环境声音、${characterName}的动作和反应；不能写${userName}心里很难过，也不能写${userName}终于开口说话。
 整章只对${userName}输出内容进行相对应的复述与详细描写，绝对不要超出用户输出内容的场景、对话或决策。`;
+}
+
+function renderOfflineRetellInstruction(mode: ConversationOfflineSettings['retellMode'], userName: string) {
+  if (mode === 'retell') {
+    return `转述模式：开启。
+章节开头必须先原样复述${userName}最新输入的核心内容，并把这段输入润色扩写成可见动作、行为、神情、话语、停顿和空间变化。`;
+  }
+  return `转述模式：关闭。
+不要在章节开头固定复述${userName}输入；直接承接最新输入展开当前场景。`;
 }
 
 function renderOfflineProhibitedInstruction(characterName: string, userName: string) {
@@ -419,6 +428,7 @@ function renderOfflineSettingsPrompt(settings: ConversationOfflineSettings | nul
     renderOfflinePerspectiveInstruction(offlineSettings.perspective, characterName, userName),
     renderOfflinePsychologyInstruction(offlineSettings.characterPsychology, characterName, userName),
     renderOfflineInterruptionInstruction(offlineSettings.interruptionMode, characterName, userName),
+    renderOfflineRetellInstruction(offlineSettings.retellMode, userName),
     renderOfflineProhibitedInstruction(characterName, userName),
     renderOfflineRhythmInstruction(offlineSettings),
     offlineSettings.enhanceAppearance

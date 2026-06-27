@@ -161,6 +161,7 @@ export interface ConversationProactiveReplySettings {
 export type OfflineParagraphMode = 'long' | 'short' | 'mixed';
 export type OfflinePerspective = 'omniscient-third' | 'character-third' | 'character-second' | 'user-first' | 'user-second';
 export type OfflineInterruptionMode = 'advance' | 'strict';
+export type OfflineRetellMode = 'retell' | 'direct';
 export type OfflineTonePreset = 'daily' | 'push-pull' | 'ambiguous' | 'romance' | 'bittersweet' | 'custom';
 
 export interface OfflinePromptPreset {
@@ -177,6 +178,7 @@ export interface ConversationOfflineSettings {
   paragraphMode: OfflineParagraphMode;
   perspective: OfflinePerspective;
   interruptionMode: OfflineInterruptionMode;
+  retellMode: OfflineRetellMode;
   wordCount: string;
   writingStylePresetId: string;
   writingStylePresets: OfflinePromptPreset[];
