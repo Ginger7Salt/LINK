@@ -13,7 +13,21 @@
           <Plus :size="18" stroke-width="2.4" />
         </button>
       </div>
-      <ImageModelPickerButton v-else-if="activeTab === 'image'" />
+      <div v-else-if="activeTab === 'image'" class="settings-header-actions image-header-actions">
+        <button
+          class="image-generation-switch"
+          :class="{ active: currentSettings.imageGenerationEnabled }"
+          type="button"
+          :aria-pressed="currentSettings.imageGenerationEnabled"
+          :aria-label="currentSettings.imageGenerationEnabled ? '关闭生图' : '开启生图'"
+          :title="currentSettings.imageGenerationEnabled ? '关闭生图' : '开启生图'"
+          @click="toggleImageGeneration"
+        >
+          <span>生图</span>
+          <i aria-hidden="true"></i>
+        </button>
+        <ImageModelPickerButton />
+      </div>
       <TtsModelPickerButton v-else-if="activeTab === 'tts'" />
     </header>
 
@@ -146,6 +160,13 @@ async function saveSettings(nextSettings: AppSettings) {
   await store.saveSettings(nextSettings);
 }
 
+async function toggleImageGeneration() {
+  await saveSettings({
+    ...currentSettings.value,
+    imageGenerationEnabled: !currentSettings.value.imageGenerationEnabled
+  });
+}
+
 </script>
 
 <style scoped>
@@ -199,6 +220,58 @@ async function saveSettings(nextSettings: AppSettings) {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+.image-header-actions {
+  gap: 6px;
+}
+
+.image-generation-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 8px 0 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  color: rgba(17, 17, 17, 0.54);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.image-generation-switch i {
+  position: relative;
+  width: 30px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.14);
+  transition: background 0.18s ease;
+}
+
+.image-generation-switch i::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.24);
+  transition: transform 0.18s ease;
+}
+
+.image-generation-switch.active {
+  color: #057a35;
+}
+
+.image-generation-switch.active i {
+  background: #06c755;
+}
+
+.image-generation-switch.active i::after {
+  transform: translateX(12px);
 }
 
 .settings-main {

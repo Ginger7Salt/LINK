@@ -711,6 +711,7 @@ export interface AppSettings {
   voomImageModel: string;
   voomReadAtByUser: Record<string, Record<string, number>>;
   imagePrivateOnly: boolean;
+  imageGenerationEnabled: boolean;
   githubBackup: GitHubBackupSettings;
 }
 

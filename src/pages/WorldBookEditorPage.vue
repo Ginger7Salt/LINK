@@ -559,6 +559,11 @@ function getCoverSizeLabel(provider: ImageProviderType) {
 
 async function generateCover() {
   if (coverState.value === 'loading') return;
+  if (!currentSettings.value.imageGenerationEnabled) {
+    coverState.value = 'error';
+    coverFeedback.value = '生图开关已关闭，请先在 Image 页面顶部开启生图。';
+    return;
+  }
   const selectedModel = getSelectedImageModelOption(currentSettings.value, 'worldBook');
   if (!selectedModel) {
     coverState.value = 'error';

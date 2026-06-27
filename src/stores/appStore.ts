@@ -3558,7 +3558,7 @@ export const useAppStore = defineStore('app', () => {
       }));
       voomPosts.value.unshift(post);
       await putEntity('voomPosts', post);
-      const generatedImagePost = post.imageDescription && getSelectedImageModelOption(settings.value, 'voom')
+      const generatedImagePost = settings.value?.imageGenerationEnabled && post.imageDescription && getSelectedImageModelOption(settings.value, 'voom')
         ? await regenerateVoomPostImage(post.id, post.imageDescription)
         : null;
       const resolvedPost = generatedImagePost ?? voomPosts.value.find((entry) => entry.id === post.id) ?? post;
@@ -3578,7 +3578,7 @@ export const useAppStore = defineStore('app', () => {
   async function generateChatImageCandidate(description: string) {
     const imageDescription = description.trim();
     const selectedModel = getSelectedImageModelOption(settings.value, 'onlineChat');
-    if (!imageDescription || !settings.value || !selectedModel) return null;
+    if (!imageDescription || !settings.value?.imageGenerationEnabled || !settings.value || !selectedModel) return null;
 
     const provider = selectedModel.provider;
     const promptPreset = getImagePromptPresetForProvider(settings.value, provider);
@@ -3718,6 +3718,10 @@ export const useAppStore = defineStore('app', () => {
     const selectedModel = getSelectedImageModelOption(settings.value, 'voom');
     const imageDescription = description.trim();
     if (!post || !settings.value) return null;
+    if (!settings.value.imageGenerationEnabled) {
+      showConfigAlert('生图开关已关闭，VOOM 配图将以文字卡片形式显示。', '生图已关闭');
+      return null;
+    }
     if (!imageDescription) {
       showConfigAlert('请先填写 VOOM 配图描述。', '无法生成配图');
       return null;

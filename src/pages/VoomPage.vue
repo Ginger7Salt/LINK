@@ -280,7 +280,7 @@ const selectedVoomCharacterId = ref('');
 const pendingDeletePostId = ref('');
 
 const publisherCharacters = computed(() => store.charactersForActiveUser);
-const canRegenerateVoomImage = computed(() => Boolean(getSelectedImageModelOption(store.settings, 'voom')));
+const canRegenerateVoomImage = computed(() => Boolean(store.settings?.imageGenerationEnabled && getSelectedImageModelOption(store.settings, 'voom')));
 const activeUserDisplayName = computed(() => store.user?.nickname || store.user?.name || '账号');
 const activeUserAvatar = computed(() => store.user?.avatar || '');
 const activeUserCharacterIds = computed(() => new Set(store.charactersForActiveUser.map((character) => character.id)));

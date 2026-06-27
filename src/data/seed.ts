@@ -162,6 +162,7 @@ export const defaultSettings: AppSettings = {
   voomImageModel: '',
   voomReadAtByUser: {},
   imagePrivateOnly: true,
+  imageGenerationEnabled: true,
   githubBackup: {
     enabled: false,
     token: '',
