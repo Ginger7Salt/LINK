@@ -13,6 +13,7 @@ import { ageMemoryKind, createMemoryRecord, estimateTokenCount, getConversationF
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
 import { estimateRoleplayReplyInputTokens, fetchVendorModels, generateConversationSummary, generateEmbeddingVector, generateImageByProvider, generateRoleplayReply, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, shouldAutoGenerateMoment, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
 import { GitHubBackupError, downloadGitHubBackup, downloadGitHubBackupVersion, ensureGitHubBackupRepository, formatGitHubBackupError, listGitHubBackupHistory, uploadGitHubBackup } from '@/services/githubBackup';
+import { playRingtone } from '@/services/ringtone';
 import { synthesizeSpeech } from '@/services/tts';
 import { createLinkBackupFile, parseLinkBackupFileText, parseLinkBackupText, stickerBackupPlaceholder, stringifyLinkBackupFile } from '@/utils/backup';
 import { getVoomFrequencyChance, stripVoomCommentReplyPrefix } from '@/utils/voom';
@@ -3381,6 +3382,9 @@ export const useAppStore = defineStore('app', () => {
       if (charMessages.length) {
         messages.value.push(...charMessages);
         await Promise.all(charMessages.map((message) => putEntity('messages', message)));
+        if (charMessages.some((message) => message.sender === 'char')) {
+          void playRingtone(settings.value, 'message', conversation.charId);
+        }
         const latestCharMessage = charMessages[charMessages.length - 1];
         const latestConversation = conversationById(conversationId) ?? conversation;
         const nextConversation = {
@@ -3745,12 +3749,9 @@ export const useAppStore = defineStore('app', () => {
         ...comment,
         createdAt: post.createdAt + post.likes.length + index + 1
       }));
-      voomPosts.value.unshift(post);
-      await putEntity('voomPosts', post);
-      const generatedImagePost = settings.value?.imageGenerationEnabled && post.imageDescription && getSelectedImageModelOption(settings.value, 'voom')
-        ? await regenerateVoomPostImage(post.id, post.imageDescription)
-        : null;
-      const resolvedPost = generatedImagePost ?? voomPosts.value.find((entry) => entry.id === post.id) ?? post;
+      const resolvedPost = await generateVoomPostImageBeforePublish(post);
+      voomPosts.value.unshift(resolvedPost);
+      await putEntity('voomPosts', createPersistableVoomPost(resolvedPost));
       const latestConversation = conversationById(conversationId) ?? conversation;
       await recordVoomPostEvents(resolvedPost, latestConversation.activeMode);
       return resolvedPost;
@@ -3994,6 +3995,80 @@ export const useAppStore = defineStore('app', () => {
       return null;
     } finally {
       regeneratingVoomImagePostIds.delete(normalizedPostId);
+    }
+  }
+
+  async function generateVoomPostImageBeforePublish(post: VoomPost) {
+    const selectedModel = getSelectedImageModelOption(settings.value, 'voom');
+    const imageDescription = post.imageDescription?.trim() ?? '';
+    if (!settings.value?.imageGenerationEnabled || !settings.value || !selectedModel || !imageDescription) return post;
+
+    regeneratingVoomImagePostIds.add(post.id);
+    const provider = selectedModel.provider;
+    const promptPreset = getImagePromptPresetForProvider(settings.value, provider);
+    const positivePrompt = [promptPreset.positivePrompt, imageDescription].filter(Boolean).join(', ');
+    const imageSize = getImageGenerationSize(settings.value, provider);
+    let imageSettings = settings.value;
+    const imageOverrides = {
+      positivePrompt,
+      negativePrompt: promptPreset.negativePrompt,
+      size: imageSize.size,
+      width: imageSize.width,
+      height: imageSize.height,
+      model: selectedModel.model
+    };
+
+    if (provider === 'openai') {
+      const [vendorId, ...modelParts] = selectedModel.model.split('::');
+      imageSettings = {
+        ...settings.value,
+        imageOpenAi: {
+          ...settings.value.imageOpenAi,
+          activeVendorId: vendorId || settings.value.imageOpenAi.activeVendorId
+        }
+      };
+      imageOverrides.model = modelParts.join('::') || settings.value.imageModel;
+    }
+
+    try {
+      const result = await generateImageByProvider(provider, imageSettings, imageOverrides);
+      const imageUrl = await compactInlineDisplayImage(result.imageUrl);
+      const nextCandidate = createVoomImageCandidate({
+        image: imageUrl,
+        description: imageDescription,
+        provider: result.provider,
+        model: selectedModel.label,
+        size: getVoomImageSizeLabel(result.provider)
+      });
+      const nextPost: VoomPost = {
+        ...post,
+        image: imageUrl,
+        imageDescription,
+        imageProvider: result.provider,
+        imageCandidates: [...(post.imageCandidates ?? []), nextCandidate]
+      };
+      await addGeneratedImage({
+        provider: result.provider,
+        imageUrl,
+        title: `${voomAuthorNameForPost(post)} 的 VOOM 配图`,
+        prompt: positivePrompt,
+        negativePrompt: promptPreset.negativePrompt,
+        model: selectedModel.label,
+        size: nextCandidate.size || getVoomImageSizeLabel(result.provider),
+        source: 'voom'
+      });
+      return nextPost;
+    } catch (error) {
+      showConfigAlert(error instanceof Error ? error.message : 'VOOM 配图生成失败。', '无法生成配图');
+      if (post.image) return post;
+      return {
+        ...post,
+        image: '/load.jpg',
+        imageDescription,
+        imageProvider: 'local'
+      } satisfies VoomPost;
+    } finally {
+      regeneratingVoomImagePostIds.delete(post.id);
     }
   }
 

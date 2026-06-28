@@ -47,7 +47,7 @@ const defaultPollinationsPromptPresetId = 'pollinations_default';
 
 export const ringtoneEventTypes: RingtoneEventType[] = ['voom', 'message'];
 export const defaultRingtoneFileName = '吉森信 - 前略 じーちゃん.mp3';
-export const defaultRingtoneUrl = `/${encodeURI(defaultRingtoneFileName.normalize('NFD'))}`;
+export const defaultRingtoneUrl = '/default-ringtone.mp3';
 
 export const openAiImageSizeOptions = ['1024x1024', '832x1216', '768x1152', '640x960', '1216x832', '1152x768'];
 

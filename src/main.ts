@@ -3,9 +3,11 @@ import { createPinia } from 'pinia';
 import App from './App.vue';
 import { router } from './router';
 import { syncAppViewportHeight } from './app/viewport';
+import { installRingtoneAudioUnlock } from './services/ringtone';
 import './styles/main.css';
 
 syncAppViewportHeight();
+installRingtoneAudioUnlock();
 
 if (import.meta.env.DEV && 'serviceWorker' in navigator) {
 	navigator.serviceWorker.getRegistrations()

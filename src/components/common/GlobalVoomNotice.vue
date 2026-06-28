@@ -34,6 +34,7 @@ import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { X } from 'lucide-vue-next';
 import { useAppStore } from '@/stores/appStore';
+import { playRingtone } from '@/services/ringtone';
 import type { VoomComment, VoomPost } from '@/types/domain';
 import { formatContentWithChineseTranslation } from '@/utils/translation';
 import { stripVoomCommentReplyPrefix } from '@/utils/voom';
@@ -74,7 +75,10 @@ function markCurrentPostsSeen() {
 function showNextVoomNotice() {
   if (activePost.value) return;
   const nextPost = characterVoomPosts.value.find((post) => !seenPostIds.value.has(post.id));
-  if (nextPost) activePost.value = nextPost;
+  if (nextPost) {
+    activePost.value = nextPost;
+    void playRingtone(store.settings, 'voom', nextPost.charId);
+  }
 }
 
 function closeVoomNotice() {
