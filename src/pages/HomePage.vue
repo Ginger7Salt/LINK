@@ -3,7 +3,7 @@
     <header class="top-bar">
       <div></div>
       <div class="icon-row">
-        <button class="icon-button" type="button" aria-label="收藏">
+        <button class="icon-button" type="button" aria-label="收藏" @click="openFavoritesPage">
           <Bookmark :size="24" />
         </button>
         <button class="icon-button" type="button" aria-label="通知">
@@ -108,6 +108,10 @@ function openStickers() {
 
 function openWorldBookPage() {
   void router.push({ name: 'world-book' });
+}
+
+function openFavoritesPage() {
+  void router.push({ name: 'favorites' });
 }
 
 function openAddFriendPage() {

@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { toRaw } from 'vue';
-import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, ChatMessage, Conversation, ConversationMemoryRecord, ConversationSettings, GeneratedImageRecord, MusicCommentThread, MusicTrack, Sticker, StickerGroup, UserProfile, VoomPost, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, ChatMessage, Conversation, ConversationMemoryRecord, ConversationSettings, FavoriteMessageRecord, GeneratedImageRecord, MusicCommentThread, MusicTrack, Sticker, StickerGroup, UserProfile, VoomPost, WorldBookEntry } from '@/types/domain';
 import { compressInlineImageDataUrl } from '@/utils/imageFile';
 import { normalizeUserProfile } from '@/utils/profile';
 import { normalizeAppSettings } from '@/utils/settings';
@@ -22,12 +22,13 @@ interface LinkDb extends DBSchema {
   conversationSettings: { key: string; value: ConversationSettings };
   conversationMemories: { key: string; value: ConversationMemoryRecord; indexes: { byConversation: string } };
   generatedImages: { key: string; value: GeneratedImageRecord; indexes: { byProvider: string; byCreatedAt: number } };
+  favorites: { key: string; value: FavoriteMessageRecord; indexes: { byConversation: string; byFavoritedAt: number } };
   settings: { key: string; value: AppSettings };
 }
 
 let dbPromise: Promise<IDBPDatabase<LinkDb>> | undefined;
 
-const storeNames = ['user', 'characters', 'conversations', 'messages', 'voomPosts', 'musicFavoriteTracks', 'musicCommentThreads', 'worldBooks', 'stickerGroups', 'stickers', 'conversationSettings', 'conversationMemories', 'generatedImages', 'settings'] as const;
+const storeNames = ['user', 'characters', 'conversations', 'messages', 'voomPosts', 'musicFavoriteTracks', 'musicCommentThreads', 'worldBooks', 'stickerGroups', 'stickers', 'conversationSettings', 'conversationMemories', 'generatedImages', 'favorites', 'settings'] as const;
 const legacyDefaultUserIds = new Set(['1008600002']);
 const legacyDefaultCharacterIds = new Set(['2000100001', '2000100002', '2000100003']);
 const legacyDefaultConversationIds = new Set(['conv_2000100001', 'conv_2000100002', 'conv_2000100003']);
@@ -195,7 +196,7 @@ export async function compactStoredInlineImages() {
 }
 
 export function getDb() {
-  dbPromise ??= openDB<LinkDb>('link-local-db', 6, {
+  dbPromise ??= openDB<LinkDb>('link-local-db', 7, {
     upgrade(db, oldVersion, _newVersion, transaction) {
       if (!db.objectStoreNames.contains('user')) db.createObjectStore('user', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('characters')) db.createObjectStore('characters', { keyPath: 'id' });
@@ -230,6 +231,11 @@ export function getDb() {
         generatedImageStore.createIndex('byProvider', 'provider');
         generatedImageStore.createIndex('byCreatedAt', 'createdAt');
       }
+      if (!db.objectStoreNames.contains('favorites')) {
+        const favoriteStore = db.createObjectStore('favorites', { keyPath: 'id' });
+        favoriteStore.createIndex('byConversation', 'conversationId');
+        favoriteStore.createIndex('byFavoritedAt', 'favoritedAt');
+      }
       if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings');
 
       if (oldVersion < 4) {
@@ -252,7 +258,7 @@ export async function seedDatabase() {
   const existingUser = await db.get('user', defaultUsers[0].id);
   if (existingUser) return;
 
-  const tx = db.transaction(['user', 'characters', 'conversations', 'messages', 'voomPosts', 'musicFavoriteTracks', 'musicCommentThreads', 'worldBooks', 'stickerGroups', 'stickers', 'conversationSettings', 'conversationMemories', 'generatedImages', 'settings'], 'readwrite');
+  const tx = db.transaction(['user', 'characters', 'conversations', 'messages', 'voomPosts', 'musicFavoriteTracks', 'musicCommentThreads', 'worldBooks', 'stickerGroups', 'stickers', 'conversationSettings', 'conversationMemories', 'generatedImages', 'favorites', 'settings'], 'readwrite');
   await Promise.all(defaultUsers.map((user) => tx.objectStore('user').put(user)));
   await Promise.all(defaultCharacters.map((character) => tx.objectStore('characters').put(character)));
   await Promise.all(defaultConversations.map((conversation) => tx.objectStore('conversations').put(conversation)));
@@ -344,7 +350,7 @@ export async function loadSnapshot() {
   await compactStoredInlineImages();
   await pruneLegacyDefaultData();
   const db = await getDb();
-  const [users, characters, conversations, messages, voomPosts, musicFavoriteTracks, musicCommentThreads, worldBooks, stickerGroups, stickers, conversationSettings, conversationMemories, generatedImages, settings] = await Promise.all([
+  const [users, characters, conversations, messages, voomPosts, musicFavoriteTracks, musicCommentThreads, worldBooks, stickerGroups, stickers, conversationSettings, conversationMemories, generatedImages, favorites, settings] = await Promise.all([
     db.getAll('user'),
     db.getAll('characters'),
     db.getAll('conversations'),
@@ -358,6 +364,7 @@ export async function loadSnapshot() {
     db.getAll('conversationSettings'),
     db.getAll('conversationMemories'),
     db.getAll('generatedImages'),
+    db.getAll('favorites'),
     db.get('settings', 'main')
   ]);
 
@@ -375,6 +382,7 @@ export async function loadSnapshot() {
     conversationSettings,
     conversationMemories,
     generatedImages,
+    favorites,
     settings: normalizeAppSettings(settings ?? defaultSettings)
   };
 }
@@ -435,6 +443,10 @@ export async function replaceSnapshot(snapshot: AppSnapshot) {
   const generatedImageStore = tx.objectStore('generatedImages');
   void generatedImageStore.clear();
   (snapshot.generatedImages ?? []).forEach((entry) => void generatedImageStore.put(toPersistableValue(entry)));
+
+  const favoriteStore = tx.objectStore('favorites');
+  void favoriteStore.clear();
+  (snapshot.favorites ?? []).forEach((entry) => void favoriteStore.put(toPersistableValue(entry)));
 
   const settingsStore = tx.objectStore('settings');
   void settingsStore.clear();

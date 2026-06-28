@@ -326,6 +326,10 @@
           <CheckSquare :size="19" />
           <span>多选</span>
         </button>
+        <button type="button" :disabled="!activeMessage || isActiveMessageFavorited" @click="favoriteActiveMessage">
+          <BookmarkPlus :size="19" />
+          <span>{{ isActiveMessageFavorited ? '已收藏' : '收藏' }}</span>
+        </button>
         <button type="button" :disabled="!canRecallActiveMessage" @click="recallActiveMessage">
           <RotateCcw :size="19" />
           <span>撤回</span>
@@ -481,7 +485,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ArchiveX, CheckSquare, ContactRound, Copy, DoorOpen, Grid3X3, MapPin, MessageSquareText, Pencil, Quote, RefreshCw, RotateCcw, SlidersHorizontal, Sparkles, Trash2, UserMinus, UserRound, Wallet, X } from 'lucide-vue-next';
+import { ArchiveX, BookmarkPlus, CheckSquare, ContactRound, Copy, DoorOpen, Grid3X3, MapPin, MessageSquareText, Pencil, Quote, RefreshCw, RotateCcw, SlidersHorizontal, Sparkles, Trash2, UserMinus, UserRound, Wallet, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import ChatHeader from '@/components/chat/ChatHeader.vue';
 import ChatModelSwitchPanel from '@/components/chat/ChatModelSwitchPanel.vue';
@@ -691,6 +695,7 @@ const activeMessageIsSynthetic = computed(() => Boolean(activeMessage.value?.id.
 const canRecallActiveMessage = computed(() => Boolean(activeMessage.value && activeMessage.value.sender === 'user' && !activeMessageIsSynthetic.value));
 const canQuoteActiveMessage = computed(() => Boolean(activeMessage.value && canQuoteMessage(activeMessage.value)));
 const canEditActiveMessage = computed(() => Boolean(activeMessage.value && !activeMessageIsSynthetic.value));
+const isActiveMessageFavorited = computed(() => Boolean(activeMessage.value && store.isMessageFavorited(activeMessage.value.id)));
 const canRegenerateActiveVoice = computed(() => Boolean(activeMessage.value?.sender === 'char'
   && activeMessage.value.voice?.transcript.trim()
   && !activeMessageIsSynthetic.value));
@@ -1526,6 +1531,14 @@ function startSelectionFromActive() {
   if (message) selectedMessageIds.value = messageIdsForAction(message);
   selectionMode.value = true;
   showMessageMenu.value = false;
+}
+
+async function favoriteActiveMessage() {
+  const message = activeMessage.value;
+  if (!message || isActiveMessageFavorited.value) return;
+  await store.addFavoriteMessage(message);
+  showMessageMenu.value = false;
+  store.showConfigAlert('已加入收藏。', '收藏成功');
 }
 
 async function deleteSelectedMessages() {

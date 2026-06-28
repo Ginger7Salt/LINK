@@ -1,5 +1,5 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
-import type { AppSettings, AppSnapshot, ChatImageAttachment, ChatImageCandidate, ChatMessage, ChatMessageQuote, ChatVoiceAttachment, GeneratedImageRecord, Sticker, VoomImageCandidate, VoomPost, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, ChatImageAttachment, ChatImageCandidate, ChatMessage, ChatMessageQuote, ChatVoiceAttachment, FavoriteMessageRecord, GeneratedImageRecord, Sticker, VoomImageCandidate, VoomPost, WorldBookEntry } from '@/types/domain';
 
 export interface LinkBackupFile {
   app: 'LINK';
@@ -36,7 +36,8 @@ const snapshotArrayKeys: Array<keyof Omit<AppSnapshot, 'settings'>> = [
   'stickers',
   'conversationSettings',
   'conversationMemories',
-  'generatedImages'
+  'generatedImages',
+  'favorites'
 ];
 const largeInlineAssetLength = 1024 * 1024;
 export const stickerBackupPlaceholder = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%221%22 height=%221%22/%3E';
@@ -131,6 +132,16 @@ function sanitizeGeneratedImageForBackup(record: GeneratedImageRecord): Generate
   };
 }
 
+function sanitizeFavoriteForBackup(record: FavoriteMessageRecord): FavoriteMessageRecord {
+  return {
+    ...record,
+    authorAvatar: stripLargeInlineAsset(record.authorAvatar),
+    characterAvatar: stripLargeInlineAsset(record.characterAvatar),
+    userAvatar: stripLargeInlineAsset(record.userAvatar),
+    message: sanitizeMessageForBackup(record.message)
+  };
+}
+
 function sanitizeSettingsForBackup(settings: AppSettings): AppSettings {
   return {
     ...settings,
@@ -164,6 +175,7 @@ function sanitizeSnapshotForBackup(snapshot: AppSnapshot): AppSnapshot {
   safeSnapshot.worldBooks = safeSnapshot.worldBooks.map((entry) => sanitizeWorldBookForBackup(entry));
   safeSnapshot.stickers = safeSnapshot.stickers.map((sticker) => sanitizeStickerForBackup(sticker));
   safeSnapshot.generatedImages = safeSnapshot.generatedImages.map((record) => sanitizeGeneratedImageForBackup(record)).filter((record) => record.imageUrl);
+  safeSnapshot.favorites = (safeSnapshot.favorites ?? []).map((record) => sanitizeFavoriteForBackup(record));
   safeSnapshot.settings = sanitizeSettingsForBackup(safeSnapshot.settings);
   return safeSnapshot;
 }

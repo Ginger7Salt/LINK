@@ -378,6 +378,29 @@ export interface ChatMessage {
   editedAt?: number;
 }
 
+export type FavoriteMessageKind = 'text' | 'image' | 'sticker' | 'voice' | 'location' | 'transfer' | 'offlineInvitation' | 'narration';
+
+export interface FavoriteMessageRecord {
+  id: string;
+  sourceMessageId: string;
+  conversationId: string;
+  mode: ChatMode;
+  kind: FavoriteMessageKind;
+  sender: 'user' | 'char' | 'system';
+  authorName: string;
+  authorAvatar?: string;
+  characterId?: string;
+  characterName?: string;
+  characterAvatar?: string;
+  userId?: string;
+  userName?: string;
+  userAvatar?: string;
+  summary: string;
+  message: ChatMessage;
+  messageCreatedAt: number;
+  favoritedAt: number;
+}
+
 export type VoomPostAuthorType = 'character' | 'user';
 
 export type VoomPostVisibility = 'public' | 'selected';
@@ -732,6 +755,7 @@ export interface AppSnapshot {
   conversationSettings: ConversationSettings[];
   conversationMemories: ConversationMemoryRecord[];
   generatedImages: GeneratedImageRecord[];
+  favorites: FavoriteMessageRecord[];
   settings: AppSettings;
 }
 

@@ -2,7 +2,7 @@ import { computed, ref, toRaw } from 'vue';
 import { defineStore } from 'pinia';
 import { deleteEntity, loadSnapshot, putEntity, replaceSnapshot } from '@/data/db';
 import { defaultSettings } from '@/data/seed';
-import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationMemoryRecord, ConversationSettings, GeneratedImageRecord, ImageModuleId, MusicCommentThread, MusicTrack, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationMemoryRecord, ConversationSettings, FavoriteMessageKind, FavoriteMessageRecord, GeneratedImageRecord, ImageModuleId, MusicCommentThread, MusicTrack, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
 import { createAccountId, createId } from '@/utils/id';
 import { getCharacterInitialProfile, getCharacterVoomAuthorName, normalizeCharacterMindStateLines, normalizeCharacterProfile } from '@/utils/character';
 import { normalizeUserProfile, normalizeVisualProfile } from '@/utils/profile';
@@ -124,6 +124,7 @@ export const useAppStore = defineStore('app', () => {
   const conversationSettings = ref<ConversationSettings[]>([]);
   const conversationMemories = ref<ConversationMemoryRecord[]>([]);
   const generatedImages = ref<GeneratedImageRecord[]>([]);
+  const favorites = ref<FavoriteMessageRecord[]>([]);
   const settings = ref<AppSettings | null>(null);
   const user = computed(() => {
     if (!users.value.length) return null;
@@ -239,6 +240,7 @@ export const useAppStore = defineStore('app', () => {
         vector: Array.isArray(memory.vector) ? memory.vector : []
       }))).memories,
       generatedImages: normalizeGeneratedImages(snapshot.generatedImages ?? []),
+      favorites: normalizeFavorites(snapshot.favorites ?? []),
       settings: normalizeAppSettings({
         ...defaultSettings,
         ...snapshot.settings,
@@ -320,6 +322,7 @@ export const useAppStore = defineStore('app', () => {
     conversationSettings.value = snapshot.conversationSettings;
     conversationMemories.value = dedupeConversationMemories(snapshot.conversationMemories).memories;
     generatedImages.value = snapshot.generatedImages;
+    favorites.value = normalizeFavorites(snapshot.favorites ?? []);
     settings.value = snapshot.settings;
     activeConversationId.value = null;
     ready.value = true;
@@ -359,6 +362,7 @@ export const useAppStore = defineStore('app', () => {
       vector: Array.isArray(memory.vector) ? memory.vector : []
     })));
     generatedImages.value = normalizeGeneratedImages(snapshot.generatedImages ?? []);
+    favorites.value = normalizeFavorites(snapshot.favorites ?? []);
     settings.value = normalizeAppSettings({
       ...snapshot.settings,
       activeUserId: snapshot.settings.activeUserId || snapshot.users[0]?.id || ''
@@ -926,6 +930,32 @@ export const useAppStore = defineStore('app', () => {
     return message.content.trim();
   }
 
+  function favoriteKindForMessage(message: ChatMessage): FavoriteMessageKind {
+    if (message.sticker) return 'sticker';
+    if (message.image) return 'image';
+    if (message.voice) return 'voice';
+    if (message.location) return 'location';
+    if (message.transfer) return 'transfer';
+    if (message.offlineInvitation) return 'offlineInvitation';
+    if (message.displayStyle === 'narration') return 'narration';
+    return 'text';
+  }
+
+  function normalizeFavorites(entries: FavoriteMessageRecord[]) {
+    return entries
+      .filter((entry) => entry?.id && entry.sourceMessageId && entry.message)
+      .map((entry) => ({
+        ...entry,
+        kind: favoriteKindForMessage(entry.message),
+        summary: entry.summary?.trim() || messageReadableContent(entry.message),
+        messageCreatedAt: Number.isFinite(entry.messageCreatedAt) ? entry.messageCreatedAt : entry.message.createdAt,
+        favoritedAt: Number.isFinite(entry.favoritedAt) ? entry.favoritedAt : Date.now()
+      }))
+      .sort((left, right) => right.favoritedAt - left.favoritedAt);
+  }
+
+  const sortedFavorites = computed(() => [...favorites.value].sort((left, right) => right.favoritedAt - left.favoritedAt));
+
   function messageAuthorName(message: ChatMessage) {
     const conversation = conversationById(message.conversationId);
     if (message.sender === 'char') {
@@ -955,6 +985,60 @@ export const useAppStore = defineStore('app', () => {
       transfer: message.transfer ? { ...message.transfer } : undefined,
       offlineInvitation: message.offlineInvitation ? { ...message.offlineInvitation } : undefined
     };
+  }
+
+  function createFavoriteSnapshot(message: ChatMessage): FavoriteMessageRecord {
+    const conversation = conversationById(message.conversationId);
+    const character = conversation ? characterById(conversation.charId) : null;
+    const boundUser = conversation ? userById(conversation.userId) : null;
+    const authorName = messageAuthorName(message);
+    const authorAvatar = message.sender === 'char'
+      ? character?.avatar
+      : message.sender === 'user'
+        ? boundUser?.avatar || user.value?.avatar
+        : undefined;
+
+    return {
+      id: createId('fav'),
+      sourceMessageId: message.id,
+      conversationId: message.conversationId,
+      mode: message.mode,
+      kind: favoriteKindForMessage(message),
+      sender: message.sender,
+      authorName,
+      authorAvatar,
+      characterId: character?.id,
+      characterName: character?.nickname || character?.name,
+      characterAvatar: character?.avatar,
+      userId: boundUser?.id,
+      userName: boundUser?.nickname || boundUser?.name,
+      userAvatar: boundUser?.avatar,
+      summary: messageReadableContent(message),
+      message: toRaw(message),
+      messageCreatedAt: message.createdAt,
+      favoritedAt: Date.now()
+    };
+  }
+
+  function isMessageFavorited(messageId: string) {
+    return favorites.value.some((entry) => entry.sourceMessageId === messageId);
+  }
+
+  async function addFavoriteMessage(message: ChatMessage) {
+    const existing = favorites.value.find((entry) => entry.sourceMessageId === message.id);
+    if (existing) return existing;
+    const favorite = createFavoriteSnapshot(message);
+    favorites.value = normalizeFavorites([favorite, ...favorites.value]);
+    await putEntity('favorites', favorite);
+    return favorite;
+  }
+
+  async function deleteFavorite(favoriteId: string) {
+    const index = favorites.value.findIndex((entry) => entry.id === favoriteId);
+    if (index < 0) return false;
+    favorites.value.splice(index, 1);
+    await deleteEntity('favorites', favoriteId);
+    return true;
   }
 
   async function pruneMemoriesForMessageIds(messageIds: string[]) {
@@ -4191,6 +4275,8 @@ export const useAppStore = defineStore('app', () => {
     musicFavoriteTracks,
     musicCommentThreads,
     sortedVoomPosts,
+    favorites,
+    sortedFavorites,
     worldBooks,
     stickerGroups,
     stickers,
@@ -4218,6 +4304,9 @@ export const useAppStore = defineStore('app', () => {
     nextReplyTokenCountForConversation,
     lastMessageForConversation,
     createMessageQuoteSnapshot,
+    isMessageFavorited,
+    addFavoriteMessage,
+    deleteFavorite,
     showConfigAlert,
     isReplyingVoomComments,
     isConversationReplying,
