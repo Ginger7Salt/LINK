@@ -326,16 +326,33 @@ export function subscribeKeepAliveStatus(listener: (nextStatus: KeepAliveRuntime
 }
 
 export async function requestKeepAliveNotificationPermission() {
-  if (typeof Notification === 'undefined') {
-    status.notificationPermission = 'unsupported';
+  if (typeof window !== 'undefined' && !window.isSecureContext) {
+    status.notificationPermission = getNotificationPermission();
+    status.lastError = '通知授权需要 HTTPS 或 localhost 环境。';
     emitStatus();
     return status.notificationPermission;
   }
-  if (Notification.permission === 'default') {
-    status.notificationPermission = await Notification.requestPermission();
-  } else {
+  if (typeof Notification === 'undefined') {
+    status.notificationPermission = 'unsupported';
+    status.lastError = '当前浏览器不支持网页通知。';
+    emitStatus();
+    return status.notificationPermission;
+  }
+
+  try {
+    if (Notification.permission === 'default') {
+      status.notificationPermission = await Notification.requestPermission();
+    } else {
+      status.notificationPermission = Notification.permission;
+    }
+  } catch {
     status.notificationPermission = Notification.permission;
   }
+
+  if (status.notificationPermission === 'granted') status.lastError = '';
+  else if (status.notificationPermission === 'denied') status.lastError = '系统通知权限已拒绝，请在浏览器或系统设置里重新允许。';
+  else status.lastError = '浏览器没有弹出授权窗口，请检查地址栏权限、系统通知设置，或在手机上安装为 PWA 后再试。';
+
   emitStatus();
   return status.notificationPermission;
 }

@@ -219,6 +219,7 @@ const RingtoneCardIcon = defineComponent({
 const router = useRouter();
 const store = useAppStore();
 const importError = ref('');
+const notificationAuthMessage = ref('');
 const keepAliveStatus = ref<KeepAliveRuntimeStatus>(getKeepAliveStatus());
 let unsubscribeKeepAliveStatus: (() => void) | null = null;
 
@@ -255,6 +256,7 @@ const canRequestNotificationPermission = computed(() => keepAliveSettings.value.
   && keepAliveStatus.value.notificationSupported
   && keepAliveStatus.value.notificationPermission === 'default');
 const keepAliveAlert = computed(() => {
+  if (notificationAuthMessage.value) return notificationAuthMessage.value;
   if (keepAliveStatus.value.lastError) return keepAliveStatus.value.lastError;
   if (keepAliveStatus.value.platform === 'ios' && !keepAliveStatus.value.standalone) return 'iOS 浏览器模式下，后台通知与音频会更容易被系统收紧。';
   if (keepAliveStatus.value.platform === 'android' && !keepAliveStatus.value.wakeLockSupported) return '当前 Android WebView 未开放亮屏守护，保活会使用音频与通知。';
@@ -389,11 +391,17 @@ async function toggleKeepAlive() {
 
 async function updateKeepAliveOption(option: keyof Pick<AppKeepAliveSettings, 'silentAudio' | 'notifications' | 'wakeLock'>, event: Event) {
   const checked = (event.target as HTMLInputElement).checked;
+  if (option === 'notifications') notificationAuthMessage.value = '';
   await saveKeepAliveSettings({ ...keepAliveSettings.value, [option]: checked }, option === 'notifications' && checked && keepAliveSettings.value.enabled);
 }
 
 async function authorizeNotifications() {
-  await requestKeepAliveNotificationPermission();
+  notificationAuthMessage.value = '正在请求通知权限...';
+  const permission = await requestKeepAliveNotificationPermission();
+  if (permission === 'granted') notificationAuthMessage.value = '通知已授权，角色消息和 VOOM 会通过系统通知提醒。';
+  else if (permission === 'denied') notificationAuthMessage.value = '通知权限已被拒绝，请在浏览器或系统设置里手动允许。';
+  else if (permission === 'unsupported') notificationAuthMessage.value = '当前浏览器不支持网页通知。';
+  else notificationAuthMessage.value = '浏览器没有弹出授权窗口，请检查地址栏权限、系统通知设置，或安装为 PWA 后再试。';
   if (keepAliveSettings.value.enabled) await startKeepAlive(keepAliveSettings.value);
 }
 
