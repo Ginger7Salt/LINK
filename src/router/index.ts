@@ -1,27 +1,27 @@
 import { createRouter, createWebHistory } from 'vue-router';
-import HomePage from '@/pages/HomePage.vue';
-import ChatsPage from '@/pages/ChatsPage.vue';
-import ChatSettingsPage from '@/pages/ChatSettingsPage.vue';
-import ChatSearchPage from '@/pages/ChatSearchPage.vue';
-import ChatRoomPage from '@/pages/ChatRoomPage.vue';
-import OfflineSettingsPage from '@/pages/OfflineSettingsPage.vue';
-import OfflineRoomPage from '@/pages/OfflineRoomPage.vue';
-import VoomPage from '@/pages/VoomPage.vue';
-import MusicPage from '@/pages/MusicPage.vue';
-import FanficPage from '@/pages/FanficPage.vue';
-import ProfilePage from '@/pages/ProfilePage.vue';
-import AddFriendPage from '@/pages/AddFriendPage.vue';
-import ServicesPage from '@/pages/ServicesPlaceholderPage.vue';
-import ImageGalleryPage from '@/pages/settings/ImageGalleryPage.vue';
-import ImageModuleSettingsPage from '@/pages/settings/ImageModuleSettingsPage.vue';
-import SettingsPage from '@/pages/settings/SettingsPage.vue';
-import StickersPage from '@/pages/StickersPage.vue';
-import StickerManagePage from '@/pages/StickerManagePage.vue';
-import WorldBookPage from '@/pages/WorldBookPage.vue';
-import WorldBookEditorPage from '@/pages/WorldBookEditorPage.vue';
-import FavoritesPage from '@/pages/FavoritesPage.vue';
-import RingtoneSettingsPage from '@/pages/RingtoneSettingsPage.vue';
-import ThemesPage from '@/pages/ThemesPage.vue';
+
+const HomePage = () => import('@/pages/HomePage.vue');
+const ChatsPage = () => import('@/pages/ChatsPage.vue');
+const ChatSettingsPage = () => import('@/pages/ChatSettingsPage.vue');
+const ChatSearchPage = () => import('@/pages/ChatSearchPage.vue');
+const ChatRoomPage = () => import('@/pages/ChatRoomPage.vue');
+const OfflineSettingsPage = () => import('@/pages/OfflineSettingsPage.vue');
+const OfflineRoomPage = () => import('@/pages/OfflineRoomPage.vue');
+const VoomPage = () => import('@/pages/VoomPage.vue');
+const MusicPage = () => import('@/pages/MusicPage.vue');
+const FanficPage = () => import('@/pages/FanficPage.vue');
+const ProfilePage = () => import('@/pages/ProfilePage.vue');
+const AddFriendPage = () => import('@/pages/AddFriendPage.vue');
+const ServicesPage = () => import('@/pages/ServicesPlaceholderPage.vue');
+const ImageModuleSettingsPage = () => import('@/pages/settings/ImageModuleSettingsPage.vue');
+const SettingsPage = () => import('@/pages/settings/SettingsPage.vue');
+const StickersPage = () => import('@/pages/StickersPage.vue');
+const StickerManagePage = () => import('@/pages/StickerManagePage.vue');
+const WorldBookPage = () => import('@/pages/WorldBookPage.vue');
+const WorldBookEditorPage = () => import('@/pages/WorldBookEditorPage.vue');
+const FavoritesPage = () => import('@/pages/FavoritesPage.vue');
+const RingtoneSettingsPage = () => import('@/pages/RingtoneSettingsPage.vue');
+const ThemesPage = () => import('@/pages/ThemesPage.vue');
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -42,7 +42,6 @@ export const router = createRouter({
     { path: '/world-book/:id/edit', name: 'world-book-edit', component: WorldBookEditorPage },
     { path: '/world-book/:id/delete', redirect: (to) => ({ name: 'world-book-edit', params: { id: String(to.params.id) } }) },
     { path: '/settings', name: 'settings', component: SettingsPage },
-    { path: '/settings/image/:module/gallery', name: 'image-gallery', component: ImageGalleryPage },
     { path: '/settings/image/:module', name: 'image-module-settings', component: ImageModuleSettingsPage },
     { path: '/chats', name: 'chats', component: ChatsPage },
     { path: '/chats/:id/search', name: 'chat-search', component: ChatSearchPage, props: true },

@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { toRaw } from 'vue';
-import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, ChatMessage, Conversation, ConversationMemoryAtom, ConversationMemoryRecord, ConversationSettings, FavoriteMessageRecord, GeneratedImageRecord, MusicCommentThread, MusicTrack, Sticker, StickerGroup, UserProfile, VoomPost, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, ChatMessage, Conversation, ConversationMemoryAtom, ConversationMemoryRecord, ConversationSettings, FavoriteMessageRecord, GeneratedImageRecord, MusicCommentThread, MusicTrack, Sticker, StickerGroup, UserProfile, VisualProfile, VoomPost, WorldBookEntry } from '@/types/domain';
 import { compressInlineImageDataUrl } from '@/utils/imageFile';
 import { normalizeUserProfile } from '@/utils/profile';
 import { normalizeAppSettings } from '@/utils/settings';
@@ -36,18 +36,98 @@ const legacyDefaultConversationIds = new Set(['conv_2000100001', 'conv_200010000
 const legacyDefaultWorldBookIds = new Set(['wb_global_online', 'wb_global_offline', 'wb_local_campus', 'wb_local_art', 'wb_local_tokyo']);
 const legacyDefaultVoomPostIds = new Set(['voom_seed_1']);
 const inlineImageCompressionOptions = { maxDimension: 800, quality: 0.62, minBytes: 160 * 1024 };
+const inlineAvatarCompressionOptions = { maxDimension: 320, quality: 0.76, minBytes: 56 * 1024 };
+const inlineProfileImageCompressionOptions = { maxDimension: 960, quality: 0.72, minBytes: 160 * 1024 };
+const startupMaintenanceStorageKey = 'link:storage-maintenance:2026-06-inline-media-v1';
+let startupMaintenancePromise: Promise<void> | null = null;
 
 function isInlineImageDataUrl(value: string | undefined) {
   return /^data:image\//i.test(String(value ?? '').trim());
 }
 
-async function compactInlineImageValue(value: string | undefined) {
+async function compactInlineImageValue(value: string | undefined, options = inlineImageCompressionOptions) {
   if (!isInlineImageDataUrl(value)) return value;
   try {
-    return await compressInlineImageDataUrl(String(value), inlineImageCompressionOptions);
+    return await compressInlineImageDataUrl(String(value), options);
   } catch {
     return value;
   }
+}
+
+async function compactVisualProfileInlineImages<T extends Partial<VisualProfile> | undefined>(profile: T): Promise<T> {
+  if (!profile) return profile;
+  let changed = false;
+  const nextProfile = { ...profile } as Partial<VisualProfile>;
+
+  if (typeof nextProfile.avatar === 'string') {
+    const nextAvatar = await compactInlineImageValue(nextProfile.avatar, inlineAvatarCompressionOptions);
+    if (nextAvatar !== nextProfile.avatar) {
+      nextProfile.avatar = nextAvatar ?? nextProfile.avatar;
+      changed = true;
+    }
+  }
+
+  if (typeof nextProfile.backgroundImage === 'string') {
+    const nextBackground = await compactInlineImageValue(nextProfile.backgroundImage, inlineProfileImageCompressionOptions);
+    if (nextBackground !== nextProfile.backgroundImage) {
+      nextProfile.backgroundImage = nextBackground ?? nextProfile.backgroundImage;
+      changed = true;
+    }
+  }
+
+  if (Array.isArray(nextProfile.highlights)) {
+    const nextHighlights = await Promise.all(nextProfile.highlights.map(async (highlight) => {
+      const nextImage = await compactInlineImageValue(highlight.image, inlineProfileImageCompressionOptions);
+      if (nextImage === highlight.image) return highlight;
+      changed = true;
+      return { ...highlight, image: nextImage ?? highlight.image };
+    }));
+    nextProfile.highlights = nextHighlights;
+  }
+
+  if (Array.isArray(nextProfile.moments)) {
+    const nextMoments = await Promise.all(nextProfile.moments.map(async (moment) => {
+      const nextImage = await compactInlineImageValue(moment.image, inlineProfileImageCompressionOptions);
+      if (nextImage === moment.image) return moment;
+      changed = true;
+      return { ...moment, image: nextImage ?? moment.image };
+    }));
+    nextProfile.moments = nextMoments;
+  }
+
+  return (changed ? nextProfile : profile) as T;
+}
+
+async function compactUserProfileInlineImages(user: UserProfile): Promise<UserProfile> {
+  let changed = false;
+  const nextAvatar = await compactInlineImageValue(user.avatar, inlineAvatarCompressionOptions);
+  if (nextAvatar !== user.avatar) changed = true;
+
+  const nextProfile = await compactVisualProfileInlineImages(user.profile);
+  if (nextProfile !== user.profile) changed = true;
+
+  return changed ? { ...user, avatar: nextAvatar ?? user.avatar, profile: nextProfile } : user;
+}
+
+async function compactCharacterProfileInlineImages(character: CharacterProfile): Promise<CharacterProfile> {
+  let changed = false;
+  const nextAvatar = await compactInlineImageValue(character.avatar, inlineAvatarCompressionOptions);
+  if (nextAvatar !== character.avatar) changed = true;
+
+  const nextBoundUserProfile = await compactVisualProfileInlineImages(character.boundUserProfile);
+  if (nextBoundUserProfile !== character.boundUserProfile) changed = true;
+
+  const nextProfile = await compactVisualProfileInlineImages(character.profile);
+  if (nextProfile !== character.profile) changed = true;
+
+  return changed
+    ? {
+        ...character,
+        avatar: nextAvatar ?? character.avatar,
+        boundUserProfile: nextBoundUserProfile,
+        profile: nextProfile
+      }
+    : character;
 }
 
 async function compactChatImageAttachment(image: ChatImageAttachment): Promise<ChatImageAttachment> {
@@ -85,6 +165,9 @@ async function compactMessageInlineImages(message: ChatMessage): Promise<ChatMes
 
 async function compactVoomPostInlineImages(post: VoomPost): Promise<VoomPost> {
   let changed = false;
+  const nextAuthorAvatar = await compactInlineImageValue(post.authorAvatar, inlineAvatarCompressionOptions);
+  if (nextAuthorAvatar !== post.authorAvatar) changed = true;
+
   const nextImage = await compactInlineImageValue(post.image);
   if (nextImage !== post.image) changed = true;
 
@@ -96,7 +179,12 @@ async function compactVoomPostInlineImages(post: VoomPost): Promise<VoomPost> {
       }))
     : post.imageCandidates;
 
-  return changed ? { ...post, image: nextImage, imageCandidates: nextCandidates } : post;
+  return changed ? { ...post, authorAvatar: nextAuthorAvatar ?? post.authorAvatar, image: nextImage, imageCandidates: nextCandidates } : post;
+}
+
+async function compactStickerInlineImages(sticker: Sticker): Promise<Sticker> {
+  const nextImageUrl = await compactInlineImageValue(sticker.imageUrl, inlineProfileImageCompressionOptions) ?? sticker.imageUrl;
+  return nextImageUrl === sticker.imageUrl ? sticker : { ...sticker, imageUrl: nextImageUrl };
 }
 
 async function compactGeneratedImageRecord(record: GeneratedImageRecord): Promise<GeneratedImageRecord> {
@@ -107,6 +195,31 @@ async function compactGeneratedImageRecord(record: GeneratedImageRecord): Promis
 async function compactWorldBookInlineImages(entry: WorldBookEntry): Promise<WorldBookEntry> {
   const nextCoverImage = await compactInlineImageValue(entry.coverImage) ?? entry.coverImage;
   return nextCoverImage === entry.coverImage ? entry : { ...entry, coverImage: nextCoverImage };
+}
+
+async function compactFavoriteInlineImages(record: FavoriteMessageRecord): Promise<FavoriteMessageRecord> {
+  let changed = false;
+  const nextAuthorAvatar = await compactInlineImageValue(record.authorAvatar, inlineAvatarCompressionOptions);
+  if (nextAuthorAvatar !== record.authorAvatar) changed = true;
+
+  const nextCharacterAvatar = await compactInlineImageValue(record.characterAvatar, inlineAvatarCompressionOptions);
+  if (nextCharacterAvatar !== record.characterAvatar) changed = true;
+
+  const nextUserAvatar = await compactInlineImageValue(record.userAvatar, inlineAvatarCompressionOptions);
+  if (nextUserAvatar !== record.userAvatar) changed = true;
+
+  const nextMessage = await compactMessageInlineImages(record.message);
+  if (nextMessage !== record.message) changed = true;
+
+  return changed
+    ? {
+        ...record,
+        authorAvatar: nextAuthorAvatar,
+        characterAvatar: nextCharacterAvatar,
+        userAvatar: nextUserAvatar,
+        message: nextMessage
+      }
+    : record;
 }
 
 async function compactSettingsInlineImages(entry: AppSettings): Promise<AppSettings> {
@@ -135,15 +248,25 @@ async function compactSettingsInlineImages(entry: AppSettings): Promise<AppSetti
 }
 
 async function compactValueForStore<TStore extends StoreName>(storeName: TStore, value: LinkDb[TStore]['value']): Promise<LinkDb[TStore]['value']> {
+  if (storeName === 'user') return await compactUserProfileInlineImages(value as UserProfile) as LinkDb[TStore]['value'];
+  if (storeName === 'characters') return await compactCharacterProfileInlineImages(value as CharacterProfile) as LinkDb[TStore]['value'];
   if (storeName === 'messages') return await compactMessageInlineImages(value as ChatMessage) as LinkDb[TStore]['value'];
   if (storeName === 'voomPosts') return await compactVoomPostInlineImages(value as VoomPost) as LinkDb[TStore]['value'];
+  if (storeName === 'stickers') return await compactStickerInlineImages(value as Sticker) as LinkDb[TStore]['value'];
   if (storeName === 'generatedImages') return await compactGeneratedImageRecord(value as GeneratedImageRecord) as LinkDb[TStore]['value'];
   if (storeName === 'worldBooks') return await compactWorldBookInlineImages(value as WorldBookEntry) as LinkDb[TStore]['value'];
+  if (storeName === 'favorites') return await compactFavoriteInlineImages(value as FavoriteMessageRecord) as LinkDb[TStore]['value'];
   if (storeName === 'settings') return await compactSettingsInlineImages(value as AppSettings) as LinkDb[TStore]['value'];
   return value;
 }
 
 async function compactSnapshotInlineImages(snapshot: AppSnapshot): Promise<AppSnapshot> {
+  const users: UserProfile[] = [];
+  for (const user of snapshot.users) users.push(await compactUserProfileInlineImages(user));
+
+  const characters: CharacterProfile[] = [];
+  for (const character of snapshot.characters) characters.push(await compactCharacterProfileInlineImages(character));
+
   const messages: ChatMessage[] = [];
   for (const message of snapshot.messages) messages.push(await compactMessageInlineImages(message));
 
@@ -153,15 +276,25 @@ async function compactSnapshotInlineImages(snapshot: AppSnapshot): Promise<AppSn
   const generatedImages: GeneratedImageRecord[] = [];
   for (const record of snapshot.generatedImages ?? []) generatedImages.push(await compactGeneratedImageRecord(record));
 
+  const stickers: Sticker[] = [];
+  for (const sticker of snapshot.stickers) stickers.push(await compactStickerInlineImages(sticker));
+
   const worldBooks: WorldBookEntry[] = [];
   for (const entry of snapshot.worldBooks) worldBooks.push(await compactWorldBookInlineImages(entry));
 
+  const favorites: FavoriteMessageRecord[] = [];
+  for (const record of snapshot.favorites ?? []) favorites.push(await compactFavoriteInlineImages(record));
+
   return {
     ...snapshot,
+    users,
+    characters,
     messages,
     voomPosts,
+    stickers,
     worldBooks,
     generatedImages,
+    favorites,
     settings: await compactSettingsInlineImages(snapshot.settings)
   };
 }
@@ -188,12 +321,47 @@ async function compactStoredInlineImagesForStore<TStore extends StoreName>(store
 
 export async function compactStoredInlineImages() {
   let changed = 0;
+  changed += await compactStoredInlineImagesForStore('user');
+  changed += await compactStoredInlineImagesForStore('characters');
   changed += await compactStoredInlineImagesForStore('messages');
   changed += await compactStoredInlineImagesForStore('voomPosts');
   changed += await compactStoredInlineImagesForStore('generatedImages');
+  changed += await compactStoredInlineImagesForStore('stickers');
   changed += await compactStoredInlineImagesForStore('worldBooks');
+  changed += await compactStoredInlineImagesForStore('favorites');
   changed += await compactStoredInlineImagesForStore('settings');
   return changed;
+}
+
+export function scheduleStartupStorageMaintenance() {
+  if (typeof window === 'undefined') return;
+  try {
+    if (window.localStorage.getItem(startupMaintenanceStorageKey) === 'done') return;
+  } catch {
+    return;
+  }
+
+  const runMaintenance = () => {
+    startupMaintenancePromise ??= compactStoredInlineImages()
+      .then(() => {
+        try {
+          window.localStorage.setItem(startupMaintenanceStorageKey, 'done');
+        } catch {
+          return;
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        startupMaintenancePromise = null;
+      });
+  };
+
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(() => runMaintenance(), { timeout: 6000 });
+    return;
+  }
+
+  globalThis.setTimeout(runMaintenance, 1800);
 }
 
 export function getDb() {
@@ -354,7 +522,6 @@ async function pruneLegacyDefaultData() {
 
 export async function loadSnapshot() {
   await seedDatabase();
-  await compactStoredInlineImages();
   await pruneLegacyDefaultData();
   const db = await getDb();
   const [users, characters, conversations, messages, voomPosts, musicFavoriteTracks, musicCommentThreads, worldBooks, stickerGroups, stickers, conversationSettings, conversationMemories, conversationMemoryAtoms, generatedImages, favorites, settings] = await Promise.all([

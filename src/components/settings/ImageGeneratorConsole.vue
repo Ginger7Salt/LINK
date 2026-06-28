@@ -37,9 +37,6 @@
           <p class="module-description">{{ module.description }}</p>
 
           <div class="module-actions">
-            <button class="primary-action action-pill" type="button" @click="openGallery(module.id)">
-              图片仓库
-            </button>
             <button class="secondary-action action-pill" type="button" @click="openModule(module.id)">配置模块</button>
           </div>
         </div>
@@ -121,10 +118,6 @@ const visibleModules = computed(() => modules.value.filter((module) => module.id
 
 function openModule(moduleId: ImageModuleId) {
   void router.push({ name: 'image-module-settings', params: { module: moduleId } });
-}
-
-function openGallery(moduleId: ImageModuleId) {
-  void router.push({ name: 'image-gallery', params: { module: moduleId } });
 }
 
 function setActiveModule(moduleId: ImageModuleId) {

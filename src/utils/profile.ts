@@ -3,7 +3,7 @@ import momoAvatar from '@/assets/profile/momo-avatar.png';
 import momoHighlightCafe from '@/assets/profile/momo-highlight-cafe.png';
 import momoHighlightLook from '@/assets/profile/momo-highlight-look.png';
 import momoHighlightDiary from '@/assets/profile/momo-highlight-diary.png';
-import momoBackground from '@/assets/profile/momo-background.png';
+import momoBackground from '@/assets/profile/momo-background.jpg';
 import momoMomentToday from '@/assets/profile/momo-moment-today.png';
 import momoMomentOotd from '@/assets/profile/momo-moment-ootd.png';
 import momoMomentRoom from '@/assets/profile/momo-moment-room.png';

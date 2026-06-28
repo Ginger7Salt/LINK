@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img" aria-label="today moment">
-  <rect width="600" height="600" fill="#f0f0f0" />
-  <rect x="94" y="90" width="412" height="420" rx="18" fill="#161616" />
-  <path d="M141 214c37-67 97-98 153-98 76 0 141 52 173 121 15 33 19 68 13 108-47 19-99 29-156 29-99 0-176-19-221-60 4-48 18-88 38-100Z" fill="#fafafa" />
-  <circle cx="244" cy="232" r="40" fill="#111111" />
-  <circle cx="368" cy="232" r="40" fill="#111111" />
-  <path d="M220 356c31 28 64 42 100 42 39 0 72-14 100-42" fill="none" stroke="#121212" stroke-width="14" stroke-linecap="round" />
-  <path d="M178 434c39 20 76 30 122 30 49 0 89-10 122-30" fill="none" stroke="#f8f8f8" stroke-width="11" stroke-linecap="round" opacity="0.8" />
-</svg>

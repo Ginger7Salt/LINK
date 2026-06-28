@@ -1,6 +1,6 @@
 import { computed, ref, toRaw } from 'vue';
 import { defineStore } from 'pinia';
-import { deleteEntity, loadSnapshot, putEntity, replaceSnapshot } from '@/data/db';
+import { deleteEntity, loadSnapshot, putEntity, replaceSnapshot, scheduleStartupStorageMaintenance } from '@/data/db';
 import { defaultSettings } from '@/data/seed';
 import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationMemoryAtom, ConversationMemoryDebugTrace, ConversationMemoryRecord, ConversationSettings, FavoriteMessageKind, FavoriteMessageRecord, GeneratedImageRecord, ImageModuleId, MusicCommentThread, MusicTrack, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
 import { createAccountId, createId } from '@/utils/id';
@@ -397,6 +397,7 @@ export const useAppStore = defineStore('app', () => {
       activeUserId: snapshot.settings.activeUserId || snapshot.users[0]?.id || ''
     });
     ready.value = true;
+    scheduleStartupStorageMaintenance();
     void refreshEnabledVendorModels();
     })().finally(() => {
       hydratePromise = null;
