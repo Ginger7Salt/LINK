@@ -2,14 +2,14 @@ import { computed, ref, toRaw } from 'vue';
 import { defineStore } from 'pinia';
 import { deleteEntity, loadSnapshot, putEntity, replaceSnapshot } from '@/data/db';
 import { defaultSettings } from '@/data/seed';
-import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationMemoryRecord, ConversationSettings, FavoriteMessageKind, FavoriteMessageRecord, GeneratedImageRecord, ImageModuleId, MusicCommentThread, MusicTrack, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationMemoryAtom, ConversationMemoryDebugTrace, ConversationMemoryRecord, ConversationSettings, FavoriteMessageKind, FavoriteMessageRecord, GeneratedImageRecord, ImageModuleId, MusicCommentThread, MusicTrack, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
 import { createAccountId, createId } from '@/utils/id';
 import { getCharacterInitialProfile, getCharacterVoomAuthorName, normalizeCharacterMindStateLines, normalizeCharacterProfile } from '@/utils/character';
 import { normalizeUserProfile, normalizeVisualProfile } from '@/utils/profile';
 import { getImageGenerationSize, getImagePromptPresetForProvider, getSelectedImageModelOption, mergeVendorModels, normalizeAppSettings, normalizeChatModelOverrides } from '@/utils/settings';
 import { normalizeWorldBookEntry, normalizeWorldBooks } from '@/utils/worldBook';
 import { RECENT_STICKER_GROUP_NAME, createStickerFromDraft, createStickerGroup, isLegacyGanadiSticker, isLegacyGanadiStickerGroup, isRecentStickerGroupId, localizeStickerImageUrl, normalizeSticker, normalizeStickerGroup, shouldLocalizeStickerImageUrl, sortRecentStickers, type StickerImportDraft } from '@/utils/stickers';
-import { ageMemoryKind, createMemoryRecord, estimateTokenCount, getConversationFloorCount, getHiddenMessageIds, getMemoryContext, getMemoryHiddenEndFloor, getMessageFloorMap, getMessagesInFloorRange, getNextSummaryRange, getVisibleMessages, normalizeConversationSettings, renderCharacterMemoryPrompt, shouldCompressMemory } from '@/utils/memory';
+import { ageMemoryKind, buildMemoryAtomContext, createMemoryAtomsFromRecord, createMemoryRecord, estimateTokenCount, getConversationFloorCount, getHiddenMessageIds, getMemoryContext, getMemoryHiddenEndFloor, getMessageFloorMap, getMessagesInFloorRange, getNextSummaryRange, getVisibleMessages, mergeMemoryAtoms, normalizeConversationSettings, normalizeMemoryAtom, normalizeMemoryRecordEntries, renderCharacterMemoryPrompt, shouldCompressMemory } from '@/utils/memory';
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
 import { estimateRoleplayReplyInputTokens, fetchVendorModels, generateConversationSummary, generateEmbeddingVector, generateImageByProvider, generateRoleplayReply, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, shouldAutoGenerateMoment, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
 import { GitHubBackupError, downloadGitHubBackup, downloadGitHubBackupVersion, ensureGitHubBackupRepository, formatGitHubBackupError, listGitHubBackupHistory, uploadGitHubBackup } from '@/services/githubBackup';
@@ -32,7 +32,7 @@ interface CreateUserVoomPostPayload {
 type ConversationSummaryResultStatus = 'created' | 'updated' | 'existing' | 'busy';
 
 export type DataCleanupAction = 'generated-images' | 'message-media' | 'sticker-local-cache' | 'image-candidates' | 'voice-audio' | 'memory-vectors';
-export type ClearableDataSection = 'messages' | 'voomPosts' | 'music' | 'worldBooks' | 'stickers' | 'conversationSettings' | 'conversationMemories' | 'generatedImages';
+export type ClearableDataSection = 'messages' | 'voomPosts' | 'music' | 'worldBooks' | 'stickers' | 'conversationSettings' | 'conversationMemories' | 'conversationMemoryAtoms' | 'generatedImages';
 
 interface ConversationSummaryResult {
   record: ConversationMemoryRecord;
@@ -105,6 +105,8 @@ export const useAppStore = defineStore('app', () => {
   let githubBackupRunning = false;
   let stickerImportCacheQueue = Promise.resolve();
   const summarizingConversationRanges = new Set<string>();
+  const writingMemoryAtomConversationIds = new Set<string>();
+  const autoMergingConversationIds = new Set<string>();
   const generatingMomentConversationIds = new Set<string>();
   const regeneratingChatImageMessageIds = new Set<string>();
   const regeneratingVoomImagePostIds = new Set<string>();
@@ -125,6 +127,8 @@ export const useAppStore = defineStore('app', () => {
   const stickers = ref<Sticker[]>([]);
   const conversationSettings = ref<ConversationSettings[]>([]);
   const conversationMemories = ref<ConversationMemoryRecord[]>([]);
+  const conversationMemoryAtoms = ref<ConversationMemoryAtom[]>([]);
+  const memoryDebugTraces = ref<Record<string, ConversationMemoryDebugTrace>>({});
   const generatedImages = ref<GeneratedImageRecord[]>([]);
   const favorites = ref<FavoriteMessageRecord[]>([]);
   const settings = ref<AppSettings | null>(null);
@@ -221,6 +225,14 @@ export const useAppStore = defineStore('app', () => {
     const fallbackUserId = snapshot.settings.activeUserId || normalizedUsers[0].id;
     const stickerLibrary = normalizeStickerLibrary(snapshot.stickerGroups, snapshot.stickers);
 
+    const normalizedConversationMemories = dedupeConversationMemories(snapshot.conversationMemories.map((memory) => ({
+      ...memory,
+      kind: ageMemoryKind(memory.createdAt),
+      vector: Array.isArray(memory.vector) ? memory.vector : [],
+      entries: normalizeMemoryRecordEntries(memory)
+    }))).memories;
+    const normalizedMemoryAtoms = normalizeConversationMemoryAtoms(snapshot.conversationMemoryAtoms ?? [], normalizedConversationMemories);
+
     return {
       users: normalizedUsers,
       characters: snapshot.characters.map((entry) => normalizeCharacterProfile(entry, fallbackUserId)),
@@ -236,11 +248,8 @@ export const useAppStore = defineStore('app', () => {
         ...entry,
         characterStickerGroupIds: entry.characterStickerGroupIds.filter((id) => !isRecentStickerGroupId(id) && !stickerLibrary.removedGroupIds.includes(id))
       }, entry.conversationId)),
-      conversationMemories: dedupeConversationMemories(snapshot.conversationMemories.map((memory) => ({
-        ...memory,
-        kind: ageMemoryKind(memory.createdAt),
-        vector: Array.isArray(memory.vector) ? memory.vector : []
-      }))).memories,
+      conversationMemories: normalizedConversationMemories,
+      conversationMemoryAtoms: normalizedMemoryAtoms,
       generatedImages: normalizeGeneratedImages(snapshot.generatedImages ?? []),
       favorites: normalizeFavorites(snapshot.favorites ?? []),
       settings: normalizeAppSettings({
@@ -249,6 +258,14 @@ export const useAppStore = defineStore('app', () => {
         activeUserId: snapshot.settings.activeUserId || normalizedUsers[0].id
       })
     };
+  }
+
+  function normalizeConversationMemoryAtoms(rawAtoms: ConversationMemoryAtom[], memories: ConversationMemoryRecord[]) {
+    const atomsFromSnapshot = rawAtoms
+      .map((atom) => normalizeMemoryAtom(atom, { conversationId: atom.conversationId, mode: atom.mode }))
+      .filter((atom): atom is ConversationMemoryAtom => Boolean(atom));
+    const atomsFromMemories = memories.flatMap((memory) => createMemoryAtomsFromRecord(memory));
+    return mergeMemoryAtoms([...atomsFromMemories, ...atomsFromSnapshot]);
   }
 
   function getMemoryRangeKey(memory: Pick<ConversationMemoryRecord, 'conversationId' | 'mode' | 'startFloor' | 'endFloor' | 'isMergedSummary'>) {
@@ -297,6 +314,11 @@ export const useAppStore = defineStore('app', () => {
     return dedupedMemories;
   }
 
+  async function persistMissingMemoryAtoms(atoms: ConversationMemoryAtom[]) {
+    if (!atoms.length) return;
+    await Promise.all(atoms.map((atom) => putEntity('conversationMemoryAtoms', atom)));
+  }
+
   function keepDeviceGitHubBackupSettings(snapshot: AppSnapshot): AppSnapshot {
     const currentBackup = settings.value?.githubBackup;
     if (!currentBackup || (!currentBackup.token && !currentBackup.owner && !currentBackup.enabled && !currentBackup.lastBackupAt)) return snapshot;
@@ -323,6 +345,7 @@ export const useAppStore = defineStore('app', () => {
     stickers.value = snapshot.stickers;
     conversationSettings.value = snapshot.conversationSettings;
     conversationMemories.value = dedupeConversationMemories(snapshot.conversationMemories).memories;
+    conversationMemoryAtoms.value = normalizeConversationMemoryAtoms(snapshot.conversationMemoryAtoms ?? [], conversationMemories.value);
     generatedImages.value = snapshot.generatedImages;
     favorites.value = normalizeFavorites(snapshot.favorites ?? []);
     settings.value = snapshot.settings;
@@ -361,8 +384,12 @@ export const useAppStore = defineStore('app', () => {
     conversationMemories.value = await removeDuplicateConversationMemories(snapshot.conversationMemories.map((memory) => ({
       ...memory,
       kind: ageMemoryKind(memory.createdAt),
-      vector: Array.isArray(memory.vector) ? memory.vector : []
+      vector: Array.isArray(memory.vector) ? memory.vector : [],
+      entries: normalizeMemoryRecordEntries(memory)
     })));
+    conversationMemoryAtoms.value = normalizeConversationMemoryAtoms(snapshot.conversationMemoryAtoms ?? [], conversationMemories.value);
+    await persistMissingMemoryAtoms(conversationMemoryAtoms.value);
+    await maintainMemoryAtoms();
     generatedImages.value = normalizeGeneratedImages(snapshot.generatedImages ?? []);
     favorites.value = normalizeFavorites(snapshot.favorites ?? []);
     settings.value = normalizeAppSettings({
@@ -438,6 +465,16 @@ export const useAppStore = defineStore('app', () => {
       .sort((a, b) => a.startFloor - b.startFloor);
   }
 
+  function memoryAtomsForConversation(id: string) {
+    return conversationMemoryAtoms.value
+      .filter((atom) => atom.conversationId === id)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  function memoryDebugTraceForConversation(id: string) {
+    return memoryDebugTraces.value[id] ?? null;
+  }
+
   function stickersForGroup(groupId: string) {
     if (isRecentStickerGroupId(groupId)) return recentStickers.value;
     if (!groupId || groupId === 'all') return sortedStickers.value;
@@ -475,8 +512,21 @@ export const useAppStore = defineStore('app', () => {
     return getHiddenMessageIds(messagesForConversation(id), memoriesForConversation(id), settingsForConversation(id));
   }
 
-  function memoryContextForConversation(id: string) {
-    return getMemoryContext(memoriesForConversation(id));
+  function memoryContextForConversation(id: string, queryText = '', options: { includeResolved?: boolean; maxTokens?: number; maxEntries?: number } = {}) {
+    const { text, debug } = buildMemoryAtomContext(conversationMemoryAtoms.value, {
+      conversationId: id,
+      queryText,
+      maxEntries: options.maxEntries ?? (queryText.trim() ? 18 : 28),
+      maxTokens: options.maxTokens ?? (queryText.trim() ? 1200 : 1600),
+      includeResolved: options.includeResolved
+    });
+    memoryDebugTraces.value = { ...memoryDebugTraces.value, [id]: debug };
+    if (text.trim()) return text;
+    return getMemoryContext(memoriesForConversation(id), {
+      queryText,
+      maxEntries: options.maxEntries ?? (queryText.trim() ? 18 : 28),
+      includeResolved: options.includeResolved
+    });
   }
 
   function nextReplyTokenCountForConversation(id: string) {
@@ -502,7 +552,7 @@ export const useAppStore = defineStore('app', () => {
       messages: visibleMessagesForConversation(id),
       worldBooks: worldBooks.value,
       conversationSummary: conversation.summary,
-      memorySummary: memoryContextForConversation(id),
+      memorySummary: memoryContextForConversation(id, userMessageText),
       stickerVisionEnabled: chatSettings.stickerVisionEnabled,
       narrationModeEnabled: chatSettings.narrationModeEnabled,
       offlineInvitationEnabled: chatSettings.offlineInvitationEnabled,
@@ -1130,10 +1180,16 @@ export const useAppStore = defineStore('app', () => {
     const idSet = new Set(messageIds);
     if (!idSet.size) return;
     const memoriesToRemove = conversationMemories.value.filter((memory) => memory.sourceMessageIds.some((id) => idSet.has(id)));
-    if (!memoriesToRemove.length) return;
+    const atomsToRemove = conversationMemoryAtoms.value.filter((atom) => atom.sourceMessageIds.some((id) => idSet.has(id)));
+    if (!memoriesToRemove.length && !atomsToRemove.length) return;
     const removedMemoryIds = new Set(memoriesToRemove.map((memory) => memory.id));
     conversationMemories.value = conversationMemories.value.filter((memory) => !removedMemoryIds.has(memory.id));
-    await Promise.all(memoriesToRemove.map((memory) => deleteEntity('conversationMemories', memory.id)));
+    const removedAtomIds = new Set(atomsToRemove.map((atom) => atom.id));
+    conversationMemoryAtoms.value = conversationMemoryAtoms.value.filter((atom) => !removedAtomIds.has(atom.id));
+    await Promise.all([
+      ...memoriesToRemove.map((memory) => deleteEntity('conversationMemories', memory.id)),
+      ...atomsToRemove.map((atom) => deleteEntity('conversationMemoryAtoms', atom.id))
+    ]);
   }
 
   async function touchConversationAfterMessageChange(conversationId: string, fallbackTime = Date.now()) {
@@ -1885,6 +1941,7 @@ export const useAppStore = defineStore('app', () => {
     const now = Date.now();
     const relatedMessages = conversationId ? messages.value.filter((message) => message.conversationId === conversationId) : [];
     const relatedMemories = conversationId ? conversationMemories.value.filter((memory) => memory.conversationId === conversationId) : [];
+    const relatedMemoryAtoms = conversationId ? conversationMemoryAtoms.value.filter((atom) => atom.conversationId === conversationId) : [];
     const characterNameKeys = new Set([character.id, character.nickname, character.name, character.userNote, getCharacterVoomAuthorName(character)]
       .map((name) => name.trim().toLocaleLowerCase())
       .filter(Boolean));
@@ -1950,6 +2007,7 @@ export const useAppStore = defineStore('app', () => {
     const postUpdateMap = new Map(postsToUpdate.map((post) => [post.id, post]));
     messages.value = messages.value.filter((message) => message.conversationId !== conversationId);
     conversationMemories.value = conversationMemories.value.filter((memory) => memory.conversationId !== conversationId);
+    conversationMemoryAtoms.value = conversationMemoryAtoms.value.filter((atom) => atom.conversationId !== conversationId);
     voomPosts.value = voomPosts.value
       .filter((post) => !postDeleteIds.has(post.id))
       .map((post) => postUpdateMap.get(post.id) ?? post);
@@ -1988,6 +2046,7 @@ export const useAppStore = defineStore('app', () => {
       ...(nextConversation ? [putEntity('conversations', nextConversation)] : []),
       ...relatedMessages.map((message) => deleteEntity('messages', message.id)),
       ...relatedMemories.map((memory) => deleteEntity('conversationMemories', memory.id)),
+      ...relatedMemoryAtoms.map((atom) => deleteEntity('conversationMemoryAtoms', atom.id)),
       ...postsToDelete.map((post) => deleteEntity('voomPosts', post.id)),
       ...postsToUpdate.map((post) => putEntity('voomPosts', post))
     ]);
@@ -2456,6 +2515,7 @@ export const useAppStore = defineStore('app', () => {
       { id: 'stickers', label: '贴纸库', count: stickerGroups.value.length + stickers.value.length, bytes: estimateJsonBytes([stickerGroups.value, stickers.value]), clearable: true },
       { id: 'conversationSettings', label: '会话设置', count: conversationSettings.value.length, bytes: estimateJsonBytes(conversationSettings.value), clearable: true },
       { id: 'conversationMemories', label: '记忆摘要', count: conversationMemories.value.length, bytes: estimateJsonBytes(conversationMemories.value), clearable: true },
+      { id: 'conversationMemoryAtoms', label: '原子记忆', count: conversationMemoryAtoms.value.length, bytes: estimateJsonBytes(conversationMemoryAtoms.value), clearable: true },
       { id: 'generatedImages', label: '生成图历史', count: generatedImages.value.length, bytes: estimateJsonBytes(generatedImages.value), clearable: true },
       { id: 'settings', label: '全局设置', count: 1, bytes: estimateJsonBytes(settings.value), protected: true }
     ];
@@ -2486,7 +2546,8 @@ export const useAppStore = defineStore('app', () => {
     }
 
     const nextMemories = conversationMemories.value.map((memory) => memory.vector.length ? { ...memory, vector: [] } : memory);
-    return estimateFreedBytes(conversationMemories.value, nextMemories);
+    const nextAtoms = conversationMemoryAtoms.value.map((atom) => atom.vector?.length ? { ...atom, vector: [] } : atom);
+    return estimateFreedBytes(conversationMemories.value, nextMemories) + estimateFreedBytes(conversationMemoryAtoms.value, nextAtoms);
   }
 
   async function cleanupData(action: DataCleanupAction) {
@@ -2533,12 +2594,19 @@ export const useAppStore = defineStore('app', () => {
 
     const nextMemories = conversationMemories.value.map((memory) => memory.vector.length ? { ...memory, vector: [] } : memory);
     const changedMemories = nextMemories.filter((memory, index) => memory !== conversationMemories.value[index]);
+    const nextAtoms = conversationMemoryAtoms.value.map((atom) => atom.vector?.length ? { ...atom, vector: [] } : atom);
+    const changedAtoms = nextAtoms.filter((atom, index) => atom !== conversationMemoryAtoms.value[index]);
     if (changedMemories.length) {
       const memoryMap = new Map(changedMemories.map((memory) => [memory.id, memory]));
       conversationMemories.value = conversationMemories.value.map((memory) => memoryMap.get(memory.id) ?? memory);
       await Promise.all(changedMemories.map((memory) => putEntity('conversationMemories', memory)));
     }
-    return changedMemories.length;
+    if (changedAtoms.length) {
+      const atomMap = new Map(changedAtoms.map((atom) => [atom.id, atom]));
+      conversationMemoryAtoms.value = conversationMemoryAtoms.value.map((atom) => atomMap.get(atom.id) ?? atom);
+      await Promise.all(changedAtoms.map((atom) => putEntity('conversationMemoryAtoms', atom)));
+    }
+    return changedMemories.length + changedAtoms.length;
   }
 
   async function clearDataSections(sectionIds: ClearableDataSection[]) {
@@ -2594,9 +2662,20 @@ export const useAppStore = defineStore('app', () => {
     }
     if (sectionSet.has('conversationMemories')) {
       const entries = [...conversationMemories.value];
+      const atoms = [...conversationMemoryAtoms.value];
       conversationMemories.value = [];
-      await Promise.all(entries.map((entry) => deleteEntity('conversationMemories', entry.id)));
-      changed += entries.length;
+      conversationMemoryAtoms.value = [];
+      await Promise.all([
+        ...entries.map((entry) => deleteEntity('conversationMemories', entry.id)),
+        ...atoms.map((atom) => deleteEntity('conversationMemoryAtoms', atom.id))
+      ]);
+      changed += entries.length + atoms.length;
+    }
+    if (sectionSet.has('conversationMemoryAtoms') && !sectionSet.has('conversationMemories')) {
+      const atoms = [...conversationMemoryAtoms.value];
+      conversationMemoryAtoms.value = [];
+      await Promise.all(atoms.map((atom) => deleteEntity('conversationMemoryAtoms', atom.id)));
+      changed += atoms.length;
     }
     if (sectionSet.has('generatedImages')) {
       const entries = [...generatedImages.value];
@@ -2812,7 +2891,7 @@ export const useAppStore = defineStore('app', () => {
           const sentAtText = includeTimeline ? `（发送时间：${formatMemoryTimelineTime(message.createdAt)}）` : '';
           return `${floor}楼 ${sender}${sentAtText}: ${message.content}`;
         }).join('\n'),
-        previousSummary: getMemoryContext(memoriesForConversation(conversationId)),
+        previousSummary: getMemoryContext(memoriesForConversation(conversationId), { includeResolved: true, maxEntries: 42 }),
         timeAwareness: chatSettings.timeAwareness,
         timeAwarenessUserName: boundUser?.name || boundUser?.nickname || '用户',
         timelineContext: renderMessageTimelineContext(range.sourceMessages, floorMap, range.startFloor),
@@ -2855,6 +2934,7 @@ export const useAppStore = defineStore('app', () => {
           summary: nextRecord.summary,
           tokenCount: nextRecord.tokenCount,
           vector: [...nextRecord.vector],
+          entries: normalizeMemoryRecordEntries(nextRecord),
           sourceMessageIds: [...nextRecord.sourceMessageIds],
           model: nextRecord.model
         };
@@ -2862,7 +2942,10 @@ export const useAppStore = defineStore('app', () => {
         return { record, status: 'updated' };
       }
       conversationMemories.value = [...conversationMemories.value, nextRecord];
-      await putEntity('conversationMemories', nextRecord);
+      await Promise.all([
+        putEntity('conversationMemories', nextRecord),
+        replaceMemoryAtomsForRecord(nextRecord)
+      ]);
       return { record: nextRecord, status: 'created' };
     } finally {
       summarizingConversationRanges.delete(rangeKey);
@@ -2875,16 +2958,89 @@ export const useAppStore = defineStore('app', () => {
     try {
       await summarizeConversationWindow(conversationId);
       await compressOldMemories(conversationId);
+      await maybeAutoMergeConversationMemories(conversationId);
     } catch (error) {
       console.error(error);
     }
   }
 
+  async function maybeAutoMergeConversationMemories(conversationId: string) {
+    const chatSettings = settingsForConversation(conversationId);
+    if (!chatSettings.memory.autoMergeEnabled || autoMergingConversationIds.has(conversationId)) return null;
+    const threshold = Math.max(3, chatSettings.memory.autoMergeThreshold);
+    const batchSize = Math.min(Math.max(2, chatSettings.memory.autoMergeBatchSize), threshold);
+    const candidates = memoriesForConversation(conversationId).sort(compareMemoryRecordsByRange);
+    if (candidates.length < threshold) return null;
+
+    autoMergingConversationIds.add(conversationId);
+    try {
+      const shallowestDepth = candidates.reduce((min, memory) => Math.min(min, memoryMergeDepthForStore(memory)), Number.POSITIVE_INFINITY);
+      const selected = candidates
+        .filter((memory) => memoryMergeDepthForStore(memory) === shallowestDepth)
+        .slice(0, batchSize);
+      const selectedMemories = selected.length >= 2 ? selected : candidates.slice(0, batchSize);
+      if (selectedMemories.length < 2) return null;
+      return await mergeConversationMemories(conversationId, selectedMemories.map((memory) => memory.id));
+    } finally {
+      autoMergingConversationIds.delete(conversationId);
+    }
+  }
+
+  async function replaceMemoryAtomsForRecord(memory: ConversationMemoryRecord) {
+    const now = Date.now();
+    const nextAtoms = createMemoryAtomsFromRecord(memory, now);
+    const oldAtoms = conversationMemoryAtoms.value.filter((atom) => atom.sourceMemoryId === memory.id);
+    const oldAtomIds = new Set(oldAtoms.map((atom) => atom.id));
+    const nextAtomIds = new Set(nextAtoms.map((atom) => atom.id));
+    const pinnedOldAtoms = oldAtoms.filter((atom) => atom.pinned && !nextAtomIds.has(atom.id));
+    conversationMemoryAtoms.value = mergeMemoryAtoms([
+      ...conversationMemoryAtoms.value.filter((atom) => atom.sourceMemoryId !== memory.id),
+      ...pinnedOldAtoms,
+      ...nextAtoms
+    ]);
+    await Promise.all([
+      ...oldAtoms.filter((atom) => !atom.pinned && !nextAtomIds.has(atom.id)).map((atom) => deleteEntity('conversationMemoryAtoms', atom.id)),
+      ...nextAtoms.map((atom) => putEntity('conversationMemoryAtoms', oldAtomIds.has(atom.id) ? { ...atom, updatedAt: now } : atom))
+    ]);
+  }
+
+  async function deleteMemoryAtomsByMemoryIds(memoryIds: string[], options: { preservePinned?: boolean } = {}) {
+    const idSet = new Set(memoryIds.map((id) => id.trim()).filter(Boolean));
+    if (!idSet.size) return;
+    const atomsToDelete = conversationMemoryAtoms.value.filter((atom) => atom.sourceMemoryId && idSet.has(atom.sourceMemoryId));
+    if (!atomsToDelete.length) return;
+    const pinnedAtomsToKeep = options.preservePinned ? atomsToDelete.filter((atom) => atom.pinned) : [];
+    const atomsToActuallyDelete = options.preservePinned ? atomsToDelete.filter((atom) => !atom.pinned) : atomsToDelete;
+    const atomIds = new Set(atomsToActuallyDelete.map((atom) => atom.id));
+    const detachedPinnedAtoms = pinnedAtomsToKeep.map((atom) => ({ ...atom, sourceMemoryId: undefined, updatedAt: Date.now() }));
+    const detachedPinnedMap = new Map(detachedPinnedAtoms.map((atom) => [atom.id, atom]));
+    conversationMemoryAtoms.value = conversationMemoryAtoms.value
+      .filter((atom) => !atomIds.has(atom.id))
+      .map((atom) => detachedPinnedMap.get(atom.id) ?? atom);
+    await Promise.all([
+      ...atomsToActuallyDelete.map((atom) => deleteEntity('conversationMemoryAtoms', atom.id)),
+      ...detachedPinnedAtoms.map((atom) => putEntity('conversationMemoryAtoms', atom))
+    ]);
+  }
+
+  async function persistMemoryAtomsForRecords(memories: ConversationMemoryRecord[]) {
+    for (const memory of memories) {
+      await replaceMemoryAtomsForRecord(memory);
+    }
+  }
+
   async function updateMemoryRecord(nextMemory: ConversationMemoryRecord) {
+    const existingMemory = conversationMemories.value.find((memory) => memory.id === nextMemory.id);
+    const summaryChanged = Boolean(existingMemory && existingMemory.summary !== nextMemory.summary);
+    const normalizedEntries = normalizeMemoryRecordEntries({
+      ...nextMemory,
+      entries: summaryChanged ? [] : nextMemory.entries
+    });
     const normalizedMemory = {
       ...nextMemory,
       tokenCount: Math.max(0, Math.round(nextMemory.tokenCount)),
       vector: Array.isArray(nextMemory.vector) ? [...nextMemory.vector] : [],
+      entries: normalizedEntries,
       sourceMessageIds: Array.isArray(nextMemory.sourceMessageIds) ? [...nextMemory.sourceMessageIds] : [],
       mergedFrom: nextMemory.mergedFrom?.map((memory) => cloneMemoryRecordForMerge(memory)),
       updatedAt: Date.now()
@@ -2905,14 +3061,23 @@ export const useAppStore = defineStore('app', () => {
       ];
     }
     if (duplicateIds.size) {
-      await Promise.all([...duplicateIds].map((memoryId) => deleteEntity('conversationMemories', memoryId)));
+      await Promise.all([
+        ...[...duplicateIds].map((memoryId) => deleteEntity('conversationMemories', memoryId)),
+        deleteMemoryAtomsByMemoryIds([...duplicateIds], { preservePinned: true })
+      ]);
     }
-    await putEntity('conversationMemories', normalizedMemory);
+    await Promise.all([
+      putEntity('conversationMemories', normalizedMemory),
+      replaceMemoryAtomsForRecord(normalizedMemory)
+    ]);
   }
 
   async function deleteMemoryRecord(memoryId: string) {
     conversationMemories.value = conversationMemories.value.filter((memory) => memory.id !== memoryId);
-    await deleteEntity('conversationMemories', memoryId);
+    await Promise.all([
+      deleteEntity('conversationMemories', memoryId),
+      deleteMemoryAtomsByMemoryIds([memoryId])
+    ]);
   }
 
   async function resummarizeMemory(memoryId: string) {
@@ -2941,9 +3106,16 @@ export const useAppStore = defineStore('app', () => {
     return {
       ...memory,
       vector: Array.isArray(memory.vector) ? [...memory.vector] : [],
+      entries: normalizeMemoryRecordEntries(memory),
       sourceMessageIds: Array.isArray(memory.sourceMessageIds) ? [...memory.sourceMessageIds] : [],
       mergedFrom: memory.mergedFrom?.map((childMemory) => cloneMemoryRecordForMerge(childMemory))
     };
+  }
+
+  function memoryMergeDepthForStore(memory: ConversationMemoryRecord): number {
+    if (!memory.isMergedSummary) return 0;
+    const childDepth = memory.mergedFrom?.reduce((max, childMemory) => Math.max(max, memoryMergeDepthForStore(childMemory)), 0) ?? 0;
+    return childDepth + 1;
   }
 
   function compareMemoryRecordsByRange(leftMemory: ConversationMemoryRecord, rightMemory: ConversationMemoryRecord) {
@@ -2998,6 +3170,7 @@ export const useAppStore = defineStore('app', () => {
       summary,
       tokenCount: estimateTokenCount(summary),
       vector,
+      entries: [],
       sourceMessageIds,
       model: modelOverride || settings.value?.model || '',
       isMergedSummary: true,
@@ -3007,9 +3180,12 @@ export const useAppStore = defineStore('app', () => {
     };
     if (!Number.isFinite(mergedRecord.hiddenStartFloor)) mergedRecord.hiddenStartFloor = 0;
     if (!Number.isFinite(mergedRecord.startFloor)) mergedRecord.startFloor = memories[0].startFloor;
+    mergedRecord.entries = normalizeMemoryRecordEntries(mergedRecord);
 
     conversationMemories.value = conversationMemories.value.filter((memory) => memory.conversationId !== conversationId || !memories.some((item) => item.id === memory.id));
     conversationMemories.value.push(mergedRecord);
+    await deleteMemoryAtomsByMemoryIds(memories.map((memory) => memory.id), { preservePinned: true });
+    await replaceMemoryAtomsForRecord(mergedRecord);
     await Promise.all([
       ...memories.map((memory) => deleteEntity('conversationMemories', memory.id)),
       putEntity('conversationMemories', mergedRecord)
@@ -3026,6 +3202,8 @@ export const useAppStore = defineStore('app', () => {
       ...conversationMemories.value.filter((memory) => memory.id !== mergedMemory.id),
       ...restoredMemories
     ];
+    await deleteMemoryAtomsByMemoryIds([mergedMemory.id], { preservePinned: true });
+    await persistMemoryAtomsForRecords(restoredMemories);
     await Promise.all([
       deleteEntity('conversationMemories', mergedMemory.id),
       ...restoredMemories.map((memory) => putEntity('conversationMemories', memory))
@@ -3040,6 +3218,7 @@ export const useAppStore = defineStore('app', () => {
     const characterName = character?.nickname || character?.name || '角色';
     const chatSettings = settingsForConversation(conversationId);
     await Promise.all(oldMemories.map(async (memory) => {
+      const modelOverride = getConversationTextModelOverride(chatSettings, 'summary', memory.mode);
       const summary = await generateConversationSummary({
         messages: memory.summary,
         previousSummary: '',
@@ -3047,16 +3226,177 @@ export const useAppStore = defineStore('app', () => {
         timeAwarenessUserName: user.value?.name || user.value?.nickname || '用户',
         timelineContext: renderMemoryRangeTimelineContext([memory]),
         settings: settings.value ?? undefined,
-        modelOverride: getConversationTextModelOverride(chatSettings, 'summary', memory.mode),
+        modelOverride,
         promptOverride: renderCharacterMemoryPrompt(chatSettings.memory.summaryPrompt, characterName)
       });
+      const vector = chatSettings.memory.vectorMemoryEnabled
+        ? await generateEmbeddingVector({
+            text: summary,
+            settings: settings.value ?? undefined,
+            modelOverride
+          })
+        : [];
       await updateMemoryRecord({
         ...memory,
         kind: 'long-term',
         summary,
+        tokenCount: estimateTokenCount(summary),
+        vector,
+        entries: [],
         compressedAt: Date.now()
       });
     }));
+  }
+
+  async function upsertStandaloneMemoryAtoms(atoms: ConversationMemoryAtom[]) {
+    const normalizedAtoms = atoms
+      .map((atom) => normalizeMemoryAtom(atom, { conversationId: atom.conversationId, mode: atom.mode }))
+      .filter((atom): atom is ConversationMemoryAtom => Boolean(atom));
+    if (!normalizedAtoms.length) return;
+    conversationMemoryAtoms.value = mergeMemoryAtoms([...conversationMemoryAtoms.value, ...normalizedAtoms]);
+    await Promise.all(normalizedAtoms.map((atom) => putEntity('conversationMemoryAtoms', atom)));
+  }
+
+  async function updateMemoryAtom(atomId: string, updates: Partial<ConversationMemoryAtom>) {
+    const existingAtom = conversationMemoryAtoms.value.find((atom) => atom.id === atomId);
+    if (!existingAtom) return null;
+    const shouldRefreshVector = updates.content !== undefined || updates.subject !== undefined;
+    const normalizedAtom = normalizeMemoryAtom({
+      ...existingAtom,
+      ...updates,
+      id: existingAtom.id,
+      conversationId: existingAtom.conversationId,
+      mode: existingAtom.mode,
+      vector: shouldRefreshVector ? [] : existingAtom.vector,
+      updatedAt: Date.now()
+    }, { conversationId: existingAtom.conversationId, mode: existingAtom.mode });
+    if (!normalizedAtom) return null;
+    const index = conversationMemoryAtoms.value.findIndex((atom) => atom.id === atomId);
+    if (index >= 0) conversationMemoryAtoms.value[index] = normalizedAtom;
+    conversationMemoryAtoms.value = mergeMemoryAtoms(conversationMemoryAtoms.value);
+    await putEntity('conversationMemoryAtoms', normalizedAtom);
+    return normalizedAtom;
+  }
+
+  async function deleteMemoryAtom(atomId: string) {
+    const existingAtom = conversationMemoryAtoms.value.find((atom) => atom.id === atomId);
+    if (!existingAtom) return false;
+    conversationMemoryAtoms.value = conversationMemoryAtoms.value.filter((atom) => atom.id !== atomId);
+    await deleteEntity('conversationMemoryAtoms', atomId);
+    return true;
+  }
+
+  async function toggleMemoryAtomPinned(atomId: string) {
+    const existingAtom = conversationMemoryAtoms.value.find((atom) => atom.id === atomId);
+    if (!existingAtom) return null;
+    return updateMemoryAtom(atomId, { pinned: !existingAtom.pinned });
+  }
+
+  async function maintainMemoryAtoms(conversationId?: string) {
+    const now = Date.now();
+    const supersededArchiveAgeMs = 7 * 24 * 60 * 60 * 1000;
+    const resolvedSoftenAgeMs = 30 * 24 * 60 * 60 * 1000;
+    const targetAtoms = conversationId
+      ? conversationMemoryAtoms.value.filter((atom) => atom.conversationId === conversationId)
+      : conversationMemoryAtoms.value;
+    const maintainedAtoms = mergeMemoryAtoms(targetAtoms).map((atom) => {
+      if (atom.pinned) return atom;
+      if ((atom.status === 'superseded' || atom.status === 'cancelled') && !atom.archivedAt && now - atom.updatedAt > supersededArchiveAgeMs) {
+        return { ...atom, archivedAt: now, updatedAt: now };
+      }
+      if (atom.status === 'resolved' && now - atom.updatedAt > resolvedSoftenAgeMs && atom.importance > 2) {
+        return { ...atom, importance: Math.max(1, atom.importance - 1), confidence: Math.max(0.35, atom.confidence - 0.1), updatedAt: now };
+      }
+      return atom;
+    });
+    const maintainedMap = new Map(maintainedAtoms.map((atom) => [atom.id, atom]));
+    const nextAtoms = conversationId
+      ? conversationMemoryAtoms.value.filter((atom) => atom.conversationId !== conversationId).concat(maintainedAtoms)
+      : maintainedAtoms;
+    const changedAtoms = nextAtoms.filter((atom) => {
+      const existing = conversationMemoryAtoms.value.find((item) => item.id === atom.id);
+      return existing && JSON.stringify(existing) !== JSON.stringify(atom);
+    });
+    conversationMemoryAtoms.value = mergeMemoryAtoms(nextAtoms);
+    await Promise.all(changedAtoms.map((atom) => putEntity('conversationMemoryAtoms', maintainedMap.get(atom.id) ?? atom)));
+  }
+
+  async function updateMemoryAtomsFromRecentExchange(conversationId: string, sourceMessages: ChatMessage[]) {
+    const conversation = conversationById(conversationId);
+    if (!conversation || writingMemoryAtomConversationIds.has(conversationId)) return;
+    const usefulMessages = sourceMessages.filter((message) => message.sender !== 'system' && messageReadableContent(message).trim());
+    if (usefulMessages.length < 2) return;
+    const chatSettings = settingsForConversation(conversationId);
+    if (!chatSettings.memory.atomWriterEnabled) return;
+    const writerEvery = Math.max(1, chatSettings.memory.atomWriterEvery);
+    if (writerEvery > 1) {
+      const latestStandaloneAtomAt = conversationMemoryAtoms.value
+        .filter((atom) => atom.conversationId === conversationId && !atom.sourceMemoryId)
+        .reduce((max, atom) => Math.max(max, atom.updatedAt), 0);
+      const charMessagesSinceLastWrite = messagesForConversation(conversationId)
+        .filter((message) => message.sender === 'char' && message.createdAt > latestStandaloneAtomAt)
+        .length;
+      if (charMessagesSinceLastWrite < writerEvery) return;
+    }
+    const character = characterById(conversation.charId);
+    const characterName = character?.nickname || character?.name || '角色';
+    const boundUser = character ? userById(character.boundUserId) ?? user.value : user.value;
+    const modelOverride = getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode);
+    if (!hasConfiguredTextModel(modelOverride)) return;
+
+    writingMemoryAtomConversationIds.add(conversationId);
+    try {
+      const floorMap = getMessageFloorMap(messagesForConversation(conversationId).filter((message) => message.replyVariantState !== 'inactive'));
+      const summary = await generateConversationSummary({
+        messages: usefulMessages.map((message) => {
+          const floor = floorMap.get(message.id) ?? 1;
+          const sender = message.sender === 'user' ? boundUser?.name || boundUser?.nickname || '我' : characterName;
+          return `${floor}楼 ${sender}: ${messageReadableContent(message)}`;
+        }).join('\n'),
+        previousSummary: memoryContextForConversation(conversationId, usefulMessages.map((message) => messageReadableContent(message)).join('\n'), { includeResolved: true, maxTokens: 1400, maxEntries: 24 }),
+        timeAwareness: chatSettings.timeAwareness,
+        timeAwarenessUserName: boundUser?.name || boundUser?.nickname || '用户',
+        timelineContext: renderMessageTimelineContext(usefulMessages, floorMap, floorMap.get(usefulMessages[0].id) ?? 1),
+        settings: settings.value ?? undefined,
+        modelOverride,
+        promptOverride: renderCharacterMemoryPrompt(chatSettings.memory.summaryPrompt, characterName)
+      });
+      const now = Date.now();
+      const sourceMessageIds = usefulMessages.map((message) => message.id);
+      const floors = usefulMessages.map((message) => floorMap.get(message.id) ?? 1);
+      const tempRecord: ConversationMemoryRecord = {
+        id: createId('turn_memory'),
+        conversationId,
+        mode: conversation.activeMode,
+        kind: 'short-term',
+        startFloor: Math.min(...floors),
+        endFloor: Math.max(...floors),
+        hiddenStartFloor: 0,
+        hiddenEndFloor: 0,
+        summary,
+        tokenCount: estimateTokenCount(summary),
+        vector: [],
+        entries: [],
+        sourceMessageIds,
+        model: modelOverride || settings.value?.model || '',
+        createdAt: now,
+        updatedAt: now
+      };
+      const atoms = createMemoryAtomsFromRecord(tempRecord, now).map((atom) => ({
+        ...atom,
+        id: createId('atom'),
+        sourceMemoryId: undefined,
+        sourceMessageIds,
+        confidence: Math.max(atom.confidence, 0.78),
+        updatedAt: now
+      }));
+      await upsertStandaloneMemoryAtoms(atoms);
+      await maintainMemoryAtoms(conversationId);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      writingMemoryAtomConversationIds.delete(conversationId);
+    }
   }
 
   async function requestRoleplayReply(conversationId: string, options?: { generateMoment?: boolean; proactive?: boolean; replyInstruction?: string; replyVariantGroupId?: string; replyVariantIndex?: number }) {
@@ -3097,7 +3437,7 @@ export const useAppStore = defineStore('app', () => {
         messages: visibleMessagesForConversation(conversationId),
         worldBooks: worldBooks.value,
         conversationSummary: conversation.summary,
-        memorySummary: memoryContextForConversation(conversationId),
+        memorySummary: memoryContextForConversation(conversationId, userMessageText),
         stickerVisionEnabled: chatSettings.stickerVisionEnabled,
         narrationModeEnabled: chatSettings.narrationModeEnabled,
         offlineInvitationEnabled: chatSettings.offlineInvitationEnabled,
@@ -3479,6 +3819,9 @@ export const useAppStore = defineStore('app', () => {
         const index = conversations.value.findIndex((item) => item.id === conversationId);
         conversations.value[index] = nextConversation;
         await putEntity('conversations', nextConversation);
+        if (incomingCharMessages.length) {
+          void updateMemoryAtomsFromRecentExchange(conversationId, [...lastUserMessages, ...charMessages]);
+        }
       } else {
         await touchConversationAfterMessageChange(conversationId);
       }
@@ -3821,7 +4164,7 @@ export const useAppStore = defineStore('app', () => {
           recentVoomPosts,
           worldBooks: worldBooks.value,
           conversationSummary: conversation.summary,
-          memorySummary: memoryContextForConversation(conversationId),
+          memorySummary: memoryContextForConversation(conversationId, visibleMessagesForConversation(conversationId).slice(-8).map((message) => messageReadableContent(message)).join('\n')),
           stickerVisionEnabled: chatSettings.stickerVisionEnabled,
           timeAwareness: chatSettings.timeAwareness
         },
@@ -4346,7 +4689,7 @@ export const useAppStore = defineStore('app', () => {
           messages: visibleMessagesForConversation(conversation.id),
           worldBooks: worldBooks.value,
           conversationSummary: conversation.summary,
-          memorySummary: memoryContextForConversation(conversation.id),
+          memorySummary: memoryContextForConversation(conversation.id, [post.content, post.imageDescription ?? '', ...userComments.map((comment) => comment.content)].join('\n')),
           stickerVisionEnabled: chatSettings.stickerVisionEnabled,
           timeAwareness: chatSettings.timeAwareness
         },
@@ -4446,6 +4789,8 @@ export const useAppStore = defineStore('app', () => {
     recentStickers,
     conversationSettings,
     conversationMemories,
+    conversationMemoryAtoms,
+    memoryDebugTraces,
     generatedImages,
     settings,
     hydrate,
@@ -4458,6 +4803,8 @@ export const useAppStore = defineStore('app', () => {
     settingsForConversation,
     modelOverridesForConversation,
     memoriesForConversation,
+    memoryAtomsForConversation,
+    memoryDebugTraceForConversation,
     stickersForGroup,
     visibleMessagesForConversation,
     hiddenMessageIdsForConversation,
@@ -4535,6 +4882,11 @@ export const useAppStore = defineStore('app', () => {
     toggleMemoryHiddenRange,
     mergeConversationMemories,
     unmergeConversationMemories,
+    maybeAutoMergeConversationMemories,
+    updateMemoryAtom,
+    deleteMemoryAtom,
+    toggleMemoryAtomPinned,
+    maintainMemoryAtoms,
     requestRoleplayReply,
     regenerateLatestReply,
     applyReplyVariant,

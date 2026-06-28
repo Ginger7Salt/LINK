@@ -2360,10 +2360,11 @@ export async function generateConversationSummary(input: {
     ? renderTimeAwarenessPrompt(input.timeAwareness, { userName: input.timeAwarenessUserName || '用户' })
     : '';
   const prompt = [
-    input.promptOverride?.trim() || '请把下面聊天楼层总结成可供角色扮演继续读取的记忆手册。要求：保留人物关系变化、承诺、偏好、冲突、时间顺序和未解决事项；不要评价用户；用中文输出。',
+    input.promptOverride?.trim() || '请把下面聊天楼层整理成结构化长期记忆。每条一行：- [类型|状态|重要度1-5|主体|证据楼层] 内容。类型只能用 fact/preference/promise/conflict/plot/relationship/boundary/emotion/world；状态只能用 active/open/resolved/superseded/cancelled。必须根据新聊天校验旧记忆，已解决或被推翻的事项不能继续写成 open；不要评价用户；用中文输出。',
     timeAwarenessPrompt,
-    includeTimeline ? '时间线写入规则：总结内容本身必须带有事件发生时间线。请把关键事件、关系变化、承诺、冲突、未解决事项与其对应日期/时间写在一起；不要只写“之前”“后来”等模糊顺序；无法确认精确时间时，保留可见楼层范围和已知时间范围。' : '',
-    input.previousSummary ? `已有长期/短期记忆：\n${input.previousSummary}` : '已有长期/短期记忆：暂无。',
+    '记忆生命周期规则：新聊天优先于旧记忆；同一事实有新版本时保留新版本，并把旧版本标为 superseded 或移除；承诺/冲突/未解决事项只有仍需要后续处理时才标为 open；已经回应、兑现、和解、拒绝或撤销的事项标为 resolved/cancelled，且不要在后续回复里反复催促。',
+    includeTimeline ? '时间线写入规则：每条内容尽量携带楼层、日期或相对时间；不要只写“之前”“后来”等模糊顺序；无法确认精确时间时，保留可见楼层范围和已知时间范围。' : '',
+    input.previousSummary ? `旧记忆候选（仅供校验和更新，不是绝对事实）：\n${input.previousSummary}` : '旧记忆候选：暂无。',
     includeTimeline && input.timelineContext ? `待总结事件时间线：\n${input.timelineContext}` : '',
     `待总结聊天：\n${input.messages}`
   ].filter(Boolean).join('\n\n');

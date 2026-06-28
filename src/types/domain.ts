@@ -149,6 +149,11 @@ export interface ChatMemorySettings {
   mergeSummaryPrompt: string;
   vectorMemoryEnabled: boolean;
   hideSummarizedMessages: boolean;
+  atomWriterEnabled: boolean;
+  atomWriterEvery: number;
+  autoMergeEnabled: boolean;
+  autoMergeThreshold: number;
+  autoMergeBatchSize: number;
 }
 
 export interface ConversationTimeAwarenessSettings {
@@ -209,6 +214,51 @@ export interface ConversationSettings {
   offline: ConversationOfflineSettings;
 }
 
+export type ConversationMemoryEntryType = 'fact' | 'preference' | 'promise' | 'conflict' | 'plot' | 'relationship' | 'boundary' | 'emotion' | 'world';
+export type ConversationMemoryEntryStatus = 'active' | 'open' | 'resolved' | 'superseded' | 'cancelled';
+
+export interface ConversationMemoryEntry {
+  id: string;
+  type: ConversationMemoryEntryType;
+  status: ConversationMemoryEntryStatus;
+  subject: string;
+  content: string;
+  evidenceFloors: number[];
+  lastTouchedFloor: number;
+  importance: number;
+  vector?: number[];
+  createdAt: number;
+  updatedAt: number;
+  expiresAt?: number;
+}
+
+export interface ConversationMemoryAtom extends ConversationMemoryEntry {
+  conversationId: string;
+  mode: ChatMode;
+  sourceMemoryId?: string;
+  sourceMessageIds: string[];
+  confidence: number;
+  pinned?: boolean;
+  archivedAt?: number;
+}
+
+export interface ConversationMemoryDebugTrace {
+  conversationId: string;
+  queryText: string;
+  generatedAt: number;
+  tokenBudget: number;
+  selectedTokenCount: number;
+  selectedAtoms: Array<{
+    id: string;
+    type: ConversationMemoryEntryType;
+    status: ConversationMemoryEntryStatus;
+    subject: string;
+    content: string;
+    score: number;
+    tokenCount: number;
+  }>;
+}
+
 export interface ConversationMemoryRecord {
   id: string;
   conversationId: string;
@@ -221,6 +271,7 @@ export interface ConversationMemoryRecord {
   summary: string;
   tokenCount: number;
   vector: number[];
+  entries?: ConversationMemoryEntry[];
   sourceMessageIds: string[];
   model: string;
   isMergedSummary?: boolean;
@@ -816,6 +867,7 @@ export interface AppSnapshot {
   stickers: Sticker[];
   conversationSettings: ConversationSettings[];
   conversationMemories: ConversationMemoryRecord[];
+  conversationMemoryAtoms: ConversationMemoryAtom[];
   generatedImages: GeneratedImageRecord[];
   favorites: FavoriteMessageRecord[];
   settings: AppSettings;

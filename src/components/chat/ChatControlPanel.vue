@@ -5,7 +5,7 @@
           <div>
             <span>Hippocampus Memory</span>
             <strong>{{ totalMemoryTokens }} tokens</strong>
-            <p>{{ hiddenFloorStatus }}</p>
+            <p>{{ hiddenFloorStatus }} 记忆会按“原子记忆 + 分段总结 + 大总结”三层保存，优先把当前最相关的内容交给 AI。</p>
           </div>
           <button class="manual-summary-button" type="button" :disabled="summarizing" @click="showManualSummary = !showManualSummary">
             {{ summarizing ? '总结中' : '手动总结' }}
@@ -37,7 +37,7 @@
               <input v-model.number="manualSummary.hiddenEndFloor" :max="messageCount" min="0" type="number" />
             </label>
           </div>
-          <p>当前会话共 {{ messageCount }} 楼。隐藏范围填 0 表示不隐藏；隐藏范围必须在总结范围内。</p>
+          <p>适合补录关键剧情、手动修正遗漏，或者在一段重要对话结束后立刻固化记忆。隐藏范围填 0 表示不隐藏；隐藏范围必须在总结范围内。</p>
           <div class="manual-summary-actions">
             <button class="summary-submit" type="submit" :disabled="summarizing || !canManualSummarize">生成总结</button>
             <button class="secondary-action" type="button" @click="fillLatestRange">填入未总结楼层</button>
@@ -49,52 +49,185 @@
             <div>
               <span>Automation</span>
               <strong>记忆策略</strong>
+              <small class="memory-section-note">推荐保持默认：50 楼自动总结、每次回复写入原子、8 条摘要触发合并。想省调用时，只调高写入频率即可。</small>
             </div>
           </header>
-          <div class="memory-toggle-grid">
-            <label class="switch-card">
-              <input v-model="draft.memory.autoSummarize" type="checkbox" @change="saveDraft" />
-              <span class="switch-track"></span>
-              <div>
-                <strong>自动总结</strong>
+          <div class="memory-strategy-stack">
+            <div class="strategy-group">
+              <div class="strategy-copy">
+                <span>基础归档</span>
+                <strong>把长聊天按段收进记忆</strong>
+                <small>适合默认开启。它负责把旧楼层压成分段总结，并在需要时折叠旧楼层。</small>
               </div>
-            </label>
-            <label class="field compact-field">
-              <span>每多少楼总结</span>
-              <input v-model.number="draft.memory.summarizeEvery" min="10" step="10" type="number" @change="saveDraft" />
-            </label>
-          </div>
-          <div class="memory-toggle-grid">
-            <label class="switch-card">
-              <input v-model="draft.memory.hideSummarizedMessages" type="checkbox" @change="saveDraft" />
-              <span class="switch-track"></span>
-              <div>
-                <strong>自动隐藏楼层</strong>
+              <div class="strategy-control-grid">
+                <label class="switch-card">
+                  <input v-model="draft.memory.autoSummarize" type="checkbox" @change="saveDraft" />
+                  <span class="switch-track"></span>
+                  <div>
+                    <strong>自动总结</strong>
+                    <span>按楼层把长聊天归档成分段总结。</span>
+                  </div>
+                </label>
+                <label class="field compact-field">
+                  <span>每多少楼总结</span>
+                  <input v-model.number="draft.memory.summarizeEvery" min="10" step="10" type="number" @change="saveDraft" />
+                  <small>默认 50；剧情密集可调到 30-40。</small>
+                </label>
+                <label class="switch-card strategy-wide-control">
+                  <input v-model="draft.memory.hideSummarizedMessages" type="checkbox" @change="saveDraft" />
+                  <span class="switch-track"></span>
+                  <div>
+                    <strong>自动隐藏楼层</strong>
+                    <span>总结完成后折叠旧楼层，减少上下文挤占。</span>
+                  </div>
+                </label>
               </div>
-            </label>
-            <label class="switch-card">
-              <input v-model="draft.memory.vectorMemoryEnabled" type="checkbox" @change="saveDraft" />
-              <span class="switch-track"></span>
-              <div>
-                <strong>向量化记忆</strong>
-              </div>
-            </label>
-          </div>
-          <label class="field model-select-field">
-            <span>自动总结模型</span>
-            <div class="model-select-shell">
-              <img v-if="selectedModelMeta(summaryModelValue)" :src="selectedModelMeta(summaryModelValue)?.avatar" :alt="selectedModelMeta(summaryModelValue)?.vendorName" />
-              <span v-if="selectedModelMeta(summaryModelValue)" class="model-select-vendor">{{ selectedModelMeta(summaryModelValue)?.vendorName }}</span>
-              <select :value="summaryModelValue" :class="{ 'with-provider': selectedModelMeta(summaryModelValue) }" @change="updateSummaryModel">
-                <option value="">跟随全局总结模型</option>
-                <optgroup v-for="vendor in groupedModels" :key="vendor.id" :label="vendorSelectLabel(vendor)">
-                  <option v-for="model in vendor.models" :key="model.value" :value="model.value">
-                    {{ model.label }}
-                  </option>
-                </optgroup>
-              </select>
             </div>
-          </label>
+
+            <div class="strategy-group">
+              <div class="strategy-copy">
+                <span>原子召回</span>
+                <strong>记住承诺、冲突和关系变化</strong>
+                <small>这是防失忆的核心层。每轮提炼小颗粒记忆，再由相似度挑出本轮最相关的内容。</small>
+              </div>
+              <div class="strategy-control-grid">
+                <label class="switch-card">
+                  <input v-model="draft.memory.vectorMemoryEnabled" type="checkbox" @change="saveDraft" />
+                  <span class="switch-track"></span>
+                  <div>
+                    <strong>向量化记忆</strong>
+                    <span>用相似度辅助召回，减少跑题和漏记。</span>
+                  </div>
+                </label>
+                <label class="switch-card">
+                  <input v-model="draft.memory.atomWriterEnabled" type="checkbox" @change="saveDraft" />
+                  <span class="switch-track"></span>
+                  <div>
+                    <strong>每轮原子写入</strong>
+                    <span>回复后提炼承诺、冲突、偏好和关系变化。</span>
+                  </div>
+                </label>
+                <label class="field compact-field strategy-wide-control">
+                  <span>每几次回复写入</span>
+                  <input v-model.number="draft.memory.atomWriterEvery" min="1" max="10" type="number" @change="saveDraft" />
+                  <small>1 最稳；2 更省总结模型调用。</small>
+                </label>
+              </div>
+            </div>
+
+            <div class="strategy-group">
+              <div class="strategy-copy">
+                <span>分层整理</span>
+                <strong>摘要变多后自动压缩</strong>
+                <small>把多条分段总结合成大总结，长期聊天不会越来越占上下文。</small>
+              </div>
+              <div class="strategy-control-grid">
+                <label class="switch-card strategy-wide-control">
+                  <input v-model="draft.memory.autoMergeEnabled" type="checkbox" @change="saveDraft" />
+                  <span class="switch-track"></span>
+                  <div>
+                    <strong>自动合并大总结</strong>
+                    <span>摘要变多后自动压缩成更高层记忆。</span>
+                  </div>
+                </label>
+                <label class="field compact-field">
+                  <span>达到几条触发</span>
+                  <input v-model.number="draft.memory.autoMergeThreshold" min="3" max="30" type="number" @change="saveDraft" />
+                  <small>默认 8，避免太早压缩。</small>
+                </label>
+                <label class="field compact-field">
+                  <span>每批合并条数</span>
+                  <input v-model.number="draft.memory.autoMergeBatchSize" min="2" max="20" type="number" @change="saveDraft" />
+                  <small>默认 6，保留可回滚层级。</small>
+                </label>
+                <button class="secondary-action memory-run-action strategy-wide-control" type="button" :disabled="summarizing || mergeDisabled" @click="runAutoMergeNow">立即整理记忆</button>
+              </div>
+            </div>
+
+            <div class="strategy-group strategy-model-group">
+              <div class="strategy-copy">
+                <span>模型</span>
+                <strong>自动总结模型</strong>
+                <small>可以跟随全局，也可以单独指定一个更适合整理记忆的模型。</small>
+              </div>
+              <label class="field model-select-field">
+                <span>自动总结模型</span>
+                <div class="model-select-shell">
+                  <img v-if="selectedModelMeta(summaryModelValue)" :src="selectedModelMeta(summaryModelValue)?.avatar" :alt="selectedModelMeta(summaryModelValue)?.vendorName" />
+                  <span v-if="selectedModelMeta(summaryModelValue)" class="model-select-vendor">{{ selectedModelMeta(summaryModelValue)?.vendorName }}</span>
+                  <select :value="summaryModelValue" :class="{ 'with-provider': selectedModelMeta(summaryModelValue) }" @change="updateSummaryModel">
+                    <option value="">跟随全局总结模型</option>
+                    <optgroup v-for="vendor in groupedModels" :key="vendor.id" :label="vendorSelectLabel(vendor)">
+                      <option v-for="model in vendor.models" :key="model.value" :value="model.value">
+                        {{ model.label }}
+                      </option>
+                    </optgroup>
+                  </select>
+                </div>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-block memory-debug-block">
+          <header class="section-header record-header">
+            <div>
+              <span>Recall trace</span>
+              <strong>本轮召回</strong>
+              <small class="memory-section-note">这里展示下一次回复前会塞给 AI 的记忆。预算 tokens 是“记忆上下文”的上限，防止记忆挤掉聊天正文。</small>
+            </div>
+            <em>{{ memoryAtoms.length }} 原子</em>
+          </header>
+          <div class="memory-merge-dashboard memory-debug-stats">
+            <span>
+              <strong>{{ openMemoryAtomCount }}</strong>
+              <small>开放事项</small>
+            </span>
+            <span>
+              <strong>{{ memoryDebugTrace?.selectedAtoms.length ?? 0 }}</strong>
+              <small>命中条目</small>
+            </span>
+            <span>
+              <strong>{{ memoryDebugTrace ? `${memoryDebugTrace.selectedTokenCount}/${memoryDebugTrace.tokenBudget}` : '0/0' }}</strong>
+              <small>预算 tokens</small>
+            </span>
+          </div>
+          <div v-if="memoryDebugTrace?.selectedAtoms.length" class="memory-debug-list">
+            <article v-for="atom in memoryDebugPreview" :key="atom.id" class="memory-debug-row">
+              <span>{{ memoryAtomTypeLabel(atom.type) }} · {{ memoryAtomStatusLabel(atom.status) }} · {{ atom.tokenCount }} tokens · {{ atom.score }}</span>
+              <strong>{{ atom.subject }}</strong>
+              <p>{{ atom.content }}</p>
+            </article>
+          </div>
+          <div v-else class="empty-note compact-empty-note">还没有召回记录。发送一次消息或生成一次回复后，这里会显示系统挑中了哪些记忆。</div>
+          <section v-if="memoryAtoms.length" class="memory-atom-manager">
+            <header class="merge-picker-head">
+              <div>
+                <strong>原子记忆管理</strong>
+                <span>可固定、改状态、调权重或删除错误记忆。</span>
+              </div>
+            </header>
+            <article v-for="atom in memoryAtomPreview" :key="atom.id" class="memory-atom-row">
+              <div class="memory-atom-head">
+                <span>{{ memoryAtomTypeLabel(atom.type) }} · {{ atom.subject }}</span>
+                <button class="tiny-action" type="button" @click="toggleAtomPinned(atom.id)">{{ atom.pinned ? '已固定' : '固定' }}</button>
+              </div>
+              <textarea :value="atom.content" rows="2" @change="updateAtomContent(atom, $event)"></textarea>
+              <div class="memory-atom-controls">
+                <label>
+                  <span>状态</span>
+                  <select :value="atom.status" @change="updateAtomStatus(atom, $event)">
+                    <option v-for="status in memoryAtomStatusOptions" :key="status.value" :value="status.value">{{ status.label }}</option>
+                  </select>
+                </label>
+                <label>
+                  <span>重要度</span>
+                  <input :value="atom.importance" min="1" max="5" type="number" @change="updateAtomImportance(atom, $event)" />
+                </label>
+                <button class="danger-action" type="button" @click="requestDeleteAtom(atom.id)">删除</button>
+              </div>
+            </article>
+          </section>
         </section>
 
         <section class="memory-records settings-block">
@@ -102,6 +235,7 @@
             <div>
               <span>Memory space</span>
               <strong>记忆空间</strong>
+              <small class="memory-section-note">这里是分段总结和大总结。分段用于保留细节，大总结用于长期压缩，取消合并可以回到上一层。</small>
             </div>
             <em>{{ memories.length }} 条</em>
           </header>
@@ -120,14 +254,8 @@
             </span>
           </div>
           <div class="merge-actions">
-            <button class="secondary-action icon-action" type="button" :disabled="summarizing || mergeDisabled" @click="toggleMergePicker">
-              <GitMerge :size="15" stroke-width="2.6" aria-hidden="true" />
-              <span>{{ showMergePicker ? '收起合并' : '合并大总结' }}</span>
-            </button>
-            <button class="secondary-action icon-action" type="button" :disabled="summarizing || !hasMergedSummary" @click="toggleUnmergePicker">
-              <RotateCcw :size="15" stroke-width="2.6" aria-hidden="true" />
-              <span>{{ showUnmergePicker ? '收起取消' : '取消合并大总结' }}</span>
-            </button>
+            <button class="secondary-action" type="button" :disabled="summarizing || mergeDisabled" @click="toggleMergePicker">{{ showMergePicker ? '收起合并' : '合并大总结' }}</button>
+            <button class="secondary-action" type="button" :disabled="summarizing || !hasMergedSummary" @click="toggleUnmergePicker">{{ showUnmergePicker ? '收起取消' : '取消合并大总结' }}</button>
           </div>
           <section v-if="showMergePicker" class="merge-picker merge-picker-panel">
             <header class="merge-picker-head">
@@ -147,10 +275,7 @@
                 <small>{{ memoryMergeBadge(memory) }} · {{ memory.tokenCount }} tokens</small>
               </span>
             </label>
-            <button class="summary-submit icon-action" type="button" :disabled="summarizing || selectedMergeIds.length <= 1" @click="requestMergeMemories">
-              <GitMerge :size="15" stroke-width="2.6" aria-hidden="true" />
-              <span>确认合并</span>
-            </button>
+            <button class="summary-submit" type="button" :disabled="summarizing || selectedMergeIds.length <= 1" @click="requestMergeMemories">确认合并</button>
           </section>
           <section v-if="showUnmergePicker" class="merge-picker merge-picker-panel">
             <header class="merge-picker-head">
@@ -160,7 +285,6 @@
               </div>
             </header>
             <button v-for="memory in mergedMemories" :key="memory.id" class="merge-row button-row" type="button" @click="requestUnmergeMemories(memory)">
-              <RotateCcw :size="15" stroke-width="2.5" aria-hidden="true" />
               <span class="merge-row-copy">
                 <strong>{{ memoryRangeLabel(memory) }}</strong>
                 <small>恢复 {{ directMergeChildCount(memory) }} 条上一层记忆 · {{ memoryMergeBadge(memory) }}</small>
@@ -177,14 +301,8 @@
             </div>
             <textarea :value="memory.summary" @change="updateMemorySummary(memory, $event)"></textarea>
             <div class="memory-actions">
-              <button class="secondary-action icon-action" type="button" :disabled="summarizing" @click="requestResummarizeMemory(memory.id)">
-                <RefreshCw :size="14" stroke-width="2.6" aria-hidden="true" />
-                <span>重新总结</span>
-              </button>
-              <button class="danger-action icon-action" type="button" @click="requestDeleteMemory(memory.id)">
-                <Trash2 :size="14" stroke-width="2.6" aria-hidden="true" />
-                <span>删除总结</span>
-              </button>
+              <button class="secondary-action" type="button" :disabled="summarizing" @click="requestResummarizeMemory(memory.id)">重新总结</button>
+              <button class="danger-action" type="button" @click="requestDeleteMemory(memory.id)">删除总结</button>
             </div>
           </article>
           <div v-if="!memories.length" class="empty-note memory-empty-note">记忆空间暂时空着。达到楼层或点击手动总结后，新的书页会收进这里。</div>
@@ -561,12 +679,12 @@
 </template>
 
 <script setup lang="ts">
-import { ChevronDown, GitMerge, Plus, RefreshCw, RotateCcw, Trash2 } from 'lucide-vue-next';
+import { ChevronDown, Plus } from 'lucide-vue-next';
 import { computed, reactive, ref, watch } from 'vue';
 import AppModal from '@/components/common/AppModal.vue';
 import AvatarCropperModal from '@/components/image/AvatarCropperModal.vue';
 import { useAppStore } from '@/stores/appStore';
-import type { CharacterProfile, ChatAppearanceSettings, ConversationMemoryRecord, ConversationSettings } from '@/types/domain';
+import type { CharacterProfile, ChatAppearanceSettings, ConversationMemoryAtom, ConversationMemoryEntryStatus, ConversationMemoryRecord, ConversationSettings } from '@/types/domain';
 import { readImageFileFromInput } from '@/utils/imageFile';
 import { estimateTokenCount, getConversationFloorCount, getEffectiveHiddenFloorRanges, getMemoryHiddenEndFloor, normalizeConversationSettings } from '@/utils/memory';
 import { defaultProfileAvatar } from '@/utils/profile';
@@ -578,6 +696,13 @@ type RgbChannel = 'red' | 'green' | 'blue';
 type RgbParts = Record<RgbChannel, number>;
 type ConfirmTone = 'primary' | 'danger';
 type ConfirmAction = () => Promise<void> | void;
+const memoryAtomStatusOptions: Array<{ value: ConversationMemoryEntryStatus; label: string }> = [
+  { value: 'active', label: '有效' },
+  { value: 'open', label: '待处理' },
+  { value: 'resolved', label: '已解决' },
+  { value: 'superseded', label: '已取代' },
+  { value: 'cancelled', label: '已取消' }
+];
 
 interface ConfirmDialogState {
   open: boolean;
@@ -633,10 +758,17 @@ const manualSummary = reactive({
 });
 
 const memories = computed(() => store.memoriesForConversation(props.conversationId));
+const memoryAtoms = computed(() => store.memoryAtomsForConversation(props.conversationId));
+const memoryDebugTrace = computed(() => store.memoryDebugTraceForConversation(props.conversationId));
 const currentConversationSettings = computed(() => store.settingsForConversation(props.conversationId));
 const localModelOverrides = computed(() => store.modelOverridesForConversation(props.conversationId));
 const summaryModelValue = computed(() => localModelOverrides.value.summary.trim() || store.settings?.modelOverrides.summary?.trim() || '');
 const totalMemoryTokens = computed(() => store.nextReplyTokenCountForConversation(props.conversationId));
+const openMemoryAtomCount = computed(() => memoryAtoms.value.filter((atom) => atom.status === 'open' && !atom.archivedAt).length);
+const memoryDebugPreview = computed(() => memoryDebugTrace.value?.selectedAtoms.slice(0, 8) ?? []);
+const memoryAtomPreview = computed(() => [...memoryAtoms.value]
+  .sort((left, right) => Number(right.pinned) - Number(left.pinned) || right.importance - left.importance || right.updatedAt - left.updatedAt)
+  .slice(0, 12));
 const messageCount = computed(() => getConversationFloorCount(store.messagesForConversation(props.conversationId)));
 const hiddenFloorStatus = computed(() => {
   const hiddenRanges = getEffectiveHiddenFloorRanges(memories.value)
@@ -932,6 +1064,30 @@ function memoryMergeBadge(memory: ConversationMemoryRecord) {
   return `第 ${memoryMergeDepth(memory)} 层大总结 · ${leafMemoryCount(memory)} 个来源`;
 }
 
+function memoryAtomTypeLabel(type: string) {
+  return {
+    fact: '事实',
+    preference: '偏好',
+    promise: '承诺',
+    conflict: '冲突',
+    plot: '剧情',
+    relationship: '关系',
+    boundary: '边界',
+    emotion: '情绪',
+    world: '世界'
+  }[type] ?? '记忆';
+}
+
+function memoryAtomStatusLabel(status: string) {
+  return {
+    active: '有效',
+    open: '待处理',
+    resolved: '已解决',
+    superseded: '已取代',
+    cancelled: '已取消'
+  }[status] ?? '有效';
+}
+
 function toggleMergePicker() {
   const nextOpen = !showMergePicker.value;
   showMergePicker.value = nextOpen;
@@ -1084,6 +1240,16 @@ async function mergeMemories(memoryIds: string[]) {
   }
 }
 
+async function runAutoMergeNow() {
+  summarizing.value = true;
+  try {
+    const result = await store.maybeAutoMergeConversationMemories(props.conversationId);
+    if (!result) store.showConfigAlert('当前记忆数量或设置还未达到自动合并条件。', '无需整理');
+  } finally {
+    summarizing.value = false;
+  }
+}
+
 function requestUnmergeMemories(memory: ConversationMemoryRecord) {
   openConfirmDialog({
     eyebrow: 'Restore layer',
@@ -1127,6 +1293,43 @@ function requestDeleteMemory(memoryId: string) {
     runningText: '删除中',
     tone: 'danger',
     action: () => store.deleteMemoryRecord(memoryId)
+  });
+}
+
+function toggleAtomPinned(atomId: string) {
+  void store.toggleMemoryAtomPinned(atomId);
+}
+
+function updateAtomStatus(atom: ConversationMemoryAtom, event: Event) {
+  const status = (event.target as HTMLSelectElement).value as ConversationMemoryEntryStatus;
+  void store.updateMemoryAtom(atom.id, { status, pinned: true });
+}
+
+function updateAtomImportance(atom: ConversationMemoryAtom, event: Event) {
+  const importance = Math.min(5, Math.max(1, Math.round(Number((event.target as HTMLInputElement).value) || atom.importance)));
+  void store.updateMemoryAtom(atom.id, { importance, pinned: true });
+}
+
+function updateAtomContent(atom: ConversationMemoryAtom, event: Event) {
+  const content = (event.target as HTMLTextAreaElement).value.trim();
+  if (!content || content === atom.content) return;
+  void store.updateMemoryAtom(atom.id, { content, pinned: true });
+}
+
+function requestDeleteAtom(atomId: string) {
+  const atom = memoryAtoms.value.find((entry) => entry.id === atomId);
+  if (!atom) return;
+  openConfirmDialog({
+    eyebrow: 'Delete atom',
+    title: '删除这条原子记忆？',
+    message: `${memoryAtomTypeLabel(atom.type)} · ${atom.subject}`,
+    details: [atom.content, '删除后不会参与后续召回。'],
+    confirmText: '确认删除',
+    runningText: '删除中',
+    tone: 'danger',
+    action: async () => {
+      await store.deleteMemoryAtom(atomId);
+    }
   });
 }
 
@@ -1302,6 +1505,23 @@ function applyEditedAvatar(value: string) {
   line-height: 1.5;
 }
 
+.memory-section-note,
+.compact-field small,
+.switch-card div span:not(.switch-track) {
+  color: #777276;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.section-header .memory-section-note,
+.record-header .memory-section-note {
+  display: block;
+  margin-top: 3px;
+  max-width: 100%;
+  text-transform: none;
+}
+
 .manual-summary-button {
   display: inline-flex;
   align-items: center;
@@ -1368,15 +1588,177 @@ function applyEditedAvatar(value: string) {
   color: #fffaf4;
 }
 
+.memory-strategy-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.strategy-group {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.52);
+  box-shadow: inset 0 0 0 1px rgba(36, 32, 29, 0.03);
+}
+
+.strategy-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.strategy-copy span {
+  color: #a7774f;
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.strategy-copy strong {
+  color: #24201e;
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.strategy-copy small {
+  color: #777276;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.55;
+}
+
 .memory-toggle-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
+.strategy-control-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.strategy-wide-control,
+.strategy-model-group .model-select-field {
+  grid-column: 1 / -1;
+}
+
+.strategy-model-group {
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  align-items: center;
+}
+
+.memory-debug-block {
+  display: grid;
+  gap: 10px;
+}
+
+.memory-debug-stats strong {
+  font-size: 15px;
+}
+
+.memory-debug-list {
+  display: grid;
+  gap: 8px;
+}
+
+.memory-debug-row {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.memory-debug-row span,
+.memory-debug-row p {
+  margin: 0;
+  color: #746f70;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.memory-debug-row strong {
+  color: #24201e;
+  font-size: 13px;
+}
+
+.memory-run-action {
+  min-height: 54px;
+  border-radius: 18px;
+  white-space: normal;
+}
+
+.memory-atom-manager {
+  display: grid;
+  gap: 8px;
+}
+
+.memory-atom-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.memory-atom-head,
+.memory-atom-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.memory-atom-head span {
+  overflow: hidden;
+  color: #24201e;
+  font-size: 13px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-atom-row textarea {
+  width: 100%;
+  min-height: 52px;
+  resize: vertical;
+}
+
+.memory-atom-controls {
+  grid-template-columns: minmax(0, 1fr) 92px auto;
+}
+
+.memory-atom-controls .danger-action {
+  min-height: 34px;
+  padding-inline: 12px;
+}
+
+.memory-atom-controls label {
+  display: grid;
+  gap: 4px;
+}
+
+.memory-atom-controls label span {
+  color: #746f70;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.memory-atom-controls select,
+.memory-atom-controls input {
+  min-height: 34px;
+  border-radius: 10px;
+}
+
 .compact-field {
   justify-content: center;
-  min-height: 76px;
+  min-height: 74px;
   padding: 12px;
   border: 1px solid rgba(255, 255, 255, 0.76);
   border-radius: 18px;
@@ -1398,6 +1780,18 @@ function applyEditedAvatar(value: string) {
   border: 1px solid rgba(255, 255, 255, 0.76);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.72);
+}
+
+.memory-strategy-block .switch-card,
+.memory-strategy-block .compact-field,
+.memory-strategy-block .memory-run-action {
+  min-height: 62px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.memory-strategy-block .switch-card {
+  align-items: start;
 }
 
 .switch-card.wide {
@@ -3549,12 +3943,17 @@ function applyEditedAvatar(value: string) {
   }
 
   .memory-toggle-grid,
+  .strategy-control-grid,
   .range-grid,
   .color-grid,
   .manual-summary-actions,
   .merge-actions,
   .memory-actions,
   .background-thumb-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .strategy-model-group {
     grid-template-columns: 1fr;
   }
 
@@ -4052,6 +4451,30 @@ function applyEditedAvatar(value: string) {
   background: rgba(239, 68, 90, 0.11);
   color: #d73850;
   box-shadow: inset 0 0 0 1px rgba(239, 68, 90, 0.08);
+}
+
+.memory-panel .switch-card strong,
+.memory-panel .switch-card div span:not(.switch-track),
+.memory-panel .compact-field > span,
+.memory-panel .compact-field small,
+.memory-panel .memory-atom-head span,
+.memory-panel .secondary-action,
+.memory-panel .danger-action,
+.memory-panel .summary-submit,
+.memory-panel .manual-summary-button {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.memory-panel button,
+.memory-panel .secondary-action,
+.memory-panel .danger-action,
+.memory-panel .summary-submit {
+  min-height: 40px;
+  height: auto;
+  padding-block: 9px;
+  line-height: 1.25;
 }
 
 @media (max-width: 360px) {

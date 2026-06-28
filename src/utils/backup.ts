@@ -36,6 +36,7 @@ const snapshotArrayKeys: Array<keyof Omit<AppSnapshot, 'settings'>> = [
   'stickers',
   'conversationSettings',
   'conversationMemories',
+  'conversationMemoryAtoms',
   'generatedImages',
   'favorites'
 ];
