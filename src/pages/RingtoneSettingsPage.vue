@@ -9,6 +9,74 @@
 
     <main class="ringtone-main">
       <section class="ringtone-panel">
+        <section class="keepalive-section" aria-label="保活通知">
+          <div class="section-heading-row">
+            <span>Keep Alive</span>
+            <b>{{ keepAliveModeLabel }}</b>
+          </div>
+
+          <article class="keepalive-card" :class="{ 'is-active': keepAliveStatus.enabled }">
+            <div class="keepalive-head">
+              <div class="keepalive-identity">
+                <span class="keepalive-mark">
+                  <BatteryCharging :size="18" />
+                </span>
+                <div class="keepalive-copy">
+                  <strong>保活与通知</strong>
+                  <span>{{ keepAliveSummary }}</span>
+                </div>
+              </div>
+              <button class="keepalive-power" type="button" :aria-label="keepAliveStatus.enabled ? '关闭保活' : '开启保活'" :title="keepAliveStatus.enabled ? '关闭保活' : '开启保活'" @click="toggleKeepAlive">
+                <Power :size="18" />
+              </button>
+            </div>
+
+            <div class="keepalive-signal">
+              <span :class="['keepalive-dot', { active: keepAliveStatus.enabled }]" aria-hidden="true"></span>
+              <strong>{{ keepAliveSignal }}</strong>
+              <small>{{ keepAlivePlatformLabel }}</small>
+            </div>
+
+            <div class="keepalive-states" aria-label="保活状态">
+              <span :class="['keepalive-state', { active: keepAliveStatus.silentAudioActive || keepAliveStatus.webAudioActive }]">
+                <VolumeX :size="13" />
+                <b>Audio</b>
+                <small>{{ audioStateLabel }}</small>
+              </span>
+              <span :class="['keepalive-state', { active: keepAliveStatus.notificationPermission === 'granted', warn: keepAliveStatus.notificationPermission === 'denied' }]">
+                <BellRing :size="13" />
+                <b>Notify</b>
+                <small>{{ notificationStateLabel }}</small>
+              </span>
+              <span :class="['keepalive-state', { active: keepAliveStatus.wakeLockActive, muted: !keepAliveStatus.wakeLockSupported }]">
+                <ShieldCheck :size="13" />
+                <b>Wake</b>
+                <small>{{ wakeStateLabel }}</small>
+              </span>
+            </div>
+
+            <div class="keepalive-options">
+              <label :class="['keepalive-option', { active: keepAliveSettings.silentAudio }]">
+                <input type="checkbox" :checked="keepAliveSettings.silentAudio" @change="updateKeepAliveOption('silentAudio', $event)" />
+                <span>静音音频</span>
+                <i aria-hidden="true"></i>
+              </label>
+              <label :class="['keepalive-option', { active: keepAliveSettings.notifications }]">
+                <input type="checkbox" :checked="keepAliveSettings.notifications" @change="updateKeepAliveOption('notifications', $event)" />
+                <span>角色通知</span>
+                <i aria-hidden="true"></i>
+              </label>
+              <label :class="['keepalive-option', { active: keepAliveSettings.wakeLock }]">
+                <input type="checkbox" :checked="keepAliveSettings.wakeLock" @change="updateKeepAliveOption('wakeLock', $event)" />
+                <span>亮屏守护</span>
+                <i aria-hidden="true"></i>
+              </label>
+            </div>
+
+            <p v-if="keepAliveAlert" class="keepalive-note">{{ keepAliveAlert }}</p>
+          </article>
+        </section>
+
         <section class="global-section" aria-label="全局铃声">
           <div class="section-heading-row">
             <span>Global</span>
@@ -92,14 +160,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onMounted, ref, type PropType } from 'vue';
+import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType } from 'vue';
 import { useRouter } from 'vue-router';
-import { LoaderCircle, MessageCircle, Music2, RadioTower, RotateCcw, Undo2, Upload } from 'lucide-vue-next';
+import { BatteryCharging, BellRing, LoaderCircle, MessageCircle, Music2, Power, RadioTower, RotateCcw, ShieldCheck, Undo2, Upload, VolumeX } from 'lucide-vue-next';
+import { getKeepAliveStatus, startKeepAlive, stopKeepAlive, subscribeKeepAliveStatus, type KeepAliveRuntimeStatus } from '@/services/keepAlive';
 import { useAppStore } from '@/stores/appStore';
-import type { AppRingtoneSettings, RingtoneAsset, RingtoneEventType } from '@/types/domain';
+import type { AppKeepAliveSettings, AppRingtoneSettings, RingtoneAsset, RingtoneEventType } from '@/types/domain';
 import { getCharacterDisplayName } from '@/utils/character';
 import { createId } from '@/utils/id';
-import { createDefaultRingtoneSettings, normalizeAppSettings, normalizeRingtoneSettings, ringtoneEventTypes } from '@/utils/settings';
+import { createDefaultRingtoneSettings, normalizeAppSettings, normalizeKeepAliveSettings, normalizeRingtoneSettings, ringtoneEventTypes } from '@/utils/settings';
 
 type RingtoneScope = 'global' | 'character';
 
@@ -145,11 +214,55 @@ const RingtoneCardIcon = defineComponent({
 const router = useRouter();
 const store = useAppStore();
 const importError = ref('');
+const keepAliveStatus = ref<KeepAliveRuntimeStatus>(getKeepAliveStatus());
+let unsubscribeKeepAliveStatus: (() => void) | null = null;
 
+const keepAliveSettings = computed(() => normalizeKeepAliveSettings(store.settings?.keepAlive));
 const ringtoneSettings = computed(() => normalizeRingtoneSettings(store.settings?.ringtoneSettings));
+const keepAliveModeLabel = computed(() => keepAliveStatus.value.enabled ? 'Active' : 'Ready');
+const keepAliveSummary = computed(() => {
+  if (!keepAliveStatus.value.enabled) return '静音音频、系统通知与心跳恢复';
+  if (keepAliveStatus.value.silentAudioActive || keepAliveStatus.value.webAudioActive) return '音频通道已保持，通知会自动合并';
+  return '等待一次触摸恢复音频通道';
+});
+const keepAliveSignal = computed(() => {
+  if (!keepAliveStatus.value.enabled) return '未开启';
+  if (keepAliveStatus.value.silentAudioActive || keepAliveStatus.value.webAudioActive) return '运行中';
+  return '待恢复';
+});
+const keepAlivePlatformLabel = computed(() => {
+  const platformLabel = keepAliveStatus.value.platform === 'ios' ? 'iOS' : keepAliveStatus.value.platform === 'android' ? 'Android' : 'Desktop';
+  return keepAliveStatus.value.standalone ? `${platformLabel} PWA` : platformLabel;
+});
+const audioStateLabel = computed(() => keepAliveStatus.value.silentAudioActive || keepAliveStatus.value.webAudioActive ? '运行' : keepAliveSettings.value.silentAudio ? '待机' : '关闭');
+const notificationStateLabel = computed(() => {
+  if (!keepAliveStatus.value.notificationSupported) return '不支持';
+  if (keepAliveStatus.value.notificationPermission === 'granted') return '允许';
+  if (keepAliveStatus.value.notificationPermission === 'denied') return '拒绝';
+  return '待授权';
+});
+const wakeStateLabel = computed(() => {
+  if (!keepAliveStatus.value.wakeLockSupported) return '受限';
+  if (keepAliveStatus.value.wakeLockActive) return '运行';
+  return keepAliveSettings.value.wakeLock ? '待机' : '关闭';
+});
+const keepAliveAlert = computed(() => {
+  if (keepAliveStatus.value.lastError) return keepAliveStatus.value.lastError;
+  if (keepAliveStatus.value.platform === 'ios' && !keepAliveStatus.value.standalone) return 'iOS 浏览器模式下，后台通知与音频会更容易被系统收紧。';
+  if (keepAliveStatus.value.platform === 'android' && !keepAliveStatus.value.wakeLockSupported) return '当前 Android WebView 未开放亮屏守护，保活会使用音频与通知。';
+  if (keepAliveStatus.value.notificationPermission === 'denied') return '系统通知权限已拒绝，角色事件仍会播放铃声。';
+  return '';
+});
 
 onMounted(() => {
   void store.hydrate();
+  unsubscribeKeepAliveStatus = subscribeKeepAliveStatus((nextStatus) => {
+    keepAliveStatus.value = nextStatus;
+  });
+});
+
+onBeforeUnmount(() => {
+  unsubscribeKeepAliveStatus?.();
 });
 
 function goBack() {
@@ -248,6 +361,27 @@ async function saveRingtoneSettings(nextRingtoneSettings: AppRingtoneSettings) {
     ...currentSettings,
     ringtoneSettings: normalizeRingtoneSettings(nextRingtoneSettings)
   });
+}
+
+async function saveKeepAliveSettings(nextKeepAliveSettings: AppKeepAliveSettings, requestNotifications = false) {
+  const currentSettings = normalizeAppSettings(store.settings);
+  const normalizedKeepAlive = normalizeKeepAliveSettings(nextKeepAliveSettings);
+  await store.saveSettings({
+    ...currentSettings,
+    keepAlive: normalizedKeepAlive
+  });
+  if (normalizedKeepAlive.enabled) await startKeepAlive(normalizedKeepAlive, { requestNotifications });
+  else stopKeepAlive();
+}
+
+async function toggleKeepAlive() {
+  const nextEnabled = !keepAliveSettings.value.enabled;
+  await saveKeepAliveSettings({ ...keepAliveSettings.value, enabled: nextEnabled }, nextEnabled && keepAliveSettings.value.notifications);
+}
+
+async function updateKeepAliveOption(option: keyof Pick<AppKeepAliveSettings, 'silentAudio' | 'notifications' | 'wakeLock'>, event: Event) {
+  const checked = (event.target as HTMLInputElement).checked;
+  await saveKeepAliveSettings({ ...keepAliveSettings.value, [option]: checked }, option === 'notifications' && checked && keepAliveSettings.value.enabled);
 }
 
 async function importRingtone(scope: RingtoneScope, eventType: RingtoneEventType, event: Event, characterId = '') {
@@ -374,6 +508,7 @@ async function resetCharacter(characterId: string, eventType: RingtoneEventType)
 }
 
 .global-section,
+.keepalive-section,
 .character-section {
   display: grid;
   gap: 12px;
@@ -420,6 +555,7 @@ async function resetCharacter(characterId: string, eventType: RingtoneEventType)
 }
 
 .ringtone-card,
+.keepalive-card,
 .mini-ringtone,
 .empty-panel {
   min-width: 0;
@@ -427,6 +563,268 @@ async function resetCharacter(characterId: string, eventType: RingtoneEventType)
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 249, 252, 0.96));
   box-shadow: 0 12px 30px rgba(26, 30, 38, 0.05);
   overflow: hidden;
+}
+
+.keepalive-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 14px 34px rgba(24, 31, 28, 0.055);
+}
+
+.keepalive-card.is-active {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 252, 250, 0.96));
+}
+
+.keepalive-head,
+.keepalive-identity {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.keepalive-head {
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.keepalive-identity {
+  gap: 11px;
+  min-width: 0;
+}
+
+.keepalive-mark {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  background: #f4f7f5;
+  color: #1d2923;
+  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.045);
+}
+
+.keepalive-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.keepalive-copy strong {
+  overflow: hidden;
+  color: #171a1d;
+  font-size: 13px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.keepalive-copy span {
+  overflow: hidden;
+  color: #7a8280;
+  font-size: 11px;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.keepalive-power {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  border-radius: 14px;
+  background: #f3f5f4;
+  color: #717a76;
+  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.045);
+}
+
+.keepalive-card.is-active .keepalive-power {
+  background: #141a17;
+  color: #ffffff;
+  box-shadow: 0 10px 22px rgba(20, 26, 23, 0.16);
+}
+
+.keepalive-signal {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: #f7f8f7;
+  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.035);
+}
+
+.keepalive-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #c9cfcc;
+}
+
+.keepalive-dot.active {
+  background: #06c755;
+  box-shadow: 0 0 0 4px rgba(6, 199, 85, 0.12);
+}
+
+.keepalive-signal strong {
+  overflow: hidden;
+  color: #202522;
+  font-size: 12px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.keepalive-signal small {
+  color: #848b88;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.keepalive-states,
+.keepalive-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.keepalive-state {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 6px;
+  row-gap: 3px;
+  min-width: 0;
+  min-height: 50px;
+  padding: 9px 10px;
+  border-radius: 16px;
+  background: #f5f6f5;
+  color: #737b77;
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.035);
+}
+
+.keepalive-state svg {
+  grid-row: 1 / span 2;
+}
+
+.keepalive-state b {
+  overflow: hidden;
+  color: #272d2a;
+  font-size: 10px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.keepalive-state small {
+  overflow: hidden;
+  color: #8c938f;
+  font-size: 10px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.keepalive-state.active {
+  background: #eef8f2;
+  color: #138046;
+}
+
+.keepalive-state.warn {
+  background: #fff3f5;
+  color: #b51f36;
+}
+
+.keepalive-state.muted {
+  color: #b0b7b3;
+}
+
+.keepalive-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 10px 0 12px;
+  border-radius: 999px;
+  background: #f7f8f7;
+  color: #6f7773;
+  font-size: 11px;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.035);
+}
+
+.keepalive-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.keepalive-option span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.keepalive-option i {
+  position: relative;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 16px;
+  border-radius: 999px;
+  background: #dfe4e1;
+}
+
+.keepalive-option i::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(17, 17, 17, 0.12);
+  content: '';
+  transition: transform 0.16s ease;
+}
+
+.keepalive-option.active {
+  background: #eef8f2;
+  color: #138046;
+}
+
+.keepalive-option.active i {
+  background: #06c755;
+}
+
+.keepalive-option.active i::after {
+  transform: translateX(12px);
+}
+
+.keepalive-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #f7f8f7;
+  color: #737b77;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .ringtone-card {
@@ -675,6 +1073,7 @@ async function resetCharacter(characterId: string, eventType: RingtoneEventType)
   }
 
   .ringtone-card,
+  .keepalive-card,
   .character-row {
     gap: 10px;
     padding: 11px;
@@ -686,10 +1085,31 @@ async function resetCharacter(characterId: string, eventType: RingtoneEventType)
   }
 
   .ringtone-mark,
+  .keepalive-mark,
   .character-head .avatar {
     width: 38px;
     height: 38px;
     border-radius: 14px;
+  }
+
+  .keepalive-power {
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+    border-radius: 14px;
+  }
+
+  .keepalive-signal {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .keepalive-signal small {
+    grid-column: 2;
+  }
+
+  .keepalive-options,
+  .keepalive-states {
+    grid-template-columns: 1fr;
   }
 
   .ringtone-actions {

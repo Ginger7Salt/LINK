@@ -16,6 +16,7 @@ import MobileShell from '@/components/layout/MobileShell.vue';
 import AppModal from '@/components/common/AppModal.vue';
 import FirstRunDisclaimer from '@/components/common/FirstRunDisclaimer.vue';
 import GlobalVoomNotice from '@/components/common/GlobalVoomNotice.vue';
+import { syncKeepAlive } from '@/services/keepAlive';
 import { useAppStore } from '@/stores/appStore';
 import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 import type { ThemeFontEntry } from '@/types/domain';
@@ -34,6 +35,7 @@ const githubBackupScheduleKey = computed(() => {
   return [backup.owner, backup.repo, backup.branch, backup.path, backup.intervalMinutes].join('|');
 });
 const themeFontSettings = computed(() => store.settings?.themeSettings.fonts ?? { activeFontId: '', entries: [] as ThemeFontEntry[] });
+const keepAliveSettings = computed(() => store.settings?.keepAlive ?? null);
 
 function sanitizeCssText(value: string) {
   return value.replace(/[{};]/g, '').replace(/\s+/g, ' ').trim();
@@ -131,6 +133,7 @@ watch(
 );
 
 watch(themeFontSettings, applyThemeFonts, { immediate: true, deep: true });
+watch(keepAliveSettings, syncKeepAlive, { immediate: true, deep: true });
 
 onMounted(() => {
   musicPlayer.setAudioElement(musicAudioRef.value);

@@ -386,7 +386,7 @@ export default defineConfig({
     vue(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['link-icon.png', 'default-ringtone.mp3'],
+      includeAssets: ['link-icon.png', 'default-ringtone.mp3', 'link-sw-events.js'],
       manifest: {
         id: base,
         name: 'Link',
@@ -408,6 +408,7 @@ export default defineConfig({
         ]
       },
       workbox: {
+        importScripts: ['link-sw-events.js'],
         navigateFallback: `${base}index.html`,
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,svg,png,ico}']

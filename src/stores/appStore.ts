@@ -13,6 +13,7 @@ import { ageMemoryKind, createMemoryRecord, estimateTokenCount, getConversationF
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
 import { estimateRoleplayReplyInputTokens, fetchVendorModels, generateConversationSummary, generateEmbeddingVector, generateImageByProvider, generateRoleplayReply, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, shouldAutoGenerateMoment, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
 import { GitHubBackupError, downloadGitHubBackup, downloadGitHubBackupVersion, ensureGitHubBackupRepository, formatGitHubBackupError, listGitHubBackupHistory, uploadGitHubBackup } from '@/services/githubBackup';
+import { showLinkNotification } from '@/services/keepAlive';
 import { playRingtone } from '@/services/ringtone';
 import { synthesizeSpeech } from '@/services/tts';
 import { createLinkBackupFile, parseLinkBackupFileText, parseLinkBackupText, stickerBackupPlaceholder, stringifyLinkBackupFile } from '@/utils/backup';
@@ -678,6 +679,89 @@ export const useAppStore = defineStore('app', () => {
   function voomAuthorNameForPost(post: VoomPost) {
     const character = characterById(post.charId);
     return character ? getCharacterVoomAuthorName(character) : post.authorName;
+  }
+
+  function notificationPreview(content: string, fallback: string) {
+    const normalizedContent = content.replace(/\s+/g, ' ').trim() || fallback;
+    return normalizedContent.length > 120 ? `${normalizedContent.slice(0, 117)}...` : normalizedContent;
+  }
+
+  function characterForVoomComment(comment: VoomComment) {
+    const authorId = String(comment.authorId ?? '').trim();
+    const authorName = comment.authorName.trim().toLocaleLowerCase();
+    return characters.value.find((character) => {
+      if (authorId && character.id === authorId) return true;
+      return [character.nickname, character.name, getCharacterVoomAuthorName(character)]
+        .map((name) => name.trim().toLocaleLowerCase())
+        .includes(authorName);
+    }) ?? null;
+  }
+
+  function isCurrentUserVoomComment(comment: VoomComment) {
+    const currentUser = user.value;
+    if (!currentUser) return false;
+    if (comment.authorId && comment.authorId === currentUser.id) return true;
+    const authorName = comment.authorName.trim().toLocaleLowerCase();
+    return [currentUser.nickname, currentUser.name]
+      .map((name) => name.trim().toLocaleLowerCase())
+      .filter(Boolean)
+      .includes(authorName);
+  }
+
+  function notifyCharacterMessages(conversation: Conversation, charMessages: ChatMessage[]) {
+    const character = characterById(conversation.charId);
+    const displayName = character?.nickname || character?.name || conversation.title || '角色';
+    const latestMessage = charMessages[charMessages.length - 1];
+    const body = notificationPreview(
+      charMessages.map((message) => messageReadableContent(message)).join('\n'),
+      '发来了新消息'
+    );
+    void playRingtone(settings.value, 'message', conversation.charId);
+    void showLinkNotification(settings.value?.keepAlive, {
+      kind: 'message',
+      title: `${displayName} 发来消息`,
+      body,
+      tag: `link-message-${conversation.id}`,
+      icon: character?.avatar,
+      url: `/chats/${conversation.id}`
+    });
+  }
+
+  function notifyVoomPost(post: VoomPost, conversation?: Conversation | null) {
+    if (post.authorType === 'user') return;
+    const characterId = post.charId || conversation?.charId || '';
+    const character = characterId ? characterById(characterId) : null;
+    const authorName = voomAuthorNameForPost(post);
+    const body = notificationPreview(formatContentWithChineseTranslation(post.content, post.contentTranslation), '发布了新的 VOOM 动态');
+    void playRingtone(settings.value, 'voom', characterId);
+    void showLinkNotification(settings.value?.keepAlive, {
+      kind: 'voom',
+      title: `${authorName} 发布了 VOOM`,
+      body,
+      tag: `link-voom-post-${post.id}`,
+      icon: character?.avatar || post.authorAvatar,
+      url: '/voom'
+    });
+  }
+
+  function notifyVoomComments(post: VoomPost, comments: VoomComment[], conversation?: Conversation | null) {
+    const characterComments = comments.filter((comment) => !isCurrentUserVoomComment(comment));
+    if (!characterComments.length) return;
+    const latestComment = characterComments[characterComments.length - 1];
+    const character = characterForVoomComment(latestComment) ?? (conversation?.charId ? characterById(conversation.charId) : null);
+    const title = characterComments.length > 1
+      ? `${latestComment.authorName} 等评论了 VOOM`
+      : `${latestComment.authorName} 评论了 VOOM`;
+    const body = notificationPreview(formatContentWithChineseTranslation(latestComment.content, latestComment.contentTranslation), '有新的 VOOM 评论');
+    void playRingtone(settings.value, 'voom', character?.id || conversation?.charId || post.charId);
+    void showLinkNotification(settings.value?.keepAlive, {
+      kind: 'voom',
+      title,
+      body,
+      tag: `link-voom-comment-${post.id}`,
+      icon: character?.avatar || post.authorAvatar,
+      url: '/voom'
+    });
   }
 
   function formatVoomLikeEvent(likes: string[], authorName: string) {
@@ -3382,9 +3466,8 @@ export const useAppStore = defineStore('app', () => {
       if (charMessages.length) {
         messages.value.push(...charMessages);
         await Promise.all(charMessages.map((message) => putEntity('messages', message)));
-        if (charMessages.some((message) => message.sender === 'char')) {
-          void playRingtone(settings.value, 'message', conversation.charId);
-        }
+        const incomingCharMessages = charMessages.filter((message) => message.sender === 'char');
+        if (incomingCharMessages.length) notifyCharacterMessages(conversation, incomingCharMessages);
         const latestCharMessage = charMessages[charMessages.length - 1];
         const latestConversation = conversationById(conversationId) ?? conversation;
         const nextConversation = {
@@ -3704,6 +3787,7 @@ export const useAppStore = defineStore('app', () => {
     voomPosts.value.unshift(post);
     await putEntity('voomPosts', post);
     await recordVoomPostEvents(post);
+    notifyVoomComments(post, post.comments, targetConversations[0]);
     return post;
   }
 
@@ -3754,6 +3838,7 @@ export const useAppStore = defineStore('app', () => {
       await putEntity('voomPosts', createPersistableVoomPost(resolvedPost));
       const latestConversation = conversationById(conversationId) ?? conversation;
       await recordVoomPostEvents(resolvedPost, latestConversation.activeMode);
+      notifyVoomPost(resolvedPost, latestConversation);
       return resolvedPost;
     } finally {
       generatingMomentConversationIds.delete(conversationId);
@@ -4321,6 +4406,7 @@ export const useAppStore = defineStore('app', () => {
         formatVoomCommentEvent(comment, nextPost.comments),
         { mode: targetConversation.activeMode, voomPostId: post.id, voomCommentId: comment.id, voomEventType: 'reply', createdAt: comment.createdAt }
       ))));
+      notifyVoomComments(nextPost, nextComments, conversation);
       return true;
     } catch (error) {
       if (options.silent) console.warn('Auto VOOM comment reply failed.', error);

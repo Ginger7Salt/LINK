@@ -1,4 +1,4 @@
-import type { ApiVendor, ApiVendorModel, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterRingtoneSettings, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, RingtoneAsset, RingtoneEventType, ThemeFontEntry, ThemeFontSource, TtsProviderType } from '@/types/domain';
+import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterRingtoneSettings, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, RingtoneAsset, RingtoneEventType, ThemeFontEntry, ThemeFontSource, TtsProviderType } from '@/types/domain';
 import { createId } from './id';
 
 export const novelAiOfficialApiUrl = 'https://image.novelai.net';
@@ -138,6 +138,15 @@ export function createDefaultRingtoneSettings(): AppRingtoneSettings {
   };
 }
 
+export function createDefaultKeepAliveSettings(): AppKeepAliveSettings {
+  return {
+    enabled: false,
+    silentAudio: true,
+    notifications: true,
+    wakeLock: true
+  };
+}
+
 export function createDefaultThemeSettings(): AppThemeSettings {
   return {
     fonts: {
@@ -257,6 +266,7 @@ export const defaultAppSettings: AppSettings = {
   voomImageProvider: '',
   voomImageModel: '',
   voomReadAtByUser: {},
+  keepAlive: createDefaultKeepAliveSettings(),
   ringtoneSettings: createDefaultRingtoneSettings(),
   themeSettings: createDefaultThemeSettings(),
   imagePrivateOnly: true,
@@ -388,6 +398,16 @@ export function normalizeRingtoneSettings(settings: Partial<AppRingtoneSettings>
   }
 
   return { global, characters };
+}
+
+export function normalizeKeepAliveSettings(settings: Partial<AppKeepAliveSettings> | null | undefined): AppKeepAliveSettings {
+  const fallback = createDefaultKeepAliveSettings();
+  return {
+    enabled: Boolean(settings?.enabled ?? fallback.enabled),
+    silentAudio: settings?.silentAudio === false ? false : fallback.silentAudio,
+    notifications: settings?.notifications === false ? false : fallback.notifications,
+    wakeLock: settings?.wakeLock === false ? false : fallback.wakeLock
+  };
 }
 
 function normalizeThemeFontSource(source: string | null | undefined): ThemeFontSource {
@@ -1251,6 +1271,7 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
         : ''
     }),
     voomReadAtByUser: normalizeVoomReadAtByUser(settings?.voomReadAtByUser),
+    keepAlive: normalizeKeepAliveSettings(settings?.keepAlive),
     ringtoneSettings: normalizeRingtoneSettings(settings?.ringtoneSettings),
     themeSettings: normalizeThemeSettings(settings?.themeSettings),
     githubBackup: normalizeGitHubBackupSettings(settings?.githubBackup)

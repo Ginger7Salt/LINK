@@ -736,6 +736,13 @@ export interface AppRingtoneSettings {
   characters: Record<string, CharacterRingtoneSettings>;
 }
 
+export interface AppKeepAliveSettings {
+  enabled: boolean;
+  silentAudio: boolean;
+  notifications: boolean;
+  wakeLock: boolean;
+}
+
 export type ThemeFontSource = 'url' | 'file' | 'family';
 
 export interface ThemeFontEntry {
@@ -788,6 +795,7 @@ export interface AppSettings {
   voomImageProvider: ImageProviderType | '';
   voomImageModel: string;
   voomReadAtByUser: Record<string, Record<string, number>>;
+  keepAlive: AppKeepAliveSettings;
   ringtoneSettings: AppRingtoneSettings;
   themeSettings: AppThemeSettings;
   imagePrivateOnly: boolean;
