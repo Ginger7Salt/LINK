@@ -862,14 +862,17 @@ function normalizeVendor(vendor: Partial<ApiVendor> | null | undefined, fallback
         .map((model) => normalizeVendorModel(model))
         .filter((model): model is ApiVendorModel => Boolean(model))
     : [];
-  const apiUrl = String(vendor?.apiUrl ?? '').trim();
+  const rawApiUrl = String(vendor?.apiUrl ?? '').trim();
+  const splitEndpoint = rawApiUrl ? splitLegacyEndpoint(rawApiUrl) : { apiUrl: '', apiPath: '/chat/completions' };
+  const apiUrl = splitEndpoint.apiUrl;
+  const apiPath = String(vendor?.apiPath ?? splitEndpoint.apiPath).trim() || splitEndpoint.apiPath;
 
   return {
     id: String(vendor?.id ?? fallbackId ?? createId('vendor')).trim() || createId('vendor'),
     enabled: Boolean(vendor?.enabled),
     name: String(vendor?.name ?? 'OpenAI').trim() || 'OpenAI',
     apiUrl: apiUrl || (options.allowEmptyApiUrl ? '' : 'https://api.openai.com/v1'),
-    apiPath: String(vendor?.apiPath ?? '/chat/completions').trim() || '/chat/completions',
+    apiPath,
     apiKey: String(vendor?.apiKey ?? '').trim(),
     avatar: normalizeVendorAvatar(vendor?.avatar),
     preferBase64ImageResponse: Boolean(vendor?.preferBase64ImageResponse),

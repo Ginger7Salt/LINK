@@ -529,6 +529,24 @@ function createTextNetworkErrorMessage(error: unknown, endpoint: string, request
   );
 }
 
+function waitForTextApiRetry() {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, 800);
+  });
+}
+
+function shouldRetryTextApiResponse(response: Response) {
+  return response.status === 405 || response.status === 429 || response.status >= 500;
+}
+
+function createTextApiStatusHint(response: Response, endpoint: string) {
+  if (response.status !== 405) return '';
+  return [
+    `请求地址：${endpoint}`,
+    '405 通常表示上游网关不接受当前路径或请求方法。请确认 API Url 只填到 /v1 这一层，API 路径为 /chat/completions；如果配置无误，多半是供应商兼容网关短暂路由异常，可稍后重试或切换供应商。'
+  ].join('\n');
+}
+
 function createNovelAiNetworkErrorMessage(error: unknown, endpoint: string, requestEndpoint: string) {
   return createNetworkErrorMessage(
     error,
@@ -1650,7 +1668,7 @@ async function callTextApi(settings: AppSettings | undefined, prompt: string, mo
     ? [{ type: 'text' as const, text: prompt }, ...imageParts]
     : prompt;
 
-  const { response, requestEndpoint } = await fetchTextEndpoint(resolved.endpoint, {
+  const requestInit: RequestInit = {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1661,13 +1679,22 @@ async function callTextApi(settings: AppSettings | undefined, prompt: string, mo
       messages: [{ role: 'user', content }],
       temperature: 0.9
     })
-  });
+  };
+
+  let { response, requestEndpoint } = await fetchTextEndpoint(resolved.endpoint, requestInit);
+  if (!response.ok && shouldRetryTextApiResponse(response)) {
+    await waitForTextApiRetry();
+    const retryResult = await fetchTextEndpoint(resolved.endpoint, requestInit);
+    response = retryResult.response;
+    requestEndpoint = retryResult.requestEndpoint;
+  }
 
   if (!response.ok) {
+    const statusHint = createTextApiStatusHint(response, resolved.endpoint);
     if (requestEndpoint.startsWith(textProxyPath) && response.status === 502) {
-      throw new Error(await createApiErrorMessage(response, '本地文本模型代理请求失败'));
+      throw new Error([await createApiErrorMessage(response, '本地文本模型代理请求失败'), statusHint].filter(Boolean).join('\n\n'));
     }
-    throw new Error(await createApiErrorMessage(response, '文本模型 API 请求失败'));
+    throw new Error([await createApiErrorMessage(response, '文本模型 API 请求失败'), statusHint].filter(Boolean).join('\n\n'));
   }
 
   const data = await readJsonPayload(response, '文本模型 API 返回异常');
