@@ -110,7 +110,7 @@
                 <label class="field compact-field strategy-wide-control">
                   <span>每几次回复写入</span>
                   <input :value="memoryNumberDraft.atomWriterEvery" inputmode="numeric" min="1" max="10" type="number" @input="updateMemoryNumberDraft('atomWriterEvery', $event)" @change="commitMemoryNumberDraft('atomWriterEvery', $event)" @blur="commitMemoryNumberDraft('atomWriterEvery', $event)" @keydown.enter.prevent="commitMemoryNumberDraft('atomWriterEvery', $event)" />
-                  <small>1 最稳；2 更省总结模型调用。</small>
+                  <small>1 最稳；2 更省总结与向量化模型调用。</small>
                 </label>
               </div>
             </div>
@@ -144,28 +144,6 @@
               </div>
             </div>
 
-            <div class="strategy-group strategy-model-group">
-              <div class="strategy-copy">
-                <span>模型</span>
-                <strong>自动总结模型</strong>
-                <small>可以跟随全局，也可以单独指定一个更适合整理记忆的模型。</small>
-              </div>
-              <label class="field model-select-field">
-                <span>自动总结模型</span>
-                <div class="model-select-shell">
-                  <img v-if="selectedModelMeta(summaryModelValue)" :src="selectedModelMeta(summaryModelValue)?.avatar" :alt="selectedModelMeta(summaryModelValue)?.vendorName" />
-                  <span v-if="selectedModelMeta(summaryModelValue)" class="model-select-vendor">{{ selectedModelMeta(summaryModelValue)?.vendorName }}</span>
-                  <select :value="summaryModelValue" :class="{ 'with-provider': selectedModelMeta(summaryModelValue) }" @change="updateSummaryModel">
-                    <option value="">跟随全局总结模型</option>
-                    <optgroup v-for="vendor in groupedModels" :key="vendor.id" :label="vendorSelectLabel(vendor)">
-                      <option v-for="model in vendor.models" :key="model.value" :value="model.value">
-                        {{ model.label }}
-                      </option>
-                    </optgroup>
-                  </select>
-                </div>
-              </label>
-            </div>
           </div>
         </section>
 
@@ -726,7 +704,6 @@ import type { CharacterProfile, ChatAppearanceSettings, ConversationMemoryAtom, 
 import { readImageFileFromInput } from '@/utils/imageFile';
 import { estimateTokenCount, getConversationFloorCount, getEffectiveHiddenFloorRanges, getMemoryHiddenEndFloor, normalizeConversationSettings } from '@/utils/memory';
 import { defaultProfileAvatar } from '@/utils/profile';
-import { normalizeChatModelOverrides } from '@/utils/settings';
 import { normalizeVoomFrequency, voomFrequencyOptions } from '@/utils/voom';
 
 type ColorField = 'userBubbleColor' | 'userTextColor' | 'characterBubbleColor' | 'characterTextColor' | 'narrationBubbleColor' | 'narrationTextColor';
@@ -806,8 +783,6 @@ const manualSummary = reactive({
 const memories = computed(() => store.memoriesForConversation(props.conversationId));
 const memoryAtoms = computed(() => store.memoryAtomsForConversation(props.conversationId));
 const currentConversationSettings = computed(() => store.settingsForConversation(props.conversationId));
-const localModelOverrides = computed(() => store.modelOverridesForConversation(props.conversationId));
-const summaryModelValue = computed(() => localModelOverrides.value.summary.trim() || store.settings?.modelOverrides.summary?.trim() || '');
 const totalMemoryTokens = computed(() => store.nextReplyTokenCountForConversation(props.conversationId));
 const openMemoryAtomCount = computed(() => memoryAtoms.value.filter((atom) => atom.status === 'open' && !atom.archivedAt).length);
 const pinnedMemoryAtomCount = computed(() => memoryAtoms.value.filter((atom) => atom.pinned).length);
@@ -872,23 +847,6 @@ const narrationBubblePreviewStyle = computed(() => ({
   background: draft.appearance.narrationBubbleColor,
   color: draft.appearance.narrationTextColor
 }));
-const groupedModels = computed(() => {
-  return (store.settings?.apiVendors ?? [])
-    .map((vendor) => ({
-      id: vendor.id,
-      name: vendor.name,
-      avatar: vendor.avatar,
-      models: vendor.models
-        .filter((model) => model.selected)
-        .map((model) => ({
-          value: `${vendor.id}::${model.id}`,
-          label: model.nickname || model.id
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans-CN'))
-    }))
-    .filter((vendor) => vendor.models.length)
-    .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
-});
 const stickerGroupPickerRows = computed(() => store.sortedStickerGroups.map((group) => ({
   id: group.id,
   name: group.name
@@ -1019,14 +977,6 @@ function updateRgbColor(field: ColorField, channel: RgbChannel, event: Event) {
   };
   draft.appearance[field] = rgbToHex(nextParts) as ChatAppearanceSettings[ColorField];
   saveDraft();
-}
-
-function updateSummaryModel(event: Event) {
-  const nextOverrides = normalizeChatModelOverrides({
-    ...localModelOverrides.value,
-    summary: (event.target as HTMLSelectElement).value
-  });
-  void store.saveCharacterModelOverridesForConversation(props.conversationId, nextOverrides);
 }
 
 function updateAutoGenerateVoom(event: Event) {
@@ -1279,7 +1229,7 @@ function requestResummarizeMemory(memoryId: string) {
   openConfirmDialog({
     eyebrow: 'Regenerate memory',
     title: '重新总结这条记忆？',
-    message: `会重新调用总结模型，覆盖 ${memoryRangeLabel(memory)} 的当前文本。`,
+    message: `会重新调用总结与向量化模型，覆盖 ${memoryRangeLabel(memory)} 的当前文本。`,
     details: [
       `当前类型：${memoryMergeBadge(memory)}`,
       `隐藏范围：${hiddenRangeLabel(memory)}`
@@ -1298,7 +1248,7 @@ function requestMergeMemories() {
   openConfirmDialog({
     eyebrow: 'Merge memory',
     title: '合并这些记忆？',
-    message: `会调用总结模型，把选中的 ${stats.count} 条记忆压缩成 ${rangeText} 的新大总结。原条目会作为上一层来源保存在新大总结里。`,
+    message: `会调用总结与向量化模型，把选中的 ${stats.count} 条记忆压缩成 ${rangeText} 的新大总结。原条目会作为上一层来源保存在新大总结里。`,
     details: [
       `包含来源：${stats.sourceCount} 个片段${stats.mergedCount ? `，其中 ${stats.mergedCount} 条已经是大总结` : ''}`,
       `原始 token 合计：${stats.tokenCount}`,
@@ -1477,26 +1427,6 @@ function hiddenRangeLabel(memory: ConversationMemoryRecord) {
 
 function hasHiddenRange(memory: ConversationMemoryRecord) {
   return memory.hiddenStartFloor > 0 && memory.hiddenEndFloor >= memory.hiddenStartFloor;
-}
-
-function vendorSelectLabel(vendor: { avatar: string; name: string }) {
-  return `${vendor.avatar ? '◉ ' : ''}${vendor.name}`;
-}
-
-function selectedModelMeta(value: string) {
-  if (!value.trim()) return null;
-  const [vendorId, ...modelParts] = value.split('::');
-  if (!modelParts.length) return null;
-  const vendor = groupedModels.value.find((item) => item.id === vendorId);
-  if (!vendor) return null;
-  const modelValue = `${vendorId}::${modelParts.join('::')}`;
-  const model = vendor.models.find((item) => item.value === modelValue);
-  if (!model) return null;
-  return {
-    avatar: vendor.avatar,
-    vendorName: vendor.name,
-    modelLabel: model.label
-  };
 }
 
 function saveCharacterDraft() {
@@ -1765,14 +1695,8 @@ function applyEditedAvatar(value: string) {
   gap: 10px;
 }
 
-.strategy-wide-control,
-.strategy-model-group .model-select-field {
+.strategy-wide-control {
   grid-column: 1 / -1;
-}
-
-.strategy-model-group {
-  grid-template-columns: 1fr;
-  align-items: stretch;
 }
 
 .memory-run-action {
@@ -4142,10 +4066,6 @@ function applyEditedAvatar(value: string) {
   .merge-actions,
   .memory-actions,
   .background-thumb-actions {
-    grid-template-columns: 1fr;
-  }
-
-  .strategy-model-group {
     grid-template-columns: 1fr;
   }
 

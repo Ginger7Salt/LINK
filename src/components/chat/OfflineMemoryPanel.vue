@@ -140,22 +140,6 @@
             </div>
           </div>
 
-          <div class="strategy-group strategy-model-group">
-            <div class="strategy-copy">
-              <span>模型</span>
-              <strong>自动总结模型</strong>
-              <small>可以跟随全局，也可以单独指定一个更适合整理记忆的模型。</small>
-            </div>
-            <label class="offline-field model-field">
-              <span>自动总结模型</span>
-              <select :value="summaryModelValue" @change="updateSummaryModel">
-                <option value="">跟随全局总结模型</option>
-                <optgroup v-for="vendor in groupedModels" :key="vendor.id" :label="vendor.name">
-                  <option v-for="model in vendor.models" :key="model.value" :value="model.value">{{ model.label }}</option>
-                </optgroup>
-              </select>
-            </label>
-          </div>
         </div>
       </section>
 
@@ -336,7 +320,6 @@ import { useAppStore } from '@/stores/appStore';
 import type { CharacterProfile, ConversationMemoryAtom, ConversationMemoryEntryStatus, ConversationMemoryRecord, ConversationSettings } from '@/types/domain';
 import { getCharacterDisplayName } from '@/utils/character';
 import { estimateTokenCount, getConversationFloorCount, getEffectiveHiddenFloorRanges, getMemoryHiddenEndFloor, normalizeConversationSettings } from '@/utils/memory';
-import { normalizeChatModelOverrides } from '@/utils/settings';
 
 type ConfirmTone = 'primary' | 'danger';
 type ConfirmAction = () => Promise<void> | void;
@@ -414,8 +397,6 @@ const recallPreviewTrace = computed(() => recallPreviewQuery.value.trim()
   : null);
 const activeRecallTrace = computed(() => recallPreviewTrace.value ?? memoryDebugTrace.value);
 const currentConversationSettings = computed(() => store.settingsForConversation(props.conversationId));
-const localModelOverrides = computed(() => store.modelOverridesForConversation(props.conversationId));
-const summaryModelValue = computed(() => localModelOverrides.value.summary.trim() || store.settings?.modelOverrides.summary?.trim() || '');
 const totalMemoryTokens = computed(() => store.nextReplyTokenCountForConversation(props.conversationId));
 const openMemoryAtomCount = computed(() => memoryAtoms.value.filter((atom) => atom.status === 'open' && !atom.archivedAt).length);
 const memoryDebugPreview = computed(() => activeRecallTrace.value?.selectedAtoms.slice(0, 8) ?? []);
@@ -464,23 +445,6 @@ const canManualSummarize = computed(() => {
   if (!hiddenStart && !hiddenEnd) return true;
   return hiddenStart >= start && hiddenEnd >= hiddenStart && hiddenEnd <= end;
 });
-const groupedModels = computed(() => {
-  return (store.settings?.apiVendors ?? [])
-    .map((vendor) => ({
-      id: vendor.id,
-      name: vendor.name,
-      models: vendor.models
-        .filter((model) => model.selected)
-        .map((model) => ({
-          value: `${vendor.id}::${model.id}`,
-          label: model.nickname || model.id
-        }))
-        .sort((left, right) => left.label.localeCompare(right.label, 'zh-Hans-CN'))
-    }))
-    .filter((vendor) => vendor.models.length)
-    .sort((left, right) => left.name.localeCompare(right.name, 'zh-Hans-CN'));
-});
-
 watch(
   () => [props.conversationId, currentConversationSettings.value] as const,
   () => {
@@ -532,14 +496,6 @@ function commitMemoryNumberDraft(field: MemoryNumberField, event?: Event) {
   if (draft.memory[field] === nextValue) return;
   draft.memory[field] = nextValue;
   saveDraft();
-}
-
-function updateSummaryModel(event: Event) {
-  const nextOverrides = normalizeChatModelOverrides({
-    ...localModelOverrides.value,
-    summary: (event.target as HTMLSelectElement).value
-  });
-  void store.saveCharacterModelOverridesForConversation(props.conversationId, nextOverrides);
 }
 
 async function manualSummarize() {
@@ -696,7 +652,7 @@ function requestResummarizeMemory(memoryId: string) {
   openConfirmDialog({
     eyebrow: 'Regenerate memory',
     title: '重新总结这条记忆？',
-    message: `会重新调用总结模型，覆盖 ${memoryRangeLabel(memory)} 的当前文本。`,
+    message: `会重新调用总结与向量化模型，覆盖 ${memoryRangeLabel(memory)} 的当前文本。`,
     details: [memory.isMergedSummary ? `当前类型：第 ${memoryMergeDepth(memory)} 层大总结` : '当前类型：片段记忆'],
     confirmText: '重新总结',
     runningText: '总结中',
@@ -712,7 +668,7 @@ function requestMergeMemories() {
   openConfirmDialog({
     eyebrow: 'Merge memory',
     title: '合并这些记忆？',
-    message: `会调用总结模型，把选中的 ${stats.count} 条记忆压缩成 ${rangeText} 的新大总结。`,
+    message: `会调用总结与向量化模型，把选中的 ${stats.count} 条记忆压缩成 ${rangeText} 的新大总结。`,
     details: [
       `包含来源：${stats.sourceCount} 个片段${stats.mergedCount ? `，其中 ${stats.mergedCount} 条已经是大总结` : ''}`,
       `原始 token 合计：${stats.tokenCount}`
@@ -1168,14 +1124,8 @@ function updateMemorySummary(memory: ConversationMemoryRecord, event: Event) {
   line-height: 1.55;
 }
 
-.strategy-wide-control,
-.strategy-model-group .model-field {
+.strategy-wide-control {
   grid-column: 1 / -1;
-}
-
-.strategy-model-group {
-  grid-template-columns: 1fr;
-  align-items: stretch;
 }
 
 .memory-dashboard {
@@ -1800,10 +1750,6 @@ function updateMemorySummary(memory: ConversationMemoryRecord, event: Event) {
   .action-grid {
     grid-template-columns: 1fr;
     gap: 8px;
-  }
-
-  .strategy-model-group {
-    grid-template-columns: 1fr;
   }
 
   .memory-tools {
