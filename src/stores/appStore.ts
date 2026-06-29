@@ -1059,6 +1059,7 @@ export const useAppStore = defineStore('app', () => {
     return {
       ...rawPost,
       conversationIds: rawPost.conversationIds ? [...rawPost.conversationIds] : undefined,
+      proactiveCommentExpansionCharacterIds: rawPost.proactiveCommentExpansionCharacterIds ? [...new Set(rawPost.proactiveCommentExpansionCharacterIds.map((id) => id.trim()).filter(Boolean))] : undefined,
       visibleCharacterIds: rawPost.visibleCharacterIds ? [...rawPost.visibleCharacterIds] : undefined,
       imageCandidates: rawPost.imageCandidates?.map((candidate) => ({ ...toRaw(candidate) })),
       comments: rawPost.comments.map((comment) => ({ ...toRaw(comment) })),
@@ -4496,15 +4497,20 @@ export const useAppStore = defineStore('app', () => {
       return [];
     }
 
-    return generatedComments.map((comment, index) => ({
-      id: createId('comment'),
-      authorName: comment.authorName,
-      authorId: comment.authorId,
-      content: comment.content,
-      contentTranslation: comment.contentTranslation,
-      parentId: comment.parentId,
-      createdAt: post.createdAt + index + 1
-    } satisfies VoomComment));
+    const generatedIds = generatedComments.map(() => createId('comment'));
+    const generatedIdByDraftId = new Map(generatedComments.flatMap((comment, index) => comment.draftId ? [[comment.draftId, generatedIds[index]]] : []));
+    return generatedComments.map((comment, index) => {
+      const resolvedParentId = comment.parentId ? generatedIdByDraftId.get(comment.parentId) : '';
+      return {
+        id: generatedIds[index],
+        authorName: comment.authorName,
+        authorId: comment.authorId,
+        content: comment.content,
+        contentTranslation: comment.contentTranslation,
+        parentId: resolvedParentId && resolvedParentId !== generatedIds[index] ? resolvedParentId : undefined,
+        createdAt: post.createdAt + index + 1
+      } satisfies VoomComment;
+    });
   }
 
   async function createUserVoomPost(payload: CreateUserVoomPostPayload) {
@@ -5232,8 +5238,21 @@ export const useAppStore = defineStore('app', () => {
 
   function voomPostCanBeAutoRepliedByConversation(post: VoomPost, conversation: Conversation, character: CharacterProfile) {
     if (isReplyingVoomComments(post.id)) return false;
+    if (voomPostHasProactiveCommentExpansion(post, character.id)) return false;
     if (post.authorType === 'user') return post.visibleCharacterIds?.includes(character.id) ?? false;
     return post.charId === character.id || post.conversationId === conversation.id || post.conversationIds?.includes(conversation.id) === true;
+  }
+
+  function voomPostHasProactiveCommentExpansion(post: VoomPost, characterId: string) {
+    const normalizedCharacterId = characterId.trim();
+    return Boolean(normalizedCharacterId && post.proactiveCommentExpansionCharacterIds?.includes(normalizedCharacterId));
+  }
+
+  function nextProactiveCommentExpansionCharacterIds(post: VoomPost, characterId: string) {
+    const normalizedCharacterId = characterId.trim();
+    return normalizedCharacterId
+      ? [...new Set([...(post.proactiveCommentExpansionCharacterIds ?? []), normalizedCharacterId])]
+      : post.proactiveCommentExpansionCharacterIds;
   }
 
   function pickAutoVoomCommentPost(conversationId: string) {
@@ -5255,10 +5274,10 @@ export const useAppStore = defineStore('app', () => {
   async function autoReplyToVoomComments(conversationId: string) {
     const post = pickAutoVoomCommentPost(conversationId);
     if (!post) return false;
-    return replyToVoomComments(post.id, { actorConversationId: conversationId, silent: true });
+    return replyToVoomComments(post.id, { actorConversationId: conversationId, silent: true, proactive: true });
   }
 
-  async function replyToVoomComments(postId: string, options: { actorConversationId?: string; silent?: boolean; suppressGlobalNotice?: boolean } = {}) {
+  async function replyToVoomComments(postId: string, options: { actorConversationId?: string; silent?: boolean; suppressGlobalNotice?: boolean; proactive?: boolean } = {}) {
     if (isReplyingVoomComments(postId)) return;
 
     const post = voomPosts.value.find((entry) => entry.id === postId);
@@ -5273,6 +5292,7 @@ export const useAppStore = defineStore('app', () => {
 
     const character = characterById(conversation.charId);
     if (!character) return;
+    if (options.proactive && voomPostHasProactiveCommentExpansion(post, character.id)) return false;
 
     const boundUser = userById(character.boundUserId) ?? user.value;
     if (!boundUser) return;
@@ -5318,9 +5338,10 @@ export const useAppStore = defineStore('app', () => {
       });
 
       const createdAt = Date.now();
-  const latestPost = voomPosts.value.find((entry) => entry.id === postId);
-  if (!latestPost) return false;
-  const existingCommentIds = new Set(latestPost.comments.map((comment) => comment.id));
+    const latestPost = voomPosts.value.find((entry) => entry.id === postId);
+    if (!latestPost) return false;
+    if (options.proactive && voomPostHasProactiveCommentExpansion(latestPost, character.id)) return false;
+    const existingCommentIds = new Set(latestPost.comments.map((comment) => comment.id));
       const generatedIds = replies.map(() => createId('comment'));
       const generatedIdByDraftId = new Map(replies.flatMap((reply, index) => reply.draftId ? [[reply.draftId, generatedIds[index]]] : []));
       const characterVoomAuthorName = getCharacterVoomAuthorName(character);
@@ -5360,6 +5381,7 @@ export const useAppStore = defineStore('app', () => {
         ...latestPost,
         conversationId: latestPost.conversationId || conversation.id,
         conversationIds: targetConversations.map((targetConversation) => targetConversation.id),
+        proactiveCommentExpansionCharacterIds: options.proactive ? nextProactiveCommentExpansionCharacterIds(latestPost, character.id) : latestPost.proactiveCommentExpansionCharacterIds,
         comments: [...latestPost.comments, ...nextComments]
       };
       if (options.suppressGlobalNotice) {

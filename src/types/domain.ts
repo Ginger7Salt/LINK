@@ -489,6 +489,7 @@ export interface VoomPost {
   charId: string;
   conversationId?: string;
   conversationIds?: string[];
+  proactiveCommentExpansionCharacterIds?: string[];
   authorType?: VoomPostAuthorType;
   userId?: string;
   visibility?: VoomPostVisibility;

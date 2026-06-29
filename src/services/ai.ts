@@ -94,7 +94,7 @@ export interface MemoryAtomAuditResult {
   updates: MemoryAtomAuditUpdate[];
 }
 
-export type UserVoomCommentResult = Pick<VoomComment, 'authorName' | 'authorId' | 'content' | 'contentTranslation' | 'parentId'>;
+export type UserVoomCommentResult = Pick<VoomComment, 'authorName' | 'authorId' | 'content' | 'contentTranslation' | 'parentId'> & { draftId?: string };
 
 export interface SmallTheaterGenerationResult {
   title: string;
@@ -2268,26 +2268,48 @@ function normalizeUserVoomComments(input: unknown, targetCharacters: CharacterPr
       .forEach((name) => characterAliases.set(name, character));
   }
 
-  const comments: UserVoomCommentResult[] = [];
+  const candidates: Array<UserVoomCommentResult & { rawParentId?: string }> = [];
   for (const entry of source) {
-    if (comments.length >= 6 || !entry || typeof entry !== 'object') continue;
+    if (candidates.length >= 10 || !entry || typeof entry !== 'object') continue;
     const record = entry as Record<string, unknown>;
     const content = stripVoomCommentReplyPrefix(String(record.content ?? record.text ?? record.comment ?? ''));
     if (!content) continue;
 
-    const requestedAuthorKey = String(record.authorId ?? record.characterId ?? record.authorName ?? '').trim().toLocaleLowerCase();
-    const character = characterAliases.get(requestedAuthorKey) ?? targetCharacters[comments.length % targetCharacters.length];
-    if (!character) continue;
+    const requestedAuthorId = String(record.authorId ?? record.characterId ?? '').trim();
+    const requestedAuthorName = String(record.authorName ?? record.name ?? record.nickname ?? '').trim();
+    const character = characterAliases.get(requestedAuthorId.toLocaleLowerCase()) ?? characterAliases.get(requestedAuthorName.toLocaleLowerCase());
+    const fallbackCharacter = !requestedAuthorName ? targetCharacters[candidates.length % targetCharacters.length] : undefined;
+    const authorName = character
+      ? getCharacterVoomAuthorName(character)
+      : fallbackCharacter
+        ? getCharacterVoomAuthorName(fallbackCharacter)
+        : requestedAuthorName;
+    if (!authorName) continue;
 
     const contentTranslation = normalizeTranslationText(record.contentTranslation ?? record.translation ?? record.translationZh ?? record.chineseTranslation);
-    comments.push({
-      authorName: getCharacterVoomAuthorName(character),
-      authorId: character.id,
+    const draftId = String(record.id ?? record.draftId ?? record.tempId ?? '').trim();
+    candidates.push({
+      authorName,
+      authorId: character?.id ?? fallbackCharacter?.id,
       content,
-      ...(contentTranslation ? { contentTranslation } : {})
+      ...(contentTranslation ? { contentTranslation } : {}),
+      ...(draftId ? { draftId } : {}),
+      rawParentId: String(record.parentId ?? record.replyToId ?? '').trim()
     });
   }
-  return comments;
+
+  const draftIds = new Set(candidates.map((comment) => comment.draftId).filter(Boolean));
+  return candidates.map((comment) => {
+    const parentId = comment.rawParentId && draftIds.has(comment.rawParentId) ? comment.rawParentId : undefined;
+    return {
+      authorName: comment.authorName,
+      ...(comment.authorId ? { authorId: comment.authorId } : {}),
+      content: comment.content,
+      ...(comment.contentTranslation ? { contentTranslation: comment.contentTranslation } : {}),
+      ...(comment.draftId ? { draftId: comment.draftId } : {}),
+      ...(parentId ? { parentId } : {})
+    };
+  });
 }
 
 export async function generateUserVoomComments(input: {
@@ -2318,7 +2340,7 @@ export async function generateUserVoomComments(input: {
     ].join('；'))
     .join('\n');
   const prompt = [
-    '你要模拟 LINK VOOM 里，角色们看到用户发出的动态后留下的自然评论。只输出 JSON，不要输出 JSON 以外的文字。',
+    '你要模拟 LINK VOOM 里，用户可见角色以及这些角色社交圈 NPC 看到用户动态后的自然评论区。只输出 JSON，不要输出 JSON 以外的文字。',
     timeAwarenessPrompt,
     `用户真名：${getUserAiName(input.author)}`,
     `用户主页网名：${getUserVoomAuthorName(input.author)}`,
@@ -2326,14 +2348,15 @@ export async function generateUserVoomComments(input: {
     includeTimeContext && input.createdAt ? `用户动态发布时间：${formatVoomContextTime(input.createdAt)}` : '',
     `用户动态正文：\n${input.content}`,
     input.imageDescription ? `配图描述：${input.imageDescription}` : '',
-    `可评论角色：\n${targetCharacterText}`,
+    `可见角色与可用 NPC 线索：\n${targetCharacterText}`,
     `输出格式：
 {
   "comments": [
-    { "authorId": "从可评论角色 id 中选择", "content": "评论内容", "contentTranslation": "如 content 不是普通话，则给普通话译文；否则留空" }
+    { "id": "c1", "authorId": "可见角色 id；NPC 留空", "authorName": "NPC 网名或角色主页网名", "content": "评论内容", "contentTranslation": "如 content 不是普通话，则给普通话译文；否则留空", "parentId": "被回复的本次评论 id；直接评论则留空" },
+    { "id": "c2", "authorName": "NPC 网名", "content": "回复内容", "contentTranslation": "如 content 不是普通话，则给普通话译文；否则留空", "parentId": "c1" }
   ]
 }`,
-    '要求：1. 输出 0-6 条；2. authorId 必须来自可评论角色；3. 不要代替用户本人评论；4. 评论要短、自然、有社交软件感；5. 不要使用“NPC”“朋友A”“路人”这类占位名；6. contentTranslation 规则：外语、粤语、方言、繁体中文、文言/古风表达都要翻译成自然现代简体普通话；不要加“翻译：”前缀。'
+    '要求：1. 输出 0-10 条；2. authorId 可以来自可见角色，NPC 则不要填 authorId，必须填写具体 authorName；3. NPC 只能来自可见角色自己的设定、社交圈、朋友同事家人粉丝或评论区常客线索，不确定归属就不要生成该 NPC；4. parentId 留空表示直接评论用户动态，填写本次前面输出的 id 表示回复那条评论；5. 可以让角色回复 NPC，也可以让 NPC 回复角色或其他 NPC，但不要代替用户本人评论；6. 评论要短、自然、有社交软件感，不要解释设定；7. 不要使用“NPC”“朋友A”“路人”这类占位名；8. contentTranslation 规则：外语、粤语、方言、繁体中文、文言/古风表达都要翻译成自然现代简体普通话；不要加“翻译：”前缀。'
   ].filter(Boolean).join('\n\n');
 
   const apiReply = await callTextApi(input.settings, prompt, input.modelOverride);
