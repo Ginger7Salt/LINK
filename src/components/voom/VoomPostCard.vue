@@ -837,12 +837,16 @@ footer {
 }
 
 .comment-meta strong {
-  color: #30343a;
-  font-weight: 800;
+  color: #14171a;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.2;
 }
 
 .comment-meta em {
   color: #8c9299;
+  font-size: 12px;
+  font-weight: 500;
   font-style: normal;
 }
 
@@ -880,7 +884,8 @@ footer {
 }
 
 .comment-text {
-  color: #3f444b;
+  color: #50565e;
+  font-weight: 400;
   white-space: pre-wrap;
 }
 
