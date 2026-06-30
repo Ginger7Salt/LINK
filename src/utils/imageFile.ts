@@ -125,7 +125,9 @@ export async function compressInlineImageDataUrl(dataUrl: string, options: Compr
   return compressed.length < source.length ? compressed : dataUrl;
 }
 
-export async function readChatImageFile(file: File, maxDimension = 1280, quality = 0.86): Promise<ReadChatImageResult> {
+const chatImageOriginalSizeLimit = 260_000;
+
+export async function readChatImageFile(file: File, maxDimension = 720, quality = 0.72): Promise<ReadChatImageResult> {
   const source = await readImageFileAsDataUrl(file);
   const image = await loadImage(source);
   const width = image.naturalWidth || image.width;
@@ -135,9 +137,10 @@ export async function readChatImageFile(file: File, maxDimension = 1280, quality
   const scale = Math.min(1, maxDimension / Math.max(width, height));
   const outputWidth = Math.max(1, Math.round(width * scale));
   const outputHeight = Math.max(1, Math.round(height * scale));
-  const mimeType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+  const canReuseOriginal = scale === 1 && file.size <= chatImageOriginalSizeLimit && /^image\/(?:png|jpe?g|webp)$/i.test(file.type);
+  const mimeType = canReuseOriginal ? file.type : 'image/jpeg';
 
-  if (scale === 1 && file.size <= 900_000 && /^image\/(?:png|jpe?g|webp)$/i.test(file.type)) {
+  if (canReuseOriginal) {
     return { dataUrl: source, width, height, mimeType: file.type };
   }
 
@@ -146,6 +149,10 @@ export async function readChatImageFile(file: File, maxDimension = 1280, quality
   canvas.height = outputHeight;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('当前浏览器无法处理图片。');
+  if (mimeType === 'image/jpeg') {
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, outputWidth, outputHeight);
+  }
   context.drawImage(image, 0, 0, outputWidth, outputHeight);
   return {
     dataUrl: canvas.toDataURL(mimeType, mimeType === 'image/jpeg' ? quality : undefined),
