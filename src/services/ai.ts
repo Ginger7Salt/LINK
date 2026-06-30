@@ -2239,7 +2239,7 @@ function buildSmallTheaterPrompt(input: { context: PromptContext; topic: SmallTh
   const characterName = getCharacterAiName(input.context.character);
   const topicPrompt = input.topic.prompt.trim() || input.topic.title;
   return [
-    buildPrompt(input.context),
+    buildPrompt(input.context, { includeAvailableStickers: false }),
     '现在生成一个「小剧场」独立番外页面。它可以读取上面的角色设定、世界书、记忆手册、最近对话和当前时间上下文，但它绝对不是聊天消息、不是 VOOM、不是记忆写入内容，也不会被 AI 后续读取。',
     '生成结果必须是正文之外的番外小页面：不要把内容写成角色已在当前会话里发送、发布或注入楼层；不要输出聊天事件、VOOM JSON、朋友圈、系统旁白或任何需要写回对话的内容。',
     `本次角色：${characterName}（角色ID：${input.context.character.id}）`,
@@ -2417,7 +2417,7 @@ export async function generateVoomCommentReplies(input: {
     .map((name) => name.trim())
     .filter(Boolean);
   const prompt = [
-    buildPrompt(input.context),
+    buildPrompt(input.context, { includeAvailableStickers: false }),
     '现在你要模拟这条 VOOM 的真实评论区继续发展。只输出 JSON，不要输出 JSON 以外的任何文字。',
     `当前执行角色：${fallbackAuthorName}（角色ID：${input.context.character.id}）`,
     `VOOM 作者：${postAuthorName}${postBelongsToUser ? '（当前用户）' : ''}`,

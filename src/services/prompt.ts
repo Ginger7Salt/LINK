@@ -173,7 +173,7 @@ export const profileMutationPrompt = `补充输出规则：
 
 最终必须输出 JSON，不要输出 JSON 以外的任何文字，不要使用 Markdown 代码块。
 
-线上聊天像真实社交软件消息。messages 数组就是本轮发送顺序，可自由组合文字、语音、图片、定位、转账、Sticker；撤回和引用放在 messageActions。所有消息类型和动作都只是可选工具，不是固定流程：你可以本轮只发一句文字、只发一条语音、只发一个 Sticker、只发定位或转账，也可以任意组合并重复使用多次；先发什么、后发什么、发几个，都由角色当下情绪、上下文、关系距离和真实社交直觉决定。不要为了覆盖功能而机械凑齐类型，不要把示例顺序当模板，不要固定“文字+语音+表情/图片”的套路。旁白模式开启时也可加入旁白。修改网名或个性签名时，资料变动旁白也放进 messages 里的 narration 项，由它在数组中的位置决定显示位置。线下模式通常只用一条 text。
+线上聊天像真实社交软件消息。messages 数组就是本轮发送顺序，可自由组合文字、语音、图片、定位、转账、Sticker；撤回和引用放在 messageActions。所有消息类型和动作都只是可选工具，不是固定流程：你可以本轮只发一句文字、只发一条语音、只发一个 Sticker、只发定位或转账，也可以任意组合并重复使用多次；先发什么、后发什么、发几个，都由角色当下情绪、上下文、关系距离和真实社交直觉决定。不要为了覆盖功能而机械凑齐类型，不要把示例顺序当模板，不要固定“文字+语音+表情/图片”的套路。旁白模式开启时也可加入旁白。修改网名或个性签名时，资料变动旁白也放进 messages 里的 narration 项，由它在数组中的位置决定显示位置。
 
 如果不修改资料：
 {
@@ -361,9 +361,9 @@ export const strictRoleplayRules = `补充严格规则：
 
 你可以在任何时候调用 post_moment 发布朋友圈。频率和风格完全取决于角色的性格。
 
-你的朋友圈受众是你的整个社交网络。不要生成{{user}}的点赞或评论--{{user}}的行为由User决定。生成NPC的互动时，NPC的身份和数量应与当前角色自己的社交圈设定一致。
+你的朋友圈受众是你的整个社交网络。不要生成{{user}}的点赞或评论--{{user}}的行为由User决定。生成NPC的互动时，NPC的身份应与当前角色自己的社交圈设定一致，也可基于已有上下文拓展NPC。
 
-每个角色的NPC社交圈彼此独立：朋友、同事、家人、同学、粉丝、熟人、网名和评论区常客只能来自当前角色设定、当前会话、当前角色世界书或当前角色已发布的VOOM上下文。禁止借用其他角色的NPC名字、关系、口癖或评论区常客。`;
+每个角色的NPC社交圈应包括朋友、同事、家人、同学、粉丝、熟人。`;
 
 const modeInstructions: Record<ChatMode, string> = {
   online: '当前是线上聊天模式。回复要模拟当前在使用社交软件，并把你的独立日程、空档经历、精力状态和可能的生活打断自然体现在消息节奏里。',
@@ -669,7 +669,7 @@ export function selectWorldBooks(context: PromptContext) {
   });
 }
 
-export function buildPrompt(context: PromptContext, options: { includeOnlineChatPunctuation?: boolean; includeOnlineStickerSemantics?: boolean; includeOnlineRoutineCare?: boolean } = {}) {
+export function buildPrompt(context: PromptContext, options: { includeOnlineChatPunctuation?: boolean; includeOnlineStickerSemantics?: boolean; includeOnlineRoutineCare?: boolean; includeAvailableStickers?: boolean } = {}) {
   const selectedWorldBooks = selectWorldBooks(context);
   const outputPrompt = context.mode === 'online' ? profileMutationPrompt : offlineReplyOutputPrompt;
   const includeMessageTime = normalizeTimeAwarenessSettings(context.timeAwareness).enabled;
@@ -730,7 +730,7 @@ export function buildPrompt(context: PromptContext, options: { includeOnlineChat
     context.mode === 'online'
       ? 'Sticker / 图片 / 语音 / 定位 / 转账规则：用户发送 Sticker 时，文字描述是用户提供的贴纸含义。用户发送真实图片时，若本次请求附带图片，你可以观察图片内容；用户发送文字描述卡片时，必须理解为“用户发送了一张图片，图片内容为描述文本”，虽然没有真实图片文件，也要按图片内容参与对话。用户或角色发送语音时，必须理解为对方用语音消息说出了对应文字内容，不要把它当成普通打字消息；角色也可以在合适时用 voice 项主动发送语音条。用户发送定位时，必须理解为用户把自己的当前位置发给了你，并告知了用户与角色之间的距离；角色也可以在合适时用 location 项主动发送自己的定位。用户发送转账时，必须理解为用户确实向你发起了对应金额的转账；你可以在后续按角色意愿接收或拒绝。角色也可以在合适时用 transfer 项主动向用户转账，等待用户接收或拒绝。若未附带真实图片，不要臆造描述之外的图片细节。'
       : '',
-    context.mode === 'online' ? `角色可用 Stickers：\n${renderAvailableStickers(context)}` : '',
+    context.mode === 'online' && options.includeAvailableStickers !== false ? `角色可用 Stickers：\n${renderAvailableStickers(context)}` : '',
     context.mode === 'online' && context.replyInstruction ? `本次生成任务：\n${context.replyInstruction}` : '',
     `最近对话：\n${history || '暂无。'}`
   ].filter(Boolean).join('\n\n');
@@ -762,5 +762,5 @@ function renderRecentVoomDiversityPrompt(context: PromptContext) {
 
 export function buildMomentPrompt(context: PromptContext) {
   const characterName = context.character.name || context.character.nickname || '角色';
-  return `${buildPrompt(context, { includeOnlineChatPunctuation: false, includeOnlineStickerSemantics: false, includeOnlineRoutineCare: false })}\n\n${renderRecentVoomDiversityPrompt(context)}\n\n现在生成角色要发布的一条 LINK VOOM / 朋友圈动态，以及这条动态自然产生的点赞和评论区。只输出 JSON，不要输出 Markdown，不要输出 JSON 以外的任何文字。\n\n本次 VOOM 作者固定是：${characterName}（角色ID：${context.character.id}）。所有点赞和评论区 NPC 都只能来自这个角色自己的社交圈。\n\n格式：\n{\n  "content": "朋友圈正文",\n  "contentTranslation": "只在 content 是非中文外语或粤语时填写简体中文译文，否则留空",\n  "imageDescription": "这条动态会同时发布的一张配图的文字描述",\n  "likes": ["NPC在社交软件上的网名"],\n  "comments": [\n    { "id": "c1", "authorName": "NPC在社交软件上的网名", "content": "评论内容", "contentTranslation": "只在 content 是非中文外语或粤语时填写简体中文译文，否则留空", "parentId": "被回复评论的 id，可留空" },\n    { "id": "c2", "authorName": "${characterName}", "content": "回复内容", "contentTranslation": "", "parentId": "c1" }\n  ]\n}\n\n要求：\n1. content 是角色真正发出去的动态文字，像社交软件朋友圈正文，可以短，可以日常，不要解释设定。\n2. contentTranslation 和每条 comment.contentTranslation 只翻译非中文外语或粤语；中文内容留空。译文必须是自然简体中文，不要加“翻译：”前缀。\n3. imageDescription 是配图画面描述，不是生图提示词，不要写英文标签、相机参数、画质词或模型术语。\n4. 配图内容由角色性格、对话历史、动态正文、最近经历和生活状态决定，不固定题材；可以是自拍、随手拍、物品、街景、餐食、房间、作业、工作现场等任何合理画面。\n5. imageDescription 描述“画面里有什么”和“看起来是什么氛围”，注意环境场景、时间、图片视角、角色设定形象，构图组成部分等，控制在 40-140 个中文字符。\n6. likes 和 comments 来自本角色真实社交圈里的 NPC，不要包含{{user}}，也不要使用“NPC”这种占位名字。\n7. 禁止把其他角色设定里的朋友、同事、家人、同学、粉丝、熟人、NPC网名或评论区常客搬到本角色动态下；不确定归属时就少写或生成符合本角色设定的新网名。\n8. comments 控制在 2-6 条，内容要像社交软件评论区里会出现的真实评论；id 是本次评论的临时 id，parentId 留空表示新评论，填写前面某条评论的 id 表示回复该评论。\n9. 角色本人可以回复别人评论；如果 content 写成“回复某某：……”，也必须同时填写对应 parentId，不要只把回复对象写进文字里。\n10. 每条 VOOM 都必须独一无二：不要产出和近期 VOOM 内容相似、话题相似、画面相似或情绪模板相似的动态。`;
+  return `${buildPrompt(context, { includeOnlineChatPunctuation: false, includeOnlineStickerSemantics: false, includeOnlineRoutineCare: false, includeAvailableStickers: false })}\n\n${renderRecentVoomDiversityPrompt(context)}\n\n现在生成角色要发布的一条 LINK VOOM / 朋友圈动态，以及这条动态自然产生的点赞和评论区。只输出 JSON，不要输出 Markdown，不要输出 JSON 以外的任何文字。\n\n本次 VOOM 作者固定是：${characterName}（角色ID：${context.character.id}）。所有点赞和评论区 NPC 都只能来自这个角色自己的社交圈。\n\n格式：\n{\n  "content": "朋友圈正文",\n  "contentTranslation": "只在 content 是非中文外语或粤语时填写简体中文译文，否则留空",\n  "imageDescription": "这条动态会同时发布的一张配图的文字描述",\n  "likes": ["NPC在社交软件上的网名"],\n  "comments": [\n    { "id": "c1", "authorName": "NPC在社交软件上的网名", "content": "评论内容", "contentTranslation": "只在 content 是非中文外语或粤语时填写简体中文译文，否则留空", "parentId": "被回复评论的 id，可留空" },\n    { "id": "c2", "authorName": "${characterName}", "content": "回复内容", "contentTranslation": "", "parentId": "c1" }\n  ]\n}\n\n要求：\n1. content 是角色真正发出去的动态文字，像社交软件朋友圈正文，可以短，可以日常，不要解释设定。\n2. contentTranslation 和每条 comment.contentTranslation 只翻译非中文外语或粤语；中文内容留空。译文必须是自然简体中文，不要加“翻译：”前缀。\n3. imageDescription 是配图画面描述，不是生图提示词，不要写英文标签、相机参数、画质词或模型术语。\n4. 配图内容由角色性格、对话历史、动态正文、最近经历和生活状态决定，不固定题材；可以是自拍、随手拍、物品、街景、餐食、房间、作业、工作现场等任何合理画面。\n5. imageDescription 描述“画面里有什么”和“看起来是什么氛围”，注意环境场景、时间、图片视角、角色设定形象，构图组成部分等，控制在 40-140 个中文字符。\n6. likes 和 comments 来自本角色真实社交圈里的 NPC，不要包含{{user}}，也不要使用“NPC”这种占位名字。\n7. 禁止把其他角色设定里的朋友、同事、家人、同学、粉丝、熟人、NPC网名或评论区常客搬到本角色动态下；不确定归属时就少写或生成符合本角色设定的新网名。\n8. comments 控制在 2-6 条，内容要像社交软件评论区里会出现的真实评论；id 是本次评论的临时 id，parentId 留空表示新评论，填写前面某条评论的 id 表示回复该评论。\n9. 角色本人可以回复别人评论；如果 content 写成“回复某某：……”，也必须同时填写对应 parentId，不要只把回复对象写进文字里。\n10. 每条 VOOM 都必须独一无二：不要产出和近期 VOOM 内容相似、话题相似、画面相似或情绪模板相似的动态。`;
 }
