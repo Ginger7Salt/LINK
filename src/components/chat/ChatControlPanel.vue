@@ -5,14 +5,14 @@
           <div>
             <span>Hippocampus Memory</span>
             <strong>{{ totalMemoryTokenLabel }}</strong>
-            <p>{{ hiddenFloorStatus }} 记忆会按“原子记忆 + 分段总结 + 大总结”三层保存，优先把当前最相关的内容交给 AI。</p>
+            <p>{{ hiddenFloorStatus }}</p>
           </div>
           <button class="manual-summary-button" type="button" :disabled="summarizing" @click="showManualSummary = !showManualSummary">
             {{ summarizing ? '总结中' : '手动总结' }}
           </button>
         </section>
 
-        <form v-if="showManualSummary" class="manual-summary-card settings-block" @submit.prevent="manualSummarize">
+        <form v-if="showManualSummary" class="manual-summary-card settings-block" @submit.prevent="requestManualSummarize">
           <header class="section-header compact-header">
             <div>
               <span>Manual range</span>
@@ -28,16 +28,8 @@
               <span>总结结束楼层</span>
               <input v-model.number="manualSummary.endFloor" :max="messageCount" min="1" type="number" />
             </label>
-            <label class="field">
-              <span>隐藏开始楼层</span>
-              <input v-model.number="manualSummary.hiddenStartFloor" min="0" type="number" />
-            </label>
-            <label class="field">
-              <span>隐藏结束楼层</span>
-              <input v-model.number="manualSummary.hiddenEndFloor" :max="messageCount" min="0" type="number" />
-            </label>
           </div>
-          <p>适合补录关键剧情、手动修正遗漏，或者在一段重要对话结束后立刻固化记忆。隐藏范围填 0 表示不隐藏；隐藏范围必须在总结范围内。</p>
+          <p>适合补录关键剧情、手动修正遗漏，或者在一段重要对话结束后立刻固化记忆。隐藏楼层只由新增大总结产生。</p>
           <div class="manual-summary-actions">
             <button class="summary-submit" type="submit" :disabled="summarizing || !canManualSummarize">生成总结</button>
             <button class="secondary-action" type="button" @click="fillLatestRange">填入未总结楼层</button>
@@ -49,15 +41,13 @@
             <div>
               <span>Automation</span>
               <strong>记忆策略</strong>
-              <small class="memory-section-note">推荐保持默认：50 楼自动总结、每次回复写入原子、8 条摘要触发合并。想省调用时，只调高写入频率即可。</small>
             </div>
           </header>
           <div class="memory-strategy-stack">
             <div class="strategy-group">
               <div class="strategy-copy">
                 <span>基础归档</span>
-                <strong>把长聊天按段收进记忆</strong>
-                <small>适合默认开启。它负责把旧楼层压成分段总结，并在需要时折叠旧楼层。</small>
+                <strong>按楼层生成回忆录</strong>
               </div>
               <div class="strategy-control-grid">
                 <label class="switch-card">
@@ -65,20 +55,42 @@
                   <span class="switch-track"></span>
                   <div>
                     <strong>自动总结</strong>
-                    <span>按楼层把长聊天归档成分段总结。</span>
+                    <span>按楼层把长聊天归档成回忆录。</span>
                   </div>
                 </label>
                 <label class="field compact-field">
-                  <span>每多少楼总结</span>
+                  <span>每多少楼生成回忆录</span>
                   <input :value="memoryNumberDraft.summarizeEvery" inputmode="numeric" min="1" step="1" type="number" @input="updateMemoryNumberDraft('summarizeEvery', $event)" @change="commitMemoryNumberDraft('summarizeEvery', $event)" @blur="commitMemoryNumberDraft('summarizeEvery', $event)" @keydown.enter.prevent="commitMemoryNumberDraft('summarizeEvery', $event)" />
-                  <small>默认 50；可按需要填写任意正整数。</small>
+                  <small>默认 6；会按此楼数生成一份回忆录。</small>
+                </label>
+              </div>
+            </div>
+
+            <div class="strategy-group">
+              <div class="strategy-copy">
+                <span>新增大总结</span>
+                <strong>按累计楼层生成新增大总结</strong>
+              </div>
+              <div class="strategy-control-grid">
+                <label class="switch-card strategy-wide-control">
+                  <input v-model="draft.memory.autoGrandSummaryEnabled" type="checkbox" @change="saveDraft" />
+                  <span class="switch-track"></span>
+                  <div>
+                    <strong>自动生成新增大总结</strong>
+                    <span>楼层达到 60、120、180... 时，读取累计楼层正文和本轮回忆录。</span>
+                  </div>
+                </label>
+                <label class="field compact-field">
+                  <span>每多少楼触发新增大总结</span>
+                  <input :value="memoryNumberDraft.grandSummaryEvery" inputmode="numeric" min="20" max="300" type="number" @input="updateMemoryNumberDraft('grandSummaryEvery', $event)" @change="commitMemoryNumberDraft('grandSummaryEvery', $event)" @blur="commitMemoryNumberDraft('grandSummaryEvery', $event)" @keydown.enter.prevent="commitMemoryNumberDraft('grandSummaryEvery', $event)" />
+                  <small>默认 60；第 60/120 楼触发，成功后删除本轮回忆录。</small>
                 </label>
                 <label class="switch-card strategy-wide-control">
                   <input v-model="draft.memory.hideSummarizedMessages" type="checkbox" @change="saveDraft" />
                   <span class="switch-track"></span>
                   <div>
-                    <strong>自动隐藏楼层</strong>
-                    <span>总结完成后折叠旧楼层，减少上下文挤占。</span>
+                    <strong>新增大总结后隐藏楼层</strong>
+                    <span>只在新增大总结成功后隐藏旧楼层，默认保留末尾 10 楼。</span>
                   </div>
                 </label>
               </div>
@@ -86,61 +98,29 @@
 
             <div class="strategy-group">
               <div class="strategy-copy">
-                <span>原子召回</span>
-                <strong>记住承诺、冲突和关系变化</strong>
-                <small>这是防失忆的核心层。每轮提炼小颗粒记忆，再由相似度挑出本轮最相关的内容。</small>
-              </div>
-              <div class="strategy-control-grid">
-                <label class="switch-card">
-                  <input v-model="draft.memory.vectorMemoryEnabled" type="checkbox" @change="saveDraft" />
-                  <span class="switch-track"></span>
-                  <div>
-                    <strong>语义向量召回</strong>
-                    <span>用 embedding 辅助召回，减少跑题和漏记。</span>
-                  </div>
-                </label>
-                <label class="switch-card">
-                  <input v-model="draft.memory.atomWriterEnabled" type="checkbox" @change="saveDraft" />
-                  <span class="switch-track"></span>
-                  <div>
-                    <strong>每轮原子写入</strong>
-                    <span>回复后提炼承诺、冲突、偏好和关系变化。</span>
-                  </div>
-                </label>
-                <label class="field compact-field strategy-wide-control">
-                  <span>每几次回复写入</span>
-                  <input :value="memoryNumberDraft.atomWriterEvery" inputmode="numeric" min="1" max="10" type="number" @input="updateMemoryNumberDraft('atomWriterEvery', $event)" @change="commitMemoryNumberDraft('atomWriterEvery', $event)" @blur="commitMemoryNumberDraft('atomWriterEvery', $event)" @keydown.enter.prevent="commitMemoryNumberDraft('atomWriterEvery', $event)" />
-                  <small>1 最稳；2 更省总结与向量化模型调用。</small>
-                </label>
-              </div>
-            </div>
-
-            <div class="strategy-group">
-              <div class="strategy-copy">
-                <span>分层整理</span>
-                <strong>摘要变多后自动压缩</strong>
-                <small>把多条分段总结合成大总结，长期聊天不会越来越占上下文。</small>
+                <span>全文大总结</span>
+                <strong>新增大总结合成全文大总结</strong>
               </div>
               <div class="strategy-control-grid">
                 <label class="switch-card strategy-wide-control">
                   <input v-model="draft.memory.autoMergeEnabled" type="checkbox" @change="saveDraft" />
                   <span class="switch-track"></span>
                   <div>
-                    <strong>自动合并大总结</strong>
-                    <span>摘要变多后自动压缩成更高层记忆。</span>
+                    <strong>自动生成全文大总结</strong>
+                    <span>新增大总结数量达标后，继续合成为全文大总结。</span>
                   </div>
                 </label>
                 <label class="field compact-field">
-                  <span>达到几条触发</span>
+                  <span>每多少条新增大总结触发全文大总结</span>
                   <input :value="memoryNumberDraft.autoMergeThreshold" inputmode="numeric" min="3" max="30" type="number" @input="updateMemoryNumberDraft('autoMergeThreshold', $event)" @change="commitMemoryNumberDraft('autoMergeThreshold', $event)" @blur="commitMemoryNumberDraft('autoMergeThreshold', $event)" @keydown.enter.prevent="commitMemoryNumberDraft('autoMergeThreshold', $event)" />
-                  <small>默认 8，避免太早压缩。</small>
+                  <small>默认 8，达到后进入全文大总结。</small>
                 </label>
                 <label class="field compact-field">
-                  <span>每批合并条数</span>
+                  <span>每批合并几条新增大总结</span>
                   <input :value="memoryNumberDraft.autoMergeBatchSize" inputmode="numeric" min="2" max="20" type="number" @input="updateMemoryNumberDraft('autoMergeBatchSize', $event)" @change="commitMemoryNumberDraft('autoMergeBatchSize', $event)" @blur="commitMemoryNumberDraft('autoMergeBatchSize', $event)" @keydown.enter.prevent="commitMemoryNumberDraft('autoMergeBatchSize', $event)" />
-                  <small>默认 6，保留可回滚层级。</small>
+                  <small>默认 6，每批合并 6 个新增大总结。</small>
                 </label>
-                <button class="secondary-action memory-run-action strategy-wide-control" type="button" :disabled="summarizing || mergeDisabled" @click="runAutoMergeNow">立即整理记忆</button>
+                <button class="secondary-action memory-run-action strategy-wide-control" type="button" :disabled="summarizing || mergeDisabled" @click="requestRunAutoMergeNow">立即整理记忆层级</button>
               </div>
             </div>
 
@@ -152,18 +132,17 @@
             <div>
               <span>Chronology</span>
               <strong>记忆时间线</strong>
-              <small class="memory-section-note">按事件发生时间整理原子记忆；没有原子时会退回显示分段总结的时间范围。</small>
             </div>
             <em>{{ memoryTimelineItems.length }} 条</em>
           </header>
           <div v-if="memoryTimelineItems.length" class="memory-merge-dashboard timeline-dashboard">
             <span>
-              <strong>{{ timedMemoryAtomCount }}</strong>
-              <small>有时间</small>
+              <strong>{{ memoirMemoryCount }}</strong>
+              <small>回忆录</small>
             </span>
             <span>
-              <strong>{{ openMemoryAtomCount }}</strong>
-              <small>待处理</small>
+              <strong>{{ grandSummaryCount }}</strong>
+              <small>大总结</small>
             </span>
             <span>
               <strong>{{ memoryTimelineSpanLabel }}</strong>
@@ -177,7 +156,54 @@
               <div class="timeline-copy">
                 <span>{{ item.eyebrow }}</span>
                 <strong>{{ item.title }}</strong>
-                <p>{{ item.content }}</p>
+                <section class="timeline-summary-display" aria-label="完整记忆摘要">
+                  <template v-for="block in item.blocks" :key="block.id">
+                    <h4 v-if="block.kind === 'heading'" class="timeline-summary-heading">{{ block.content }}</h4>
+                    <div v-else-if="block.kind === 'field'" class="timeline-summary-field">
+                      <span>{{ block.label }}</span>
+                      <p>{{ block.content }}</p>
+                    </div>
+                    <ul v-else-if="block.kind === 'list'" class="timeline-summary-list">
+                      <li v-for="listItem in block.items" :key="listItem">{{ listItem }}</li>
+                    </ul>
+                    <div v-else-if="block.kind === 'table'" class="timeline-profile-table-shell">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th v-for="header in block.headers" :key="header">{{ header }}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-for="(row, rowIndex) in block.rows" :key="rowIndex">
+                            <td v-for="(cell, cellIndex) in row" :key="`${rowIndex}-${cellIndex}`">{{ cell }}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <div v-else-if="block.kind === 'graph'" class="timeline-graph-card">
+                      <svg viewBox="0 0 440 280" role="img" aria-label="角色关系图">
+                        <defs>
+                          <marker :id="`${block.id}-arrow`" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+                            <path d="M0,0 L9,4.5 L0,9 Z" />
+                          </marker>
+                        </defs>
+                        <g class="graph-edges">
+                          <g v-for="edge in block.edges" :key="edge.id">
+                            <line :x1="edge.x1" :y1="edge.y1" :x2="edge.x2" :y2="edge.y2" :marker-end="`url(#${block.id}-arrow)`" />
+                            <text :x="(edge.x1 + edge.x2) / 2" :y="(edge.y1 + edge.y2) / 2 - 6">{{ edge.label }}</text>
+                          </g>
+                        </g>
+                        <g v-for="node in block.nodes" :key="node.id" class="graph-node">
+                          <title>{{ node.label }}</title>
+                          <rect :x="node.x - 54" :y="node.y - 18" width="108" height="36" rx="13" />
+                          <text :x="node.x" :y="node.y + 4">{{ node.label }}</text>
+                        </g>
+                      </svg>
+                    </div>
+                    <pre v-else-if="block.kind === 'code'" class="timeline-summary-code"><span>{{ block.language || 'code' }}</span>{{ block.content }}</pre>
+                    <p v-else class="timeline-summary-paragraph">{{ block.content }}</p>
+                  </template>
+                </section>
                 <div v-if="item.meta.length" class="timeline-meta">
                   <em v-for="meta in item.meta" :key="meta">{{ meta }}</em>
                 </div>
@@ -185,7 +211,7 @@
             </article>
           </div>
           <button v-if="canShowMoreTimelineItems" class="list-more-action" type="button" @click="showMoreTimelineItems">显示更多时间线</button>
-          <div v-else class="empty-note memory-empty-note">还没有可展示的时间线。完成一次原子写入或分段总结后，这里会按发生时间排列记忆。</div>
+          <div v-if="!memoryTimelineItems.length" class="empty-note memory-empty-note">还没有可展示的时间线。完成一次回忆录或大总结后，这里会按创建时间排列记忆。</div>
         </section>
 
         <section class="memory-records settings-block">
@@ -193,14 +219,13 @@
             <div>
               <span>Memory space</span>
               <strong>记忆空间</strong>
-              <small class="memory-section-note">这里是分段总结和大总结。分段用于保留细节，大总结用于长期压缩，取消合并可以回到上一层。</small>
             </div>
             <em>{{ memories.length }} 条</em>
           </header>
           <div v-if="memories.length" class="memory-merge-dashboard">
             <span>
               <strong>{{ mergeableMemories.length }}</strong>
-              <small>可合并</small>
+              <small>可整理</small>
             </span>
             <span>
               <strong>{{ mergedMemories.length }}</strong>
@@ -208,7 +233,7 @@
             </span>
             <span>
               <strong>{{ mergeDepthPeak }}</strong>
-              <small>最高层级</small>
+              <small>全文层级</small>
             </span>
           </div>
           <div class="merge-actions">
@@ -252,99 +277,30 @@
           <article v-for="memory in visibleMemories" :key="memory.id" class="memory-card">
             <div class="memory-card-head">
               <div>
-                <span>{{ memory.isMergedSummary ? 'Long memory page' : 'Memory page' }}</span>
+                <span>{{ memory.isMergedSummary ? 'Grand summary' : 'Memoir page' }}</span>
                 <strong>{{ memory.startFloor }}-{{ memory.endFloor }}楼</strong>
               </div>
-              <em>{{ memory.isMergedSummary ? '合并大总结' : '片段记忆' }}</em>
+              <em>{{ memory.isMergedSummary ? '大总结' : '六楼回忆录' }}</em>
             </div>
             <textarea :value="memory.summary" @change="updateMemorySummary(memory, $event)"></textarea>
+            <div v-if="canEditMemoryHiddenRange(memory)" class="memory-hidden-editor">
+              <label>
+                <span>隐藏开始</span>
+                <input :value="memory.hiddenStartFloor || 0" inputmode="numeric" min="0" type="number" @change="updateMemoryHiddenRange(memory, 'start', $event)" />
+              </label>
+              <label>
+                <span>隐藏结束</span>
+                <input :value="memory.hiddenEndFloor || 0" inputmode="numeric" min="0" type="number" @change="updateMemoryHiddenRange(memory, 'end', $event)" />
+              </label>
+              <button class="secondary-action" type="button" @click="requestToggleHidden(memory, !hasHiddenRange(memory))">{{ hasHiddenRange(memory) ? '取消隐藏' : '推荐隐藏' }}</button>
+            </div>
             <div class="memory-actions">
               <button class="secondary-action" type="button" :disabled="summarizing" @click="requestResummarizeMemory(memory.id)">重新总结</button>
               <button class="danger-action" type="button" @click="requestDeleteMemory(memory.id)">删除总结</button>
             </div>
           </article>
           <button v-if="canShowMoreMemories" class="list-more-action" type="button" @click="showMoreMemories">显示更多总结</button>
-          <div v-if="!memories.length" class="empty-note memory-empty-note">记忆空间暂时空着。达到楼层或点击手动总结后，新的书页会收进这里。</div>
-        </section>
-      </section>
-
-      <section v-else-if="activeTab === 'atoms'" class="panel-section atoms-panel">
-        <section class="memory-hero atom-hero">
-          <div>
-            <span>Atom Memory</span>
-            <strong>{{ memoryAtoms.length }} 条原子</strong>
-            <p>管理会被长期保留的事实、承诺、冲突和关系变化。固定项会一直保留；屏蔽、作废和低价值已解决项会随楼层推进自动清理。</p>
-          </div>
-        </section>
-
-        <section class="settings-block memory-atom-manager atom-manager-page">
-          <header class="section-header record-header">
-            <div>
-              <span>Atom Library</span>
-              <strong>原子记忆管理</strong>
-              <small class="memory-section-note">优先显示固定和高重要度记忆；修改内容、状态或重要度后会自动固定。屏蔽项不参与召回，过旧后会自动删除。</small>
-            </div>
-            <em>{{ memoryAtoms.length }} 条</em>
-          </header>
-          <div class="memory-merge-dashboard atom-dashboard">
-            <span>
-              <strong>{{ openMemoryAtomCount }}</strong>
-              <small>待处理</small>
-            </span>
-            <span>
-              <strong>{{ pinnedMemoryAtomCount }}</strong>
-              <small>已固定</small>
-            </span>
-            <span>
-              <strong>{{ archivedMemoryAtomCount }}</strong>
-              <small>已屏蔽</small>
-            </span>
-          </div>
-          <div v-if="memoryAtoms.length" class="memory-atom-list" role="list">
-            <article v-for="atom in memoryAtomPreview" :key="atom.id" class="memory-atom-row" :class="{ 'is-archived': atom.archivedAt }" role="listitem">
-              <header class="memory-atom-card-head">
-                <div class="memory-atom-title">
-                  <span>{{ memoryAtomTypeLabel(atom.type) }}</span>
-                  <strong>{{ atom.subject }}</strong>
-                </div>
-                <button class="tiny-action" type="button" @click="requestToggleAtomPinned(atom)">{{ atom.pinned ? '取消固定' : '固定' }}</button>
-              </header>
-              <div class="memory-atom-badges">
-                <span>{{ memoryAtomStatusLabel(atom.status) }}</span>
-                <span>重要度 {{ atom.importance }}</span>
-                <span>{{ memoryAtomFloorLabel(atom) }}</span>
-                <span>{{ memoryAtomTimeLabel(atom) }}</span>
-                <span v-if="atom.pinned">已固定</span>
-                <span v-if="atom.archivedAt">已屏蔽</span>
-              </div>
-              <label class="memory-atom-content-field">
-                <span>内容</span>
-                <textarea :value="atom.content" rows="3" @change="updateAtomContent(atom, $event)"></textarea>
-              </label>
-              <div class="memory-atom-meta-grid">
-                <label><span>责任</span><input :value="atom.owner ?? ''" placeholder="未设置" @change="updateAtomMeta(atom, 'owner', $event)" /></label>
-                <label><span>对象</span><input :value="atom.counterparty ?? ''" placeholder="未设置" @change="updateAtomMeta(atom, 'counterparty', $event)" /></label>
-                <label><span>期限</span><input :value="atom.due ?? ''" placeholder="未设置" @change="updateAtomMeta(atom, 'due', $event)" /></label>
-                <label><span>结果</span><input :value="atom.resolution ?? ''" placeholder="未设置" @change="updateAtomMeta(atom, 'resolution', $event)" /></label>
-              </div>
-              <div class="memory-atom-controls">
-                <label>
-                  <span>状态</span>
-                  <select :value="atom.status" @change="updateAtomStatus(atom, $event)">
-                    <option v-for="status in memoryAtomStatusOptions" :key="status.value" :value="status.value">{{ status.label }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>重要度</span>
-                  <input :value="atom.importance" min="1" max="5" type="number" @change="updateAtomImportance(atom, $event)" />
-                </label>
-                <button class="tiny-action" type="button" @click="requestToggleAtomArchived(atom)">{{ atom.archivedAt ? '取消屏蔽' : '屏蔽' }}</button>
-                <button class="danger-action" type="button" @click="requestDeleteAtom(atom.id)">删除</button>
-              </div>
-            </article>
-          </div>
-          <button v-if="canShowMoreMemoryAtoms" class="list-more-action" type="button" @click="showMoreMemoryAtoms">显示更多原子</button>
-          <div v-else class="empty-note memory-empty-note">还没有原子记忆。开启每轮原子写入后，回复会逐步提炼可管理的小颗粒记忆。</div>
+          <div v-if="!memories.length" class="empty-note memory-empty-note">记忆空间暂时空着。达到 6 楼或点击手动总结后，新的回忆录会收进这里。</div>
         </section>
       </section>
 
@@ -728,8 +684,8 @@
           <ul v-if="confirmDialog.details.length">
             <li v-for="detail in confirmDialog.details" :key="detail">{{ detail }}</li>
           </ul>
-          <div class="memory-confirm-actions">
-            <button class="secondary-action" type="button" :disabled="confirmDialog.running" @click="closeConfirmDialog">取消</button>
+          <div class="memory-confirm-actions" :class="{ 'confirm-only': confirmDialog.confirmOnly }">
+            <button v-if="!confirmDialog.confirmOnly" class="secondary-action" type="button" :disabled="confirmDialog.running" @click="closeConfirmDialog">取消</button>
             <button class="summary-submit" :class="{ 'danger-confirm': confirmDialog.tone === 'danger' }" type="button" :disabled="confirmDialog.running" @click="confirmPendingAction">
               {{ confirmDialog.running ? confirmDialog.runningText : confirmDialog.confirmText }}
             </button>
@@ -745,9 +701,10 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import AppModal from '@/components/common/AppModal.vue';
 import AvatarCropperModal from '@/components/image/AvatarCropperModal.vue';
 import { useAppStore } from '@/stores/appStore';
-import type { CharacterProfile, ChatAppearanceSettings, ConversationMemoryAtom, ConversationMemoryEntryStatus, ConversationMemoryRecord, ConversationSettings } from '@/types/domain';
+import type { CharacterProfile, ChatAppearanceSettings, ConversationMemoryRecord, ConversationSettings } from '@/types/domain';
 import { readImageFileFromInput } from '@/utils/imageFile';
-import { estimateTokenCount, getConversationFloorCount, getEffectiveHiddenFloorRanges, getMemoryHiddenEndFloor, normalizeConversationSettings } from '@/utils/memory';
+import { collectIncrementalGrandSummaries, estimateTokenCount, getConversationFloorCount, getEffectiveHiddenFloorRanges, getGrandSummaryHiddenEndFloor, grandSummaryVisibleTailFloors, isIncrementalGrandSummary, normalizeConversationSettings } from '@/utils/memory';
+import { parseMemorySummaryBlocks, type MemorySummaryBlock } from '@/utils/memorySummary';
 import { defaultProfileAvatar } from '@/utils/profile';
 import { normalizeVoomFrequency, voomFrequencyOptions } from '@/utils/voom';
 
@@ -756,8 +713,7 @@ type RgbChannel = 'red' | 'green' | 'blue';
 type RgbParts = Record<RgbChannel, number>;
 type ConfirmTone = 'primary' | 'danger';
 type ConfirmAction = () => Promise<void> | void;
-type MemoryNumberField = 'summarizeEvery' | 'atomWriterEvery' | 'autoMergeThreshold' | 'autoMergeBatchSize';
-type MemoryAtomMetaField = 'owner' | 'counterparty' | 'due' | 'resolution';
+type MemoryNumberField = 'summarizeEvery' | 'grandSummaryEvery' | 'autoMergeThreshold' | 'autoMergeBatchSize';
 
 type IdleWindow = Window & {
   requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
@@ -766,24 +722,16 @@ type IdleWindow = Window & {
 
 interface MemoryTimelineItem {
   id: string;
-  kind: 'atom' | 'summary';
+  kind: 'summary';
   time: number;
   timeEnd?: number;
   timeLabel: string;
   eyebrow: string;
   title: string;
-  content: string;
+  blocks: MemorySummaryBlock[];
   meta: string[];
   archived?: boolean;
 }
-
-const memoryAtomStatusOptions: Array<{ value: ConversationMemoryEntryStatus; label: string }> = [
-  { value: 'active', label: '有效' },
-  { value: 'open', label: '待处理' },
-  { value: 'resolved', label: '已解决' },
-  { value: 'superseded', label: '已取代' },
-  { value: 'cancelled', label: '已取消' }
-];
 
 interface ConfirmDialogState {
   open: boolean;
@@ -796,6 +744,10 @@ interface ConfirmDialogState {
   tone: ConfirmTone;
   running: boolean;
   action: ConfirmAction | null;
+  confirmOnly: boolean;
+  errorTitle: string;
+  errorMessage: string;
+  errorDetails: string[];
 }
 
 const props = defineProps<{
@@ -805,7 +757,7 @@ const props = defineProps<{
 }>();
 
 const store = useAppStore();
-export type PanelTab = 'memory' | 'atoms' | 'beauty' | 'profile' | 'other';
+export type PanelTab = 'memory' | 'beauty' | 'profile' | 'other';
 
 const activeTab = computed(() => props.activeTab);
 const summarizing = ref(false);
@@ -820,7 +772,7 @@ const selectedMergeIds = ref<string[]>([]);
 const draft = reactive<ConversationSettings>(normalizeConversationSettings(null, props.conversationId, 'online'));
 const memoryNumberDraft = reactive<Record<MemoryNumberField, string>>({
   summarizeEvery: String(draft.memory.summarizeEvery),
-  atomWriterEvery: String(draft.memory.atomWriterEvery),
+  grandSummaryEvery: String(draft.memory.grandSummaryEvery),
   autoMergeThreshold: String(draft.memory.autoMergeThreshold),
   autoMergeBatchSize: String(draft.memory.autoMergeBatchSize)
 });
@@ -835,7 +787,11 @@ const confirmDialog = reactive<ConfirmDialogState>({
   runningText: '处理中',
   tone: 'primary',
   running: false,
-  action: null
+  action: null,
+  confirmOnly: false,
+  errorTitle: '',
+  errorMessage: '',
+  errorDetails: []
 });
 const manualSummary = reactive({
   startFloor: 1,
@@ -845,7 +801,6 @@ const manualSummary = reactive({
 });
 const timelineDisplayLimit = ref(80);
 const memoryDisplayLimit = ref(40);
-const atomDisplayLimit = ref(80);
 const totalMemoryTokens = ref<number | null>(null);
 const totalMemoryTokenPending = ref(false);
 let tokenEstimateTimer: number | undefined;
@@ -853,40 +808,14 @@ let tokenEstimateIdleId: number | undefined;
 let tokenEstimateRun = 0;
 
 const memories = computed(() => store.memoriesForConversation(props.conversationId));
-const memoryAtoms = computed(() => store.memoryAtomsForConversation(props.conversationId));
+const memoirMemoryCount = computed(() => memories.value.filter((memory) => !memory.isMergedSummary).length);
+const grandSummaryCount = computed(() => memories.value.filter((memory) => memory.isMergedSummary).length);
 const currentConversationSettings = computed(() => store.settingsForConversation(props.conversationId));
 const totalMemoryTokenLabel = computed(() => {
   if (totalMemoryTokens.value !== null) return `${totalMemoryTokens.value} tokens`;
   return totalMemoryTokenPending.value ? '计算中' : '待计算';
 });
-const openMemoryAtomCount = computed(() => memoryAtoms.value.filter((atom) => atom.status === 'open' && !atom.archivedAt).length);
-const pinnedMemoryAtomCount = computed(() => memoryAtoms.value.filter((atom) => atom.pinned).length);
-const archivedMemoryAtomCount = computed(() => memoryAtoms.value.filter((atom) => atom.archivedAt).length);
-const timedMemoryAtomCount = computed(() => memoryAtoms.value.filter((atom) => atom.occurredAt || atom.timeLabel).length);
-const memoryAtomPreview = computed(() => [...memoryAtoms.value]
-  .sort((left, right) => Number(right.pinned) - Number(left.pinned) || right.importance - left.importance || right.updatedAt - left.updatedAt)
-  .slice(0, atomDisplayLimit.value));
-const canShowMoreMemoryAtoms = computed(() => memoryAtomPreview.value.length < memoryAtoms.value.length);
 const memoryTimelineItems = computed<MemoryTimelineItem[]>(() => {
-  const atomItems = memoryAtoms.value.map((atom): MemoryTimelineItem => ({
-    id: `atom:${atom.id}`,
-    kind: 'atom',
-    time: atom.occurredAt ?? atom.createdAt,
-    timeEnd: atom.occurredEndAt,
-    timeLabel: memoryAtomTimeLabel(atom),
-    eyebrow: `${memoryAtomFloorLabel(atom)} · ${memoryAtomTypeLabel(atom.type)}`,
-    title: atom.subject,
-    content: compactTimelineText(atom.content, 128),
-    meta: [
-      memoryAtomStatusLabel(atom.status),
-      `重要度 ${atom.importance}`,
-      atom.pinned ? '已固定' : '',
-      atom.archivedAt ? '已屏蔽' : '',
-      atom.due ? `期限 ${atom.due}` : '',
-      atom.resolution ? `结果 ${atom.resolution}` : ''
-    ].filter(Boolean),
-    archived: Boolean(atom.archivedAt)
-  }));
   const summaryItems = memories.value.map((memory): MemoryTimelineItem => ({
     id: `memory:${memory.id}`,
     kind: 'summary',
@@ -895,10 +824,10 @@ const memoryTimelineItems = computed<MemoryTimelineItem[]>(() => {
     timeLabel: formatTimelineRange(memory.createdAt, memory.updatedAt > memory.createdAt ? memory.updatedAt : undefined),
     eyebrow: `${memoryRangeLabel(memory)} · ${memoryMergeBadge(memory)}`,
     title: memory.isMergedSummary ? '合并大总结' : '分段总结',
-    content: compactTimelineText(memory.summary, 128),
+    blocks: parseMemorySummaryBlocks(memory.summary),
     meta: [`${memory.tokenCount} tokens`, hiddenRangeLabel(memory)]
   }));
-  return (atomItems.length ? atomItems : summaryItems)
+  return summaryItems
     .sort((left, right) => left.time - right.time || left.id.localeCompare(right.id));
 });
 const visibleMemoryTimelineItems = computed(() => memoryTimelineItems.value.slice(0, timelineDisplayLimit.value));
@@ -915,7 +844,7 @@ const memoryTimelineSpanLabel = computed(() => {
 });
 const messageCount = computed(() => getConversationFloorCount(store.messagesForConversation(props.conversationId)));
 const hiddenFloorStatus = computed(() => {
-  const hiddenRanges = getEffectiveHiddenFloorRanges(memories.value)
+  const hiddenRanges = getEffectiveHiddenFloorRanges(memories.value.flatMap((memory) => collectIncrementalGrandSummaries(memory)))
     .map((range) => `${range.start}-${range.end}楼`);
   if (!hiddenRanges.length) return `当前对话共 ${messageCount.value} 楼，暂无隐藏楼层。`;
   return `当前对话共 ${messageCount.value} 楼，已隐藏 ${hiddenRanges.join('、')}。`;
@@ -987,11 +916,7 @@ const characterStickerBindingSummary = computed(() => {
 const canManualSummarize = computed(() => {
   const start = Number(manualSummary.startFloor);
   const end = Number(manualSummary.endFloor);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 1 || end < start || end > messageCount.value) return false;
-  const hiddenStart = Number(manualSummary.hiddenStartFloor);
-  const hiddenEnd = Number(manualSummary.hiddenEndFloor);
-  if (!hiddenStart && !hiddenEnd) return true;
-  return hiddenStart >= start && hiddenEnd >= hiddenStart && hiddenEnd <= end;
+  return Number.isFinite(start) && Number.isFinite(end) && start >= 1 && end >= start && end <= messageCount.value;
 });
 
 function cancelScheduledTokenEstimate() {
@@ -1039,10 +964,6 @@ function showMoreMemories() {
   memoryDisplayLimit.value += 40;
 }
 
-function showMoreMemoryAtoms() {
-  atomDisplayLimit.value += 80;
-}
-
 watch(
   () => [props.conversationId, currentConversationSettings.value] as const,
   () => {
@@ -1058,7 +979,7 @@ watch(
 );
 
 watch(
-  () => [activeTab.value, props.conversationId, messageCount.value, memories.value.length, memoryAtoms.value.length, currentConversationSettings.value] as const,
+  () => [activeTab.value, props.conversationId, messageCount.value, memories.value.length, currentConversationSettings.value] as const,
   scheduleTokenEstimate,
   { immediate: true }
 );
@@ -1068,7 +989,6 @@ watch(
   () => {
     timelineDisplayLimit.value = 80;
     memoryDisplayLimit.value = 40;
-    atomDisplayLimit.value = 80;
   }
 );
 
@@ -1094,7 +1014,7 @@ function saveDraft() {
 
 function syncMemoryNumberDraft() {
   memoryNumberDraft.summarizeEvery = String(draft.memory.summarizeEvery);
-  memoryNumberDraft.atomWriterEvery = String(draft.memory.atomWriterEvery);
+  memoryNumberDraft.grandSummaryEvery = String(draft.memory.grandSummaryEvery);
   memoryNumberDraft.autoMergeThreshold = String(draft.memory.autoMergeThreshold);
   memoryNumberDraft.autoMergeBatchSize = String(draft.memory.autoMergeBatchSize);
 }
@@ -1106,7 +1026,7 @@ function updateMemoryNumberDraft(field: MemoryNumberField, event: Event) {
 function memoryNumberLimits(field: MemoryNumberField) {
   return {
     summarizeEvery: { min: 1, max: Number.MAX_SAFE_INTEGER, fallback: draft.memory.summarizeEvery },
-    atomWriterEvery: { min: 1, max: 10, fallback: draft.memory.atomWriterEvery },
+    grandSummaryEvery: { min: 20, max: 300, fallback: draft.memory.grandSummaryEvery },
     autoMergeThreshold: { min: 3, max: 30, fallback: draft.memory.autoMergeThreshold },
     autoMergeBatchSize: { min: 2, max: 20, fallback: draft.memory.autoMergeBatchSize }
   }[field];
@@ -1234,9 +1154,7 @@ async function manualSummarize() {
   try {
     const result = await store.summarizeConversationWindow(props.conversationId, {
       forceStartFloor: Math.max(1, Math.floor(Number(manualSummary.startFloor))),
-      forceEndFloor: Math.max(1, Math.floor(Number(manualSummary.endFloor))),
-      hiddenStartFloor: Math.max(0, Math.floor(Number(manualSummary.hiddenStartFloor) || 0)),
-      hiddenEndFloor: Math.max(0, Math.floor(Number(manualSummary.hiddenEndFloor) || 0))
+      forceEndFloor: Math.max(1, Math.floor(Number(manualSummary.endFloor)))
     });
     if (result?.status === 'existing') {
       store.showConfigAlert(`该楼层范围 ${result.record.startFloor}-${result.record.endFloor} 楼已存在总结，可直接编辑或先删除后重建。`, '总结已存在');
@@ -1255,9 +1173,8 @@ function fillLatestRange() {
   const endFloor = Math.max(startFloor, messageCount.value);
   manualSummary.startFloor = startFloor;
   manualSummary.endFloor = endFloor;
-  const hiddenEndFloor = getMemoryHiddenEndFloor(startFloor, endFloor);
-  manualSummary.hiddenStartFloor = hiddenEndFloor >= startFloor ? startFloor : 0;
-  manualSummary.hiddenEndFloor = hiddenEndFloor >= startFloor ? hiddenEndFloor : 0;
+  manualSummary.hiddenStartFloor = 0;
+  manualSummary.hiddenEndFloor = 0;
 }
 
 function compareMemoryRecordsByRange(leftMemory: ConversationMemoryRecord, rightMemory: ConversationMemoryRecord) {
@@ -1311,47 +1228,6 @@ function formatTimelineRange(start: number | undefined, end?: number) {
   return endText && endText !== startText ? `${startText} 至 ${endText}` : startText;
 }
 
-function compactTimelineText(value: string, maxLength: number) {
-  const normalized = value.replace(/\s+/g, ' ').trim();
-  if (!normalized) return '无文本内容';
-  return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized;
-}
-
-function memoryAtomFloorLabel(atom: ConversationMemoryAtom) {
-  const floors = [...new Set(atom.evidenceFloors.filter((floor) => Number.isFinite(floor) && floor > 0))].sort((left, right) => left - right);
-  if (!floors.length) return `${atom.lastTouchedFloor || 1}楼`;
-  if (floors.length === 1) return `${floors[0]}楼`;
-  return `${floors[0]}-${floors[floors.length - 1]}楼`;
-}
-
-function memoryAtomTimeLabel(atom: ConversationMemoryAtom) {
-  return atom.timeLabel || formatTimelineRange(atom.occurredAt ?? atom.createdAt, atom.occurredEndAt);
-}
-
-function memoryAtomTypeLabel(type: string) {
-  return {
-    fact: '事实',
-    preference: '偏好',
-    promise: '承诺',
-    conflict: '冲突',
-    plot: '剧情',
-    relationship: '关系',
-    boundary: '边界',
-    emotion: '情绪',
-    world: '世界'
-  }[type] ?? '记忆';
-}
-
-function memoryAtomStatusLabel(status: string) {
-  return {
-    active: '有效',
-    open: '待处理',
-    resolved: '已解决',
-    superseded: '已取代',
-    cancelled: '已取消'
-  }[status] ?? '有效';
-}
-
 function toggleMergePicker() {
   const nextOpen = !showMergePicker.value;
   showMergePicker.value = nextOpen;
@@ -1382,7 +1258,11 @@ function resetConfirmDialog() {
     runningText: '处理中',
     tone: 'primary',
     running: false,
-    action: null
+    action: null,
+    confirmOnly: false,
+    errorTitle: '',
+    errorMessage: '',
+    errorDetails: []
   } satisfies ConfirmDialogState);
 }
 
@@ -1394,7 +1274,11 @@ function openConfirmDialog(options: {
   confirmText: string;
   runningText: string;
   tone?: ConfirmTone;
-  action: ConfirmAction;
+  action?: ConfirmAction | null;
+  confirmOnly?: boolean;
+  errorTitle?: string;
+  errorMessage?: string;
+  errorDetails?: string[];
 }) {
   Object.assign(confirmDialog, {
     open: true,
@@ -1406,8 +1290,43 @@ function openConfirmDialog(options: {
     runningText: options.runningText,
     tone: options.tone ?? 'primary',
     running: false,
-    action: options.action
+    action: options.action ?? null,
+    confirmOnly: options.confirmOnly ?? false,
+    errorTitle: options.errorTitle ?? '',
+    errorMessage: options.errorMessage ?? '',
+    errorDetails: options.errorDetails ?? []
   } satisfies ConfirmDialogState);
+}
+
+function openMemoryErrorDialog(title: string, message: string, details: string[]) {
+  openConfirmDialog({
+    eyebrow: 'Memory error',
+    title,
+    message,
+    details,
+    confirmText: '知道了',
+    runningText: '关闭中',
+    tone: 'danger',
+    action: null,
+    confirmOnly: true
+  });
+}
+
+function formatErrorDetails(error: unknown) {
+  if (error instanceof Error) {
+    const details = [`错误类型：${error.name || 'Error'}`, `错误信息：${error.message || '无错误信息'}`];
+    if (error.stack) details.push(`调用栈：${error.stack.slice(0, 1200)}`);
+    return details;
+  }
+  return [`错误内容：${String(error)}`];
+}
+
+function manualSummaryDetailLines() {
+  return [
+    `总结范围：${manualSummary.startFloor}-${manualSummary.endFloor}楼`,
+    '隐藏范围：仅由新增大总结自动产生',
+    `当前对话总楼层：${messageCount.value}`
+  ];
 }
 
 function closeConfirmDialog() {
@@ -1425,15 +1344,38 @@ function updateConfirmDialogOpen(open: boolean) {
 
 async function confirmPendingAction() {
   const pendingAction = confirmDialog.action;
+  if (confirmDialog.confirmOnly && !pendingAction) {
+    resetConfirmDialog();
+    return;
+  }
   if (!pendingAction || confirmDialog.running) return;
+  const errorTitle = confirmDialog.errorTitle || '操作失败';
+  const errorMessage = confirmDialog.errorMessage || '操作没有完成，请检查下面的错误详情。';
+  const errorDetails = [...confirmDialog.errorDetails];
   confirmDialog.running = true;
   try {
     await pendingAction();
     resetConfirmDialog();
   } catch (error) {
     resetConfirmDialog();
-    store.showConfigAlert(error instanceof Error ? error.message : '操作失败，请稍后再试。', '操作失败');
+    openMemoryErrorDialog(errorTitle, errorMessage, [...errorDetails, ...formatErrorDetails(error)]);
   }
+}
+
+function requestManualSummarize() {
+  if (!canManualSummarize.value) return;
+  openConfirmDialog({
+    eyebrow: 'Manual memory',
+    title: '生成这段记忆？',
+    message: '会调用总结模型，把选定楼层写入记忆空间；这一步不会隐藏楼层。',
+    details: manualSummaryDetailLines(),
+    confirmText: '生成总结',
+    runningText: '总结中',
+    action: manualSummarize,
+    errorTitle: '手动总结失败',
+    errorMessage: '手动总结没有完成，下面是本次范围和模型调用返回的详细错误。',
+    errorDetails: manualSummaryDetailLines()
+  });
 }
 
 async function resummarize(memoryId: string) {
@@ -1456,13 +1398,16 @@ function requestResummarizeMemory(memoryId: string) {
   openConfirmDialog({
     eyebrow: 'Regenerate memory',
     title: '重新总结这条记忆？',
-    message: `会重新调用总结与向量化模型，覆盖 ${memoryRangeLabel(memory)} 的当前文本。`,
+    message: `会重新调用总结模型，覆盖 ${memoryRangeLabel(memory)} 的当前文本。`,
     details: [
       `当前类型：${memoryMergeBadge(memory)}`,
       `隐藏范围：${hiddenRangeLabel(memory)}`
     ],
     confirmText: '重新总结',
     runningText: '总结中',
+    errorTitle: '重新总结失败',
+    errorMessage: '重新总结没有完成，当前记忆仍保留原内容。',
+    errorDetails: [`记忆范围：${memoryRangeLabel(memory)}`, `当前类型：${memoryMergeBadge(memory)}`],
     action: () => resummarize(memoryId)
   });
 }
@@ -1475,7 +1420,7 @@ function requestMergeMemories() {
   openConfirmDialog({
     eyebrow: 'Merge memory',
     title: '合并这些记忆？',
-    message: `会调用总结与向量化模型，把选中的 ${stats.count} 条记忆压缩成 ${rangeText} 的新大总结。原条目会作为上一层来源保存在新大总结里。`,
+    message: `会调用总结模型，把选中的 ${stats.count} 条记忆整合成 ${rangeText} 的全文大总结。原条目会作为上一层来源保存在新大总结里。`,
     details: [
       `包含来源：${stats.sourceCount} 个片段${stats.mergedCount ? `，其中 ${stats.mergedCount} 条已经是大总结` : ''}`,
       `原始 token 合计：${stats.tokenCount}`,
@@ -1483,6 +1428,9 @@ function requestMergeMemories() {
     ],
     confirmText: '开始合并',
     runningText: '合并中',
+    errorTitle: '合并记忆失败',
+    errorMessage: '合并大总结没有完成，选中的记忆仍保留原状态。',
+    errorDetails: [`合并范围：${rangeText}`, `选中条数：${stats.count}`, `原始 token 合计：${stats.tokenCount}`],
     action: () => mergeMemories(memoryIds)
   });
 }
@@ -1491,7 +1439,7 @@ async function mergeMemories(memoryIds: string[]) {
   if (memoryIds.length <= 1) return;
   summarizing.value = true;
   try {
-    const result = await store.mergeConversationMemories(props.conversationId, memoryIds);
+    const result = await store.mergeConversationMemories(props.conversationId, memoryIds, { fullSummary: true });
     if (!result) {
       store.showConfigAlert('至少需要选择两条仍存在的记忆，才能生成新的大总结。', '无法合并');
       return;
@@ -1514,6 +1462,26 @@ async function runAutoMergeNow() {
   }
 }
 
+function requestRunAutoMergeNow() {
+  openConfirmDialog({
+    eyebrow: 'Auto merge',
+    title: '立即整理这些记忆？',
+    message: '会按当前楼层规则调用总结模型；新增大总结读取累计楼层正文和本轮回忆录，成功后删除本轮回忆录。',
+    details: [
+      `当前可整理：${mergeableMemories.value.length} 条`,
+      `已有大总结：${mergedMemories.value.length} 条`,
+      `新增大总结：每 ${draft.memory.grandSummaryEvery} 楼触发一次，隐藏到当前段末尾前 ${grandSummaryVisibleTailFloors} 楼`,
+      `全文大总结：${draft.memory.autoMergeThreshold} 条新增大总结触发；每批 ${draft.memory.autoMergeBatchSize} 条`
+    ],
+    confirmText: '立即整理',
+    runningText: '整理中',
+    action: runAutoMergeNow,
+    errorTitle: '自动整理失败',
+    errorMessage: '自动整理记忆没有完成，下面是当前策略和模型调用返回的详细错误。',
+    errorDetails: [`可整理记忆：${mergeableMemories.value.length} 条`, `新增大总结楼层间隔：${draft.memory.grandSummaryEvery}`, `全文阈值：${draft.memory.autoMergeThreshold}`]
+  });
+}
+
 function requestUnmergeMemories(memory: ConversationMemoryRecord) {
   openConfirmDialog({
     eyebrow: 'Restore layer',
@@ -1526,6 +1494,9 @@ function requestUnmergeMemories(memory: ConversationMemoryRecord) {
     ],
     confirmText: '取消合并',
     runningText: '恢复中',
+    errorTitle: '取消合并失败',
+    errorMessage: '取消合并没有完成，当前大总结仍保留原状态。',
+    errorDetails: [`记忆范围：${memoryRangeLabel(memory)}`, `当前层级：${memoryMergeBadge(memory)}`],
     action: () => unmergeMemories(memory.id)
   });
 }
@@ -1556,81 +1527,10 @@ function requestDeleteMemory(memoryId: string) {
     confirmText: '确认删除',
     runningText: '删除中',
     tone: 'danger',
+    errorTitle: '删除总结失败',
+    errorMessage: '删除操作没有完成，当前记忆仍保留原状态。',
+    errorDetails: [`记忆范围：${memoryRangeLabel(memory)}`, `当前类型：${memoryMergeBadge(memory)}`],
     action: () => store.deleteMemoryRecord(memoryId)
-  });
-}
-
-function requestToggleAtomPinned(atom: ConversationMemoryAtom) {
-  openConfirmDialog({
-    eyebrow: 'Pin atom',
-    title: atom.pinned ? '取消固定这条原子记忆？' : '固定这条原子记忆？',
-    message: `${memoryAtomTypeLabel(atom.type)} · ${atom.subject}`,
-    details: [
-      atom.pinned ? '取消后，这条记忆会重新按重要度和时间排序。' : '固定后，这条记忆会优先保留，减少被后续总结覆盖的概率。',
-      atom.content
-    ],
-    confirmText: atom.pinned ? '取消固定' : '确认固定',
-    runningText: '处理中',
-    action: async () => {
-      await store.toggleMemoryAtomPinned(atom.id);
-    }
-  });
-}
-
-function updateAtomStatus(atom: ConversationMemoryAtom, event: Event) {
-  const status = (event.target as HTMLSelectElement).value as ConversationMemoryEntryStatus;
-  void store.updateMemoryAtom(atom.id, { status, pinned: true });
-}
-
-function updateAtomImportance(atom: ConversationMemoryAtom, event: Event) {
-  const importance = Math.min(5, Math.max(1, Math.round(Number((event.target as HTMLInputElement).value) || atom.importance)));
-  void store.updateMemoryAtom(atom.id, { importance, pinned: true });
-}
-
-function updateAtomContent(atom: ConversationMemoryAtom, event: Event) {
-  const content = (event.target as HTMLTextAreaElement).value.trim();
-  if (!content || content === atom.content) return;
-  void store.updateMemoryAtom(atom.id, { content, pinned: true });
-}
-
-function updateAtomMeta(atom: ConversationMemoryAtom, field: MemoryAtomMetaField, event: Event) {
-  const value = (event.target as HTMLInputElement).value.trim() || undefined;
-  if ((atom[field] ?? undefined) === value) return;
-  void store.updateMemoryAtom(atom.id, { [field]: value, pinned: true });
-}
-
-function requestToggleAtomArchived(atom: ConversationMemoryAtom) {
-  openConfirmDialog({
-    eyebrow: atom.archivedAt ? 'Restore atom' : 'Archive atom',
-    title: atom.archivedAt ? '取消屏蔽这条原子记忆？' : '屏蔽这条原子记忆？',
-    message: `${memoryAtomTypeLabel(atom.type)} · ${atom.subject}`,
-    details: [
-      atom.archivedAt ? '取消屏蔽后，它会重新参与后续召回。' : '屏蔽后，它会保留在管理区，但不会参与后续召回。',
-      atom.content
-    ],
-    confirmText: atom.archivedAt ? '取消屏蔽' : '确认屏蔽',
-    runningText: '处理中',
-    tone: atom.archivedAt ? 'primary' : 'danger',
-    action: async () => {
-      await store.updateMemoryAtom(atom.id, { archivedAt: atom.archivedAt ? undefined : Date.now(), pinned: true });
-    }
-  });
-}
-
-function requestDeleteAtom(atomId: string) {
-  const atom = memoryAtoms.value.find((entry) => entry.id === atomId);
-  if (!atom) return;
-  openConfirmDialog({
-    eyebrow: 'Delete atom',
-    title: '删除这条原子记忆？',
-    message: `${memoryAtomTypeLabel(atom.type)} · ${atom.subject}`,
-    details: [atom.content, '删除后不会参与后续召回。'],
-    confirmText: '确认删除',
-    runningText: '删除中',
-    tone: 'danger',
-    action: async () => {
-      await store.deleteMemoryAtom(atomId);
-    }
   });
 }
 
@@ -1643,8 +1543,31 @@ function updateMemorySummary(memory: ConversationMemoryRecord, event: Event) {
   });
 }
 
-function toggleHidden(memory: ConversationMemoryRecord, hidden: boolean) {
-  void store.toggleMemoryHiddenRange(memory.id, hidden);
+function requestToggleHidden(memory: ConversationMemoryRecord, hidden: boolean) {
+  if (!canEditMemoryHiddenRange(memory)) return;
+  const nextHiddenEnd = getGrandSummaryHiddenEndFloor(memory.endFloor);
+  openConfirmDialog({
+    eyebrow: 'Hidden floors',
+    title: hidden ? '隐藏这段旧楼层？' : '取消隐藏这段楼层？',
+    message: hidden ? '会按新增大总结规则折叠旧楼层，但总结文本仍会被读取。' : '会让这条新增大总结对应的楼层重新进入后续上下文读取。',
+    details: hidden
+      ? [`总结范围：${memoryRangeLabel(memory)}`, `将隐藏：1-${nextHiddenEnd}楼`, `保留末尾最近 ${grandSummaryVisibleTailFloors} 楼不隐藏`]
+      : [`当前隐藏：${hiddenRangeLabel(memory)}`, `总结范围：${memoryRangeLabel(memory)}`],
+    confirmText: hidden ? '确认隐藏' : '取消隐藏',
+    runningText: '保存中',
+    action: () => store.toggleMemoryHiddenRange(memory.id, hidden),
+    errorTitle: hidden ? '隐藏楼层失败' : '取消隐藏失败',
+    errorMessage: '隐藏范围没有保存成功，请查看错误详情。',
+    errorDetails: [`记忆范围：${memoryRangeLabel(memory)}`]
+  });
+}
+
+function updateMemoryHiddenRange(memory: ConversationMemoryRecord, edge: 'start' | 'end', event: Event) {
+  if (!canEditMemoryHiddenRange(memory)) return;
+  const value = Math.max(0, Math.floor(Number((event.target as HTMLInputElement).value) || 0));
+  const hiddenStartFloor = edge === 'start' ? value : memory.hiddenStartFloor;
+  const hiddenEndFloor = edge === 'end' ? value : memory.hiddenEndFloor;
+  void store.updateMemoryHiddenRange(memory.id, hiddenStartFloor, hiddenEndFloor);
 }
 
 function hiddenRangeLabel(memory: ConversationMemoryRecord) {
@@ -1652,8 +1575,19 @@ function hiddenRangeLabel(memory: ConversationMemoryRecord) {
   return `${memory.hiddenStartFloor}-${memory.hiddenEndFloor}楼`;
 }
 
+function memoryHiddenTip(memory: ConversationMemoryRecord) {
+  if (hasHiddenRange(memory)) return `已隐藏 ${hiddenRangeLabel(memory)}；后续生成会读取这条总结，而不是重复塞入这些旧楼层。`;
+  const hiddenEndFloor = getGrandSummaryHiddenEndFloor(memory.endFloor);
+  if (hiddenEndFloor < 1) return '这条新增大总结范围太短，不建议隐藏。';
+  return `推荐隐藏会折叠 1-${hiddenEndFloor}楼，并保留末尾最近 ${grandSummaryVisibleTailFloors} 楼。`;
+}
+
+function canEditMemoryHiddenRange(memory: ConversationMemoryRecord) {
+  return isIncrementalGrandSummary(memory);
+}
+
 function hasHiddenRange(memory: ConversationMemoryRecord) {
-  return memory.hiddenStartFloor > 0 && memory.hiddenEndFloor >= memory.hiddenStartFloor;
+  return canEditMemoryHiddenRange(memory) && memory.hiddenStartFloor > 0 && memory.hiddenEndFloor >= memory.hiddenStartFloor;
 }
 
 function saveCharacterDraft() {
@@ -1932,93 +1866,6 @@ function applyEditedAvatar(value: string) {
   white-space: normal;
 }
 
-.memory-atom-manager {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
-}
-
-.atom-hero {
-  align-items: flex-start;
-}
-
-.atom-manager-page {
-  gap: 14px;
-}
-
-.atom-dashboard strong {
-  font-size: 17px;
-}
-
-.memory-atom-list {
-  display: grid;
-  gap: 10px;
-}
-
-.memory-atom-row {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid rgba(31, 107, 58, 0.06);
-  border-radius: 18px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(248, 251, 249, 0.78));
-  box-shadow: 0 10px 24px rgba(21, 30, 26, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.92);
-}
-
-.memory-atom-row.is-archived {
-  background: rgba(244, 246, 245, 0.72);
-  opacity: 0.82;
-}
-
-.memory-atom-card-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-}
-
-.memory-atom-title {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.memory-atom-title span {
-  color: #6d8a73;
-  font-size: 10px;
-  font-weight: 950;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-
-.memory-atom-title strong {
-  min-width: 0;
-  overflow: hidden;
-  color: #17241d;
-  font-size: 14px;
-  font-weight: 950;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.memory-atom-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.memory-atom-badges span {
-  padding: 5px 8px;
-  border-radius: 999px;
-  background: rgba(31, 107, 58, 0.08);
-  color: #326743;
-  font-size: 11px;
-  font-weight: 900;
-  line-height: 1;
-}
-
 .memory-timeline-block {
   gap: 12px;
 }
@@ -2028,21 +1875,9 @@ function applyEditedAvatar(value: string) {
 }
 
 .memory-timeline-list {
-  position: relative;
   display: grid;
-  gap: 12px;
-  padding: 4px 0 2px;
-}
-
-.memory-timeline-list::before {
-  content: '';
-  position: absolute;
-  top: 10px;
-  bottom: 10px;
-  left: 94px;
-  width: 2px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, rgba(6, 199, 85, 0.28), rgba(17, 17, 17, 0.08));
+  gap: 14px;
+  padding: 2px 0;
 }
 
 .list-more-action {
@@ -2056,92 +1891,216 @@ function applyEditedAvatar(value: string) {
 }
 
 .memory-timeline-row {
-  position: relative;
   display: grid;
-  grid-template-columns: 80px 18px minmax(0, 1fr);
-  gap: 8px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
   min-width: 0;
 }
 
 .memory-timeline-row time {
-  padding-top: 3px;
-  color: #73787d;
-  font-size: 10px;
-  font-weight: 850;
-  line-height: 1.35;
-  text-align: right;
+  justify-self: start;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(6, 199, 85, 0.08);
+  color: #326743;
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-align: left;
 }
 
 .timeline-dot {
-  position: relative;
-  z-index: 1;
-  width: 12px;
-  height: 12px;
-  margin: 6px auto 0;
-  border: 3px solid #ffffff;
-  border-radius: 999px;
-  background: #06c755;
-  box-shadow: 0 0 0 1px rgba(6, 199, 85, 0.24), 0 6px 14px rgba(6, 199, 85, 0.16);
-}
-
-.timeline-summary .timeline-dot {
-  background: #8a8f94;
-  box-shadow: 0 0 0 1px rgba(138, 143, 148, 0.22), 0 6px 14px rgba(26, 31, 29, 0.08);
+  display: none;
 }
 
 .timeline-copy {
   display: grid;
   gap: 5px;
   min-width: 0;
-  padding: 10px;
+  padding: 8px;
   border: 1px solid rgba(20, 24, 22, 0.05);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.82);
+  border-radius: 11px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(249, 252, 250, 0.86)),
+    rgba(255, 255, 255, 0.82);
 }
 
 .timeline-copy > span {
-  overflow: hidden;
   color: #6d8a73;
-  font-size: 10px;
+  font-size: 8px;
   font-weight: 950;
   line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .timeline-copy strong {
-  overflow: hidden;
   color: #171717;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 950;
   line-height: 1.25;
-  text-overflow: ellipsis;
+}
+
+.timeline-summary-display {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.timeline-summary-heading {
+  margin: 1px 0 0;
+  color: #171717;
+  font-size: 10px;
+  font-weight: 950;
+  line-height: 1.3;
+}
+
+.timeline-summary-field {
+  display: grid;
+  gap: 3px;
+  padding: 6px;
+  border-radius: 9px;
+  background: rgba(237, 242, 239, 0.82);
+}
+
+.timeline-summary-field span {
+  color: #4f785d;
+  font-size: 8px;
+  font-weight: 950;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.timeline-summary-field p,
+.timeline-summary-paragraph,
+.timeline-summary-list {
+  margin: 0;
+  color: #5f666b;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.42;
+  overflow-wrap: anywhere;
+}
+
+.timeline-summary-list {
+  display: grid;
+  gap: 3px;
+  padding-left: 13px;
+}
+
+.timeline-profile-table-shell {
+  overflow-x: auto;
+  border: 1px solid rgba(20, 24, 22, 0.06);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.timeline-profile-table-shell table {
+  width: 100%;
+  min-width: 390px;
+  border-collapse: collapse;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.timeline-profile-table-shell th,
+.timeline-profile-table-shell td {
+  padding: 5px 6px;
+  border-bottom: 1px solid rgba(20, 24, 22, 0.06);
+  text-align: left;
+  vertical-align: top;
+}
+
+.timeline-profile-table-shell th {
+  color: #326743;
+  font-weight: 950;
   white-space: nowrap;
 }
 
-.timeline-copy p {
+.timeline-profile-table-shell td {
+  color: #303636;
+  font-weight: 700;
+}
+
+.timeline-graph-card {
+  overflow: hidden;
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(6, 199, 85, 0.11), transparent 44%),
+    #f7faf8;
+}
+
+.timeline-graph-card svg {
+  display: block;
+  width: 100%;
+  height: 150px;
+}
+
+.timeline-graph-card marker path {
+  fill: #6d8a73;
+}
+
+.graph-edges line {
+  stroke: rgba(66, 99, 77, 0.42);
+  stroke-width: 1.4;
+}
+
+.graph-edges text {
+  fill: #5f7366;
+  font-size: 8px;
+  font-weight: 850;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: rgba(247, 250, 248, 0.92);
+  stroke-width: 4px;
+}
+
+.graph-node rect {
+  fill: rgba(255, 255, 255, 0.94);
+  stroke: rgba(6, 199, 85, 0.18);
+  stroke-width: 1;
+}
+
+.graph-node text {
+  fill: #171717;
+  font-size: 9px;
+  font-weight: 950;
+  text-anchor: middle;
+}
+
+.timeline-summary-code {
+  display: grid;
+  gap: 4px;
+  max-height: 150px;
   margin: 0;
-  color: #5f666b;
-  font-size: 12px;
-  font-weight: 750;
-  line-height: 1.55;
-  overflow-wrap: anywhere;
+  padding: 6px;
+  overflow: auto;
+  border-radius: 9px;
+  background: #202421;
+  color: #f7fff9;
+  font-size: 9px;
+  line-height: 1.38;
+  white-space: pre;
+}
+
+.timeline-summary-code span {
+  color: #b9d8c2;
+  font-size: 8px;
+  font-weight: 950;
+  text-transform: uppercase;
 }
 
 .timeline-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 3px;
 }
 
 .timeline-meta em {
-  padding: 4px 7px;
+  padding: 2px 5px;
   border-radius: 999px;
   background: rgba(6, 199, 85, 0.08);
   color: #277044;
   font-style: normal;
-  font-size: 10px;
+  font-size: 8px;
   font-weight: 900;
   line-height: 1;
 }
@@ -2149,86 +2108,6 @@ function applyEditedAvatar(value: string) {
 .memory-timeline-row.is-archived .timeline-copy {
   background: rgba(244, 246, 245, 0.72);
   opacity: 0.82;
-}
-
-.memory-atom-content-field {
-  display: grid;
-  gap: 5px;
-}
-
-.memory-atom-content-field > span {
-  color: #746f70;
-  font-size: 11px;
-  font-weight: 850;
-}
-
-.memory-atom-row textarea {
-  width: 100%;
-  min-height: 92px;
-  padding: 10px;
-  border: 1px solid rgba(76, 67, 62, 0.08);
-  border-radius: 14px;
-  outline: 0;
-  background: rgba(255, 255, 255, 0.78);
-  color: #24201e;
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1.5;
-  resize: vertical;
-}
-
-.memory-atom-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
-}
-
-.memory-atom-meta-grid label {
-  display: grid;
-  gap: 4px;
-}
-
-.memory-atom-meta-grid span {
-  color: #746f70;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.memory-atom-meta-grid input {
-  width: 100%;
-  min-height: 34px;
-  border-radius: 10px;
-}
-
-.memory-atom-controls {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: end;
-  gap: 8px;
-}
-
-.memory-atom-controls .danger-action,
-.memory-atom-controls .tiny-action {
-  min-height: 34px;
-  padding-inline: 12px;
-  width: 100%;
-}
-
-.memory-atom-controls label {
-  display: grid;
-  gap: 4px;
-}
-
-.memory-atom-controls label span {
-  color: #746f70;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.memory-atom-controls select,
-.memory-atom-controls input {
-  min-height: 34px;
-  border-radius: 10px;
 }
 
 .compact-field {
@@ -2670,6 +2549,31 @@ function applyEditedAvatar(value: string) {
   outline: 0;
   background: #f4f2f2;
   resize: vertical;
+}
+
+.memory-hidden-editor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.memory-hidden-editor label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.memory-hidden-editor span {
+  color: #746f70;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.memory-hidden-editor input {
+  width: 100%;
+  min-height: 34px;
+  border-radius: 10px;
 }
 
 .memory-actions {
@@ -4924,6 +4828,10 @@ function applyEditedAvatar(value: string) {
   gap: 9px;
 }
 
+.memory-confirm-actions.confirm-only {
+  grid-template-columns: 1fr;
+}
+
 .memory-confirm-actions .danger-confirm {
   border-color: rgba(239, 68, 90, 0.14);
   background: rgba(239, 68, 90, 0.11);
@@ -4935,7 +4843,6 @@ function applyEditedAvatar(value: string) {
 .memory-panel .switch-card div span:not(.switch-track),
 .memory-panel .compact-field > span,
 .memory-panel .compact-field small,
-.memory-panel .memory-atom-title strong,
 .memory-panel .secondary-action,
 .memory-panel .danger-action,
 .memory-panel .summary-submit,

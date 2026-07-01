@@ -33,13 +33,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { BookOpenText, ListChecks, Palette, Settings2, UserRound } from 'lucide-vue-next';
+import { BookOpenText, Palette, Settings2, UserRound } from 'lucide-vue-next';
 import ChatControlPanel, { type PanelTab } from '@/components/chat/ChatControlPanel.vue';
 import { useAppStore } from '@/stores/appStore';
 
 const tabs = [
   { id: 'memory' as PanelTab, shortLabel: 'Memory', icon: BookOpenText },
-  { id: 'atoms' as PanelTab, shortLabel: 'Atoms', icon: ListChecks },
   { id: 'beauty' as PanelTab, shortLabel: 'Beauty', icon: Palette },
   { id: 'profile' as PanelTab, shortLabel: 'Profile', icon: UserRound },
   { id: 'other' as PanelTab, shortLabel: 'More', icon: Settings2 }
@@ -136,7 +135,7 @@ function openTab(tab: PanelTab) {
   z-index: 20;
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
   padding: 8px calc(12px + var(--safe-right)) calc(10px + var(--safe-bottom)) calc(12px + var(--safe-left));
   border-top: 1px solid rgba(17, 17, 17, 0.05);

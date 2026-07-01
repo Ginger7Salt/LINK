@@ -1,4 +1,4 @@
-import type { ChatMemorySettings, ChatMessage, ChatMode, ConversationMemoryAtom, ConversationMemoryDebugTrace, ConversationMemoryEntry, ConversationMemoryEntryStatus, ConversationMemoryEntryType, ConversationMemoryRecord, ConversationMemoryTimeBasis, ConversationOfflineSettings, ConversationSettings, OfflineInterruptionMode, OfflineParagraphMode, OfflinePerspective, OfflinePromptPreset, OfflineRetellMode, OfflineTonePreset } from '@/types/domain';
+import type { ChatMemorySettings, ChatMessage, ChatMode, ConversationMemoryEntry, ConversationMemoryEntryStatus, ConversationMemoryEntryType, ConversationMemoryRecord, ConversationMemoryTimeBasis, ConversationOfflineSettings, ConversationSettings, OfflineInterruptionMode, OfflineParagraphMode, OfflinePerspective, OfflinePromptPreset, OfflineRetellMode, OfflineTonePreset } from '@/types/domain';
 import { createId } from './id';
 import { normalizeChatModelOverrides } from './settings';
 import { defaultTimeAwarenessSettings, normalizeTimeAwarenessSettings } from './timeAwareness';
@@ -7,14 +7,84 @@ import { normalizeVoomFrequency } from './voom';
 export const defaultChatMemorySettings: ChatMemorySettings = {
   enabled: true,
   autoSummarize: true,
-  summarizeEvery: 50,
+  summarizeEvery: 6,
   summaryModel: '',
-  summaryPrompt: '请把下面聊天楼层整理成可长期读取的结构化记忆，以{{char}}的第三人称视角。必须先校验旧记忆：后文已经解决、撤销、推翻或过期的事项，不要继续写成未解决。按固定格式输出，每条一行：- [类型|状态|重要度1-5|主体|证据楼层|发生时间] 内容。类型只能用 fact/preference/promise/conflict/plot/relationship/boundary/emotion/world；状态只能用 active/open/resolved/superseded/cancelled。发生时间优先写精确日期时间或时间范围，无法确认时写“第 x-y 楼 / 时间未知”。只把仍会影响后续扮演的内容写入；resolved 只保留会影响情绪或关系余波的事项；去重、合并同义项，不要评价用户；用中文输出。',
-  mergeSummaryPrompt: '请把下面多段结构化记忆合并成更高层级的长期记忆，以{{char}}的第三人称视角。必须去重并执行生命周期更新：已解决的 promise/conflict 标为 resolved，后文推翻旧事实时旧事实标为 superseded 或直接移除；只保留稳定事实、长期关系变化、重要偏好、仍开放承诺、仍开放冲突和关键剧情节点。按固定格式输出，每条一行：- [类型|状态|重要度1-5|主体|证据楼层|发生时间] 内容。类型只能用 fact/preference/promise/conflict/plot/relationship/boundary/emotion/world；状态只能用 active/open/resolved/superseded/cancelled。发生时间必须保留原条目的时间标签或楼层范围，不要压成“之前/后来”。用中文输出。',
-  vectorMemoryEnabled: true,
+  summaryPrompt: `停止剧情，停止输出其他所有内容，开始执行六楼回忆录。
+
+执行规则：
+1. 每六楼调用 API 生成一份由“摘要”和“角色表”组成的回忆录，以{{char}}相关会话为记录对象。
+2. 摘要必须包含 time、location、plot、echo 四项。
+3. time：当前详细时间，精确到小时；如果开启时间感知，使用当前本机时间与待总结楼层时间线；如果没有开启，则跟随世界观，合理虚构精确时间，并保证时间流逝合理。
+4. location：角色所在地点；如正文未明说，可根据世界观和上下文合理推断，但不要随意跳地点。
+5. plot：全面总结本次剧情，保留关键信息，记录新名词和新信息，避免升华和评价，使用流水账形式。
+6. echo：记录本次剧情中的重要对白 1-2 句，必须明确涉及人物。
+7. 角色表只记录当前六楼涉及或明确伏笔影响的人物，不剧透未揭示身份。
+
+固定输出格式：
+摘要
+time：
+location：
+plot：
+echo：
+
+<profile>
+| 类别 | 名字(仅当前正文) | 身份(避免剧透) | 重要伏笔（伏笔人物的作用） |
+| --- | --- | --- | --- |
+| 当前出现人物 or 伏笔人物 |  |  |  |
+
+用 mermaid 记录角色之间的互动和变化。仅基础结构，不含任何样式和配色。
+\`\`\`mermaid
+graph TD
+subgraph 示例
+A[开始]-->|"是(继续)"|B[下一步]
+A-->|否|C[结束]
+end
+\`\`\`
+</profile>`,
+  mergeSummaryPrompt: `停止剧情，停止输出其他所有内容，开始执行新增大总结。
+
+执行规则
+
+1. 标注本次为第几次大总结。
+2. 仅梳理从上一轮总结结束到当前的新增剧情，不重复写入历史旧总结内容。
+3. 严格按照时间线梳理，区分不同日期、时段发生的事件，保证时序清晰。
+4. 只保留核心事件、关键对话、人物行动、物品约定、角色情绪变化，剔除冗余修饰语句，纯客观陈述事实，不添加主观评价。
+5. 完整保留剧情细节，不删减关键伏笔，保证剧情记录完整。
+6. 文字简洁直白，无需加粗、排版美化。
+
+固定输出格式
+
+plaintext
+
+<details>
+<summary>大总结(填写本次序号)</summary>
+- 时间：
+  - 关键事件：完整叙述事件经过与出场人物
+  - 重要细节：
+  - 关键对话与内心戏：标注对应角色
+  - 角色关键行为：标注对应角色
+  - 角色与用户之间的情感变化（选填）
+  - 事件收尾与后续小互动（选填）
+
+- 时间：
+  - 关键事件：完整叙述事件经过与出场人物
+  - 重要细节：
+  - 关键对话与内心戏：标注对应角色
+  - 角色关键行为：标注对应角色
+  - 角色与用户之间的情感变化（选填）
+  - 事件收尾与后续小互动（选填）
+</details>
+
+<details>
+<summary>角色表</summary>
+只保留影响主线剧情的人物，路人 NPC 全部剔除，附带 Markdown 人物表格与 mermaid 角色互动关系图，严格遵守角色表规范。
+</details>`,
+  vectorMemoryEnabled: false,
   hideSummarizedMessages: true,
-  atomWriterEnabled: true,
+  atomWriterEnabled: false,
   atomWriterEvery: 1,
+  autoGrandSummaryEnabled: true,
+  grandSummaryEvery: 60,
   autoMergeEnabled: true,
   autoMergeThreshold: 8,
   autoMergeBatchSize: 6
@@ -272,10 +342,12 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
       summaryModel,
       summaryPrompt: normalizeMemoryPrompt(memory.summaryPrompt, memoryDefaults.summaryPrompt),
       mergeSummaryPrompt: normalizeMemoryPrompt(memory.mergeSummaryPrompt, memoryDefaults.mergeSummaryPrompt),
-      vectorMemoryEnabled: memory.vectorMemoryEnabled ?? memoryDefaults.vectorMemoryEnabled,
+      vectorMemoryEnabled: false,
       hideSummarizedMessages: memory.hideSummarizedMessages ?? memoryDefaults.hideSummarizedMessages,
-      atomWriterEnabled: memory.atomWriterEnabled ?? memoryDefaults.atomWriterEnabled,
-      atomWriterEvery: Math.min(10, Math.max(1, Math.round(Number(memory.atomWriterEvery) || memoryDefaults.atomWriterEvery))),
+      atomWriterEnabled: false,
+      atomWriterEvery: 1,
+      autoGrandSummaryEnabled: memory.autoGrandSummaryEnabled ?? memory.autoMergeEnabled ?? memoryDefaults.autoGrandSummaryEnabled,
+      grandSummaryEvery: Math.min(300, Math.max(20, Math.round(Number(memory.grandSummaryEvery) || memoryDefaults.grandSummaryEvery))),
       autoMergeEnabled: memory.autoMergeEnabled ?? memoryDefaults.autoMergeEnabled,
       autoMergeThreshold: Math.min(30, Math.max(3, Math.round(Number(memory.autoMergeThreshold) || memoryDefaults.autoMergeThreshold))),
       autoMergeBatchSize: Math.min(20, Math.max(2, Math.round(Number(memory.autoMergeBatchSize) || memoryDefaults.autoMergeBatchSize)))
@@ -684,85 +756,6 @@ export function dedupeMemoryEntries(entries: ConversationMemoryEntry[]) {
   return [...byKey.values()];
 }
 
-function memoryAtomKey(atom: Pick<ConversationMemoryAtom, 'conversationId' | 'type' | 'subject' | 'content'>) {
-  return `${atom.conversationId}:${atom.type}:${atom.subject.trim().toLocaleLowerCase()}:${atom.content.trim().toLocaleLowerCase()}`;
-}
-
-export function normalizeMemoryAtom(atom: Partial<ConversationMemoryAtom>, fallback: { conversationId: string; mode: ChatMode; now?: number }): ConversationMemoryAtom | null {
-  const now = fallback.now ?? Date.now();
-  const type = normalizeMemoryEntryType(atom.type);
-  const status = normalizeMemoryEntryStatus(atom.status, type === 'promise' || type === 'conflict' ? 'open' : 'active');
-  const content = normalizeMemoryContent(String(atom.content ?? ''));
-  if (!content) return null;
-  const subject = String(atom.subject ?? '').trim() || buildFallbackSubject(type);
-  const evidenceFloors = parseEvidenceFloors(atom.evidenceFloors?.join(','), 1, Math.max(1, Math.floor(Number(atom.lastTouchedFloor) || 1)));
-  const sourceMessageIds = Array.isArray(atom.sourceMessageIds) ? atom.sourceMessageIds.map((id) => String(id).trim()).filter(Boolean) : [];
-  const normalizedAtom: ConversationMemoryAtom = {
-    id: String(atom.id ?? '').trim() || createId('atom'),
-    conversationId: String(atom.conversationId ?? fallback.conversationId).trim() || fallback.conversationId,
-    mode: atom.mode ?? fallback.mode,
-    type,
-    status,
-    subject,
-    content,
-    ...normalizeMemoryEntryMeta(atom, type, status, subject, content),
-    evidenceFloors,
-    lastTouchedFloor: Math.max(1, Math.floor(Number(atom.lastTouchedFloor) || Math.max(...evidenceFloors, 1))),
-    ...normalizeMemoryTimeMeta(atom, { startFloor: Math.min(...evidenceFloors), endFloor: Math.max(...evidenceFloors), createdAt: Number.isFinite(atom.createdAt) ? Number(atom.createdAt) : now }),
-    importance: clampMemoryImportance(atom.importance),
-    vector: Array.isArray(atom.vector) && atom.vector.length ? atom.vector.map((value) => Number(value)).filter((value) => Number.isFinite(value)) : vectorizeText(`${subject} ${content}`),
-    sourceMemoryId: String(atom.sourceMemoryId ?? '').trim() || undefined,
-    sourceMessageIds,
-    confidence: Math.min(1, Math.max(0, Number(atom.confidence) || 0.75)),
-    pinned: Boolean(atom.pinned),
-    createdAt: Number.isFinite(atom.createdAt) ? Number(atom.createdAt) : now,
-    updatedAt: Number.isFinite(atom.updatedAt) ? Number(atom.updatedAt) : now
-  };
-  if (Number.isFinite(atom.expiresAt)) normalizedAtom.expiresAt = atom.expiresAt;
-  if (Number.isFinite(atom.archivedAt)) normalizedAtom.archivedAt = atom.archivedAt;
-  return normalizedAtom;
-}
-
-export function createMemoryAtomsFromRecord(memory: ConversationMemoryRecord, now = Date.now()): ConversationMemoryAtom[] {
-  return normalizeMemoryRecordEntries(memory, now)
-    .map((entry) => normalizeMemoryAtom({
-      ...entry,
-      id: `${memory.id}_${entry.id}`,
-      conversationId: memory.conversationId,
-      mode: memory.mode,
-      sourceMemoryId: memory.id,
-      sourceMessageIds: memory.sourceMessageIds,
-      confidence: memory.isMergedSummary ? 0.82 : 0.88,
-      createdAt: memory.createdAt,
-      updatedAt: memory.updatedAt
-    }, { conversationId: memory.conversationId, mode: memory.mode, now }))
-    .filter((atom): atom is ConversationMemoryAtom => Boolean(atom));
-}
-
-export function mergeMemoryAtoms(atoms: ConversationMemoryAtom[]) {
-  const byKey = new Map<string, ConversationMemoryAtom>();
-  atoms.forEach((atom) => {
-    const normalizedAtom = normalizeMemoryAtom(atom, { conversationId: atom.conversationId, mode: atom.mode });
-    if (!normalizedAtom) return;
-    const key = memoryAtomKey(normalizedAtom);
-    const existing = byKey.get(key);
-    if (!existing) {
-      byKey.set(key, normalizedAtom);
-      return;
-    }
-    const keep = normalizedAtom.updatedAt >= existing.updatedAt || normalizedAtom.importance > existing.importance ? normalizedAtom : existing;
-    const other = keep === normalizedAtom ? existing : normalizedAtom;
-    byKey.set(key, {
-      ...keep,
-      evidenceFloors: [...new Set([...keep.evidenceFloors, ...other.evidenceFloors])].sort((a, b) => a - b).slice(0, 12),
-      sourceMessageIds: [...new Set([...keep.sourceMessageIds, ...other.sourceMessageIds])],
-      confidence: Math.max(keep.confidence, other.confidence),
-      pinned: keep.pinned || other.pinned
-    });
-  });
-  return [...byKey.values()];
-}
-
 function tokenizeMemoryText(text: string) {
   const normalized = text.toLocaleLowerCase();
   const latinTokens = normalized.match(/[a-z0-9_]{2,}/g) ?? [];
@@ -797,11 +790,13 @@ interface MemoryScoreContext {
   now: number;
 }
 
+type MemoryScoreBreakdown = Array<{ label: string; value: number; reason: string }>;
+
 function compactScoreValue(value: number) {
   return Number(value.toFixed(2));
 }
 
-function pushScorePart(parts: ConversationMemoryDebugTrace['selectedAtoms'][number]['scoreBreakdown'], label: string, value: number, reason: string) {
+function pushScorePart(parts: MemoryScoreBreakdown, label: string, value: number, reason: string) {
   if (!value) return;
   parts.push({ label, value: compactScoreValue(value), reason });
 }
@@ -827,9 +822,9 @@ function scoreMemoryEntryDetailed(entry: ConversationMemoryEntry, context: Memor
   const floorDistance = Math.max(0, context.latestFloor - entry.lastTouchedFloor);
   const recencyWeight = Math.max(0, 8 - Math.floor(floorDistance / 20));
   const agePenalty = entry.expiresAt && entry.expiresAt < context.now ? 30 : 0;
-  const scoreBreakdown: ConversationMemoryDebugTrace['selectedAtoms'][number]['scoreBreakdown'] = [];
+  const scoreBreakdown: MemoryScoreBreakdown = [];
   pushScorePart(scoreBreakdown, '关键词', matchedTokens.length * 7, matchedTokens.length ? matchedTokens.join('/') : '无关键词命中');
-  pushScorePart(scoreBreakdown, semanticSimilarity ? '语义向量' : '本地相关', vectorScore, semanticSimilarity ? `相似度 ${semanticSimilarity.toFixed(2)}` : `相似度 ${localSimilarity.toFixed(2)}`);
+  pushScorePart(scoreBreakdown, '本地相关', vectorScore, `相似度 ${(semanticSimilarity || localSimilarity).toFixed(2)}`);
   pushScorePart(scoreBreakdown, '重要度', entry.importance * 4, `重要度 ${entry.importance}`);
   pushScorePart(scoreBreakdown, '状态', statusWeight, entry.status);
   pushScorePart(scoreBreakdown, '类型', typeWeight, entry.type);
@@ -845,33 +840,6 @@ function scoreMemoryEntryDetailed(entry: ConversationMemoryEntry, context: Memor
 function scoreMemoryEntry(entry: ConversationMemoryEntry, queryTokens: Set<string>, queryVector: number[], latestFloor: number, now: number) {
   const isLocalQueryVector = queryVector.length === 16;
   return scoreMemoryEntryDetailed(entry, {
-    queryText: '',
-    queryTokens,
-    queryVector: isLocalQueryVector ? [] : queryVector,
-    queryLocalVector: isLocalQueryVector ? queryVector : [],
-    latestFloor,
-    now
-  }).score;
-}
-
-function scoreMemoryAtomDetailed(atom: ConversationMemoryAtom, context: MemoryScoreContext) {
-  const detailed = scoreMemoryEntryDetailed(atom, context);
-  const pinWeight = atom.pinned ? 20 : 0;
-  const archivePenalty = atom.archivedAt ? 24 : 0;
-  const confidenceWeight = atom.confidence * 6;
-  pushScorePart(detailed.scoreBreakdown, '固定', pinWeight, atom.pinned ? '用户固定' : '未固定');
-  pushScorePart(detailed.scoreBreakdown, '可信度', confidenceWeight, `可信度 ${atom.confidence.toFixed(2)}`);
-  pushScorePart(detailed.scoreBreakdown, '归档', -archivePenalty, '已屏蔽或归档');
-  return {
-    score: detailed.score + pinWeight + confidenceWeight - archivePenalty,
-    scoreBreakdown: detailed.scoreBreakdown,
-    matchedTokens: detailed.matchedTokens
-  };
-}
-
-function scoreMemoryAtom(atom: ConversationMemoryAtom, queryTokens: Set<string>, queryVector: number[], latestFloor: number, now: number) {
-  const isLocalQueryVector = queryVector.length === 16;
-  return scoreMemoryAtomDetailed(atom, {
     queryText: '',
     queryTokens,
     queryVector: isLocalQueryVector ? [] : queryVector,
@@ -913,9 +881,29 @@ function normalizeExcludedSourceMessageIds(ids: string[] | undefined) {
   return new Set((ids ?? []).map((id) => String(id).trim()).filter(Boolean));
 }
 
+export function getMemoryMergeDepth(memory: ConversationMemoryRecord): number {
+  if (!memory.isMergedSummary) return 0;
+  const childDepth = memory.mergedFrom?.reduce((max, childMemory) => Math.max(max, getMemoryMergeDepth(childMemory)), 0) ?? 0;
+  return childDepth + 1;
+}
+
+export function filterHighestMemoryLayers(memories: ConversationMemoryRecord[]) {
+  const memoryDepths = new Map(memories.map((memory) => [memory.id, getMemoryMergeDepth(memory)]));
+  return memories.filter((memory) => {
+    const depth = memoryDepths.get(memory.id) ?? 0;
+    return !memories.some((candidate) => {
+      if (candidate.id === memory.id) return false;
+      if (candidate.conversationId !== memory.conversationId || candidate.mode !== memory.mode) return false;
+      const candidateDepth = memoryDepths.get(candidate.id) ?? 0;
+      if (candidateDepth <= depth) return false;
+      return candidate.startFloor <= memory.startFloor && candidate.endFloor >= memory.endFloor;
+    });
+  });
+}
+
 export function getMemoryContext(memories: ConversationMemoryRecord[], options: { queryText?: string; maxEntries?: number; includeResolved?: boolean; excludeSourceMessageIds?: string[] } = {}) {
   const excludedSourceMessageIds = normalizeExcludedSourceMessageIds(options.excludeSourceMessageIds);
-  const sorted = [...memories]
+  const sorted = filterHighestMemoryLayers(memories)
     .filter((memory) => !hasExcludedSourceMessage(memory.sourceMessageIds, excludedSourceMessageIds))
     .sort((a, b) => a.startFloor - b.startFloor);
   if (!sorted.length) return '';
@@ -954,69 +942,6 @@ export function getMemoryContext(memories: ConversationMemoryRecord[], options: 
   ].filter(Boolean).join('\n\n');
 }
 
-export function buildMemoryAtomContext(atoms: ConversationMemoryAtom[], options: { conversationId: string; queryText?: string; queryVector?: number[]; maxEntries?: number; maxTokens?: number; includeResolved?: boolean; excludeSourceMessageIds?: string[] } ): { text: string; debug: ConversationMemoryDebugTrace } {
-  const excludedSourceMessageIds = normalizeExcludedSourceMessageIds(options.excludeSourceMessageIds);
-  const conversationAtoms = mergeMemoryAtoms(atoms)
-    .filter((atom) => atom.conversationId === options.conversationId)
-    .filter((atom) => !hasExcludedSourceMessage(atom.sourceMessageIds, excludedSourceMessageIds))
-    .filter((atom) => options.includeResolved || (!['superseded', 'cancelled'].includes(atom.status) && !atom.archivedAt));
-  const latestFloor = conversationAtoms.reduce((max, atom) => Math.max(max, atom.lastTouchedFloor), 0);
-  const queryText = options.queryText ?? '';
-  const queryTokens = tokenizeMemoryText(queryText);
-  const queryVector = Array.isArray(options.queryVector) ? options.queryVector.filter((value) => Number.isFinite(value)) : [];
-  const queryLocalVector = queryText.trim() ? vectorizeText(queryText) : [];
-  const now = Date.now();
-  const scoreContext: MemoryScoreContext = { queryText, queryTokens, queryVector, queryLocalVector, latestFloor, now };
-  const maxEntries = Math.max(4, Math.floor(options.maxEntries ?? 18));
-  const maxTokens = Math.max(120, Math.floor(options.maxTokens ?? 1200));
-  const rankedAtoms = conversationAtoms
-    .map((atom) => ({ atom, ...scoreMemoryAtomDetailed(atom, scoreContext) }))
-    .sort((left, right) => right.score - left.score || right.atom.updatedAt - left.atom.updatedAt);
-
-  const selected: Array<{ atom: ConversationMemoryAtom; score: number; scoreBreakdown: ConversationMemoryDebugTrace['selectedAtoms'][number]['scoreBreakdown']; matchedTokens: string[]; tokenCount: number }> = [];
-  let selectedTokenCount = 0;
-  for (const candidate of rankedAtoms) {
-    if (selected.length >= maxEntries) break;
-    const tokenCount = estimateTokenCount(formatMemoryEntry(candidate.atom));
-    if (selected.length && selectedTokenCount + tokenCount > maxTokens) continue;
-    selected.push({ ...candidate, tokenCount });
-    selectedTokenCount += tokenCount;
-  }
-
-  const selectedAtoms = selected.map((item) => item.atom);
-  const openAtoms = selectedAtoms.filter((atom) => atom.status === 'open');
-  const activeAtoms = selectedAtoms.filter((atom) => atom.status === 'active');
-  const resolvedAtoms = selectedAtoms.filter((atom) => atom.status === 'resolved').slice(0, 4);
-  const archivedAtoms = options.includeResolved ? selectedAtoms.filter((atom) => atom.status === 'superseded' || atom.status === 'cancelled' || atom.archivedAt).slice(0, 4) : [];
-  const text = [
-    memoryContextSection('当前开放事项，必须延续或自然处理', openAtoms),
-    memoryContextSection('高相关长期事实与关系状态', activeAtoms),
-    memoryContextSection('已解决但可能留下情绪余波', resolvedAtoms),
-    memoryContextSection('已作废旧记忆，仅用于避免重复误用', archivedAtoms)
-  ].filter(Boolean).join('\n\n');
-
-  return {
-    text,
-    debug: {
-      conversationId: options.conversationId,
-      queryText,
-      generatedAt: now,
-      tokenBudget: maxTokens,
-      selectedTokenCount,
-      selectedAtoms: selected.map((item) => ({
-        id: item.atom.id,
-        type: item.atom.type,
-        status: item.atom.status,
-        subject: item.atom.subject,
-        content: item.atom.content,
-        score: Number(item.score.toFixed(2)),
-        scoreBreakdown: item.scoreBreakdown,
-        matchedTokens: item.matchedTokens,
-        tokenCount: item.tokenCount
-      }))
-    }
-  };
-}
 export function getMessageFloorMap(messages: ChatMessage[]) {
   const floorMap = new Map<string, number>();
   getConversationFloors(messages).forEach((floorMessages, index) => {
@@ -1061,17 +986,34 @@ export function getMessagesInFloorRange(messages: ChatMessage[], startFloor: num
     .flat();
 }
 
-export const memoryVisibleTailFloors = 5;
+export const grandSummaryVisibleTailFloors = 10;
 
 export interface HiddenFloorRange {
   start: number;
   end: number;
 }
 
-export function getMemoryHiddenEndFloor(startFloor: number, endFloor: number) {
-  const normalizedStartFloor = Math.max(1, Math.floor(startFloor));
-  const normalizedEndFloor = Math.max(normalizedStartFloor, Math.floor(endFloor));
-  return Math.max(normalizedStartFloor - 1, normalizedEndFloor - memoryVisibleTailFloors);
+export function getGrandSummaryHiddenEndFloor(endFloor: number) {
+  const normalizedEndFloor = Math.max(1, Math.floor(endFloor));
+  return Math.max(0, normalizedEndFloor - grandSummaryVisibleTailFloors);
+}
+
+export function isIncrementalGrandSummary(memory: ConversationMemoryRecord) {
+  return memory.summaryRole === 'incremental-grand';
+}
+
+export function collectIncrementalGrandSummaries(memory: ConversationMemoryRecord): ConversationMemoryRecord[] {
+  return [
+    ...(isIncrementalGrandSummary(memory) ? [memory] : []),
+    ...(memory.mergedFrom?.flatMap((childMemory) => collectIncrementalGrandSummaries(childMemory)) ?? [])
+  ];
+}
+
+function memorySourceMessagesAreActive(memory: ConversationMemoryRecord, sourceMessagesById: Map<string, ChatMessage>) {
+  return Boolean(memory.sourceMessageIds.length) && memory.sourceMessageIds.every((messageId) => {
+    const sourceMessage = sourceMessagesById.get(messageId);
+    return Boolean(sourceMessage && sourceMessage.replyVariantState !== 'inactive');
+  });
 }
 
 export function getEffectiveHiddenFloorRanges(memories: ConversationMemoryRecord[]): HiddenFloorRange[] {
@@ -1103,7 +1045,8 @@ export function getEffectiveHiddenFloorRanges(memories: ConversationMemoryRecord
 
 export function getHiddenMessageIds(messages: ChatMessage[], memories: ConversationMemoryRecord[], settings: ConversationSettings) {
   if (!settings.memory.hideSummarizedMessages) return new Set<string>();
-  const hiddenRanges = getEffectiveHiddenFloorRanges(memories);
+  const sourceMessagesById = new Map(messages.map((message) => [message.id, message]));
+  const hiddenRanges = getEffectiveHiddenFloorRanges(memories.flatMap((memory) => collectIncrementalGrandSummaries(memory)).filter((memory) => memorySourceMessagesAreActive(memory, sourceMessagesById)));
 
   const floorMap = getMessageFloorMap(messages);
   return new Set(messages
@@ -1119,21 +1062,35 @@ export function getVisibleMessages(messages: ChatMessage[], memories: Conversati
   return messages.filter((message) => !hiddenIds.has(message.id) && message.replyVariantState !== 'inactive');
 }
 
+export function getNextSummaryStartFloor(messages: ChatMessage[], memories: ConversationMemoryRecord[], mode: ChatMode) {
+  const sourceMessagesById = new Map(messages.map((message) => [message.id, message]));
+  const coveredRanges = memories
+    .filter((memory) => memory.mode === mode && memorySourceMessagesAreActive(memory, sourceMessagesById))
+    .map((memory) => ({ start: Math.max(1, Math.floor(memory.startFloor)), end: Math.max(1, Math.floor(memory.endFloor)) }))
+    .filter((range) => range.end >= range.start)
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+  let startFloor = 1;
+  for (const range of coveredRanges) {
+    if (range.end < startFloor) continue;
+    if (range.start > startFloor) break;
+    startFloor = Math.max(startFloor, range.end + 1);
+  }
+  return startFloor;
+}
+
 export function getNextSummaryRange(messages: ChatMessage[], memories: ConversationMemoryRecord[], settings: ConversationSettings, mode: ChatMode) {
   if (!settings.memory.autoSummarize) return null;
   const step = settings.memory.summarizeEvery;
   const floorCount = getConversationFloorCount(messages);
-  const completedEndFloor = memories
-    .reduce((max, memory) => Math.max(max, memory.endFloor), 0);
-  const startFloor = completedEndFloor + 1;
-  const endFloor = completedEndFloor + step;
+  const startFloor = getNextSummaryStartFloor(messages, memories, mode);
+  const endFloor = startFloor + step - 1;
   if (floorCount < endFloor) return null;
   const sourceMessages = getMessagesInFloorRange(messages, startFloor, endFloor);
   return {
     startFloor,
     endFloor,
-    hiddenStartFloor: startFloor,
-    hiddenEndFloor: getMemoryHiddenEndFloor(startFloor, endFloor),
+    hiddenStartFloor: 0,
+    hiddenEndFloor: 0,
     sourceMessages
   };
 }
@@ -1158,6 +1115,7 @@ export function createMemoryRecord(input: {
     conversationId: input.conversationId,
     mode: input.mode,
     kind: 'short-term',
+    summaryRole: 'memoir',
     startFloor: input.startFloor,
     endFloor: input.endFloor,
     hiddenStartFloor: input.hiddenStartFloor,

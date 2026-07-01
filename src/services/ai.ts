@@ -1,5 +1,5 @@
 import { unzipSync } from 'fflate';
-import type { ApiVendor, AppSettings, CharacterProfile, ConversationMemoryAtom, ConversationMemoryEntryStatus, ConversationMemoryEntryType, ConversationTimeAwarenessSettings, GenerateReplyInput, ImageProviderType, MusicComment, MusicTrack, NovelAiModelOption, PollinationsModelOption, PromptContext, SmallTheater, SmallTheaterTopic, UserProfile, VoomComment, VoomFrequency, VoomPost } from '@/types/domain';
+import type { ApiVendor, AppSettings, CharacterProfile, ConversationTimeAwarenessSettings, GenerateReplyInput, ImageProviderType, MusicComment, MusicTrack, NovelAiModelOption, PollinationsModelOption, PromptContext, SmallTheater, SmallTheaterTopic, UserProfile, VoomComment, VoomFrequency, VoomPost } from '@/types/domain';
 import { createId } from '@/utils/id';
 import { getCharacterAiName, getCharacterVoomAuthorName } from '@/utils/character';
 import { getUserAiName, getUserVoomAuthorName } from '@/utils/profile';
@@ -76,28 +76,6 @@ export interface VoomCommentReplyResult {
   draftId?: string;
 }
 
-export interface MemoryAtomAuditUpdate {
-  id: string;
-  type?: ConversationMemoryEntryType;
-  status?: ConversationMemoryEntryStatus;
-  subject?: string;
-  content?: string;
-  owner?: string;
-  counterparty?: string;
-  due?: string;
-  resolution?: string;
-  timeLabel?: string;
-  occurredAt?: number;
-  occurredEndAt?: number;
-  importance?: number;
-  confidence?: number;
-  reason?: string;
-}
-
-export interface MemoryAtomAuditResult {
-  updates: MemoryAtomAuditUpdate[];
-}
-
 export type UserVoomCommentResult = Pick<VoomComment, 'authorName' | 'authorId' | 'content' | 'contentTranslation' | 'parentId'> & { draftId?: string };
 
 export interface SmallTheaterGenerationResult {
@@ -105,6 +83,12 @@ export interface SmallTheaterGenerationResult {
   summary: string;
   html: string;
   model?: string;
+}
+
+export interface ConversationSummaryIdentityRule {
+  role: 'user' | 'character';
+  canonicalName: string;
+  aliases: string[];
 }
 
 export interface ImageGenerationOverrides {
@@ -2572,9 +2556,67 @@ export async function generateMusicCommentThread(input: {
   }
 }
 
+function normalizeSummaryNameToken(value: string) {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function uniqueSummaryNames(names: string[], canonicalName: string) {
+  const canonicalKey = normalizeSummaryNameToken(canonicalName).toLocaleLowerCase();
+  const seen = new Set<string>();
+  return names
+    .map(normalizeSummaryNameToken)
+    .filter((name) => {
+      const key = name.toLocaleLowerCase();
+      if (!name || key === canonicalKey || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function renderConversationSummaryIdentityPrompt(rules: ConversationSummaryIdentityRule[] | undefined) {
+  const normalizedRules = (rules ?? [])
+    .map((rule) => ({
+      ...rule,
+      canonicalName: normalizeSummaryNameToken(rule.canonicalName),
+      aliases: uniqueSummaryNames(rule.aliases, rule.canonicalName)
+    }))
+    .filter((rule) => rule.canonicalName);
+
+  if (!normalizedRules.length) return '';
+
+  return [
+    '人物称谓统一规则（最高优先级）：',
+    '1. 用户和角色的真名是唯一人物标识；网名、昵称、社交主页名、handle 只是别名，不得写成独立人物。',
+    '2. plot、echo、Markdown 角色表的“名字”列、mermaid graph 节点和关系边都必须只使用真名。',
+    '3. 看到下列别名时，全部改写为对应真名；不要把别名保留为另一个人物：',
+    ...normalizedRules.map((rule) => {
+      const roleLabel = rule.role === 'user' ? '用户' : '角色';
+      const aliasText = rule.aliases.length ? `；别名/网名/handle：${rule.aliases.join('、')}` : '';
+      return `- ${roleLabel}真名：${rule.canonicalName}${aliasText}`;
+    })
+  ].join('\n');
+}
+
+function normalizeConversationSummaryIdentityNames(summary: string, rules: ConversationSummaryIdentityRule[] | undefined) {
+  if (!summary || !rules?.length) return summary;
+  return rules.reduce((text, rule) => {
+    const canonicalName = normalizeSummaryNameToken(rule.canonicalName);
+    if (!canonicalName) return text;
+    return uniqueSummaryNames(rule.aliases, canonicalName).reduce((nextText, alias) => {
+      if (alias.length < 2) return nextText;
+      return nextText.replace(new RegExp(escapeRegExp(alias), 'g'), canonicalName);
+    }, text);
+  }, summary);
+}
+
 export async function generateConversationSummary(input: {
   messages: string;
   previousSummary: string;
+  identityRules?: ConversationSummaryIdentityRule[];
   timeAwareness?: ConversationTimeAwarenessSettings;
   timeAwarenessUserName?: string;
   timelineContext?: string;
@@ -2586,131 +2628,27 @@ export async function generateConversationSummary(input: {
   const timeAwarenessPrompt = includeTimeline
     ? renderTimeAwarenessPrompt(input.timeAwareness, { userName: input.timeAwarenessUserName || '用户' })
     : '';
+  const basePrompt = input.promptOverride?.trim() || [
+    '停止剧情，停止输出其他所有内容，开始执行六楼回忆录。',
+    '请把下面聊天楼层整理成由摘要、角色表组成的长期记忆。摘要必须包含 time、location、plot、echo；角色表必须使用 Markdown 表格和基础 mermaid 关系图。',
+    'plot 使用流水账形式，全面记录本次剧情、新名词、新信息和关键伏笔；echo 记录 1-2 句重要对白并明确涉及人物；不要评价、升华或代替角色继续剧情。'
+  ].join('\n');
+  const identityPrompt = renderConversationSummaryIdentityPrompt(input.identityRules);
+  const previousSummary = normalizeConversationSummaryIdentityNames(input.previousSummary, input.identityRules);
   const prompt = [
-    input.promptOverride?.trim() || '请把下面聊天楼层整理成结构化长期记忆。每条一行：- [类型|状态|重要度1-5|主体|证据楼层|发生时间] 内容。类型只能用 fact/preference/promise/conflict/plot/relationship/boundary/emotion/world；状态只能用 active/open/resolved/superseded/cancelled。发生时间优先写待总结事件时间线中的精确时间或时间范围，无法确认时写可见楼层范围；必须根据新聊天校验旧记忆，已解决或被推翻的事项不能继续写成 open；不要评价用户；用中文输出。',
+    basePrompt,
+    identityPrompt,
     timeAwarenessPrompt,
-    '记忆生命周期规则：新聊天优先于旧记忆；同一事实有新版本时保留新版本，并把旧版本标为 superseded 或移除；承诺/冲突/未解决事项只有仍需要后续处理时才标为 open；已经回应、兑现、和解、拒绝或撤销的事项标为 resolved/cancelled，且不要在后续回复里反复催促。',
-    includeTimeline ? '时间线写入规则：每条内容必须尽量填写第 6 个字段“发生时间”；优先使用待总结事件时间线中的精确发送时间或时间范围，不能只写“之前”“后来”；无法确认剧情发生时间时，至少写“第 x-y 楼 / 时间未知”。' : '',
-    input.previousSummary ? `旧记忆候选（仅供校验和更新，不是绝对事实）：\n${input.previousSummary}` : '旧记忆候选：暂无。',
-    includeTimeline && input.timelineContext ? `待总结事件时间线：\n${input.timelineContext}` : '',
+    previousSummary ? `已有记忆文本（用于避免重复、衔接时间线和保留伏笔）：\n${previousSummary}` : '已有记忆文本：暂无。',
+    includeTimeline && input.timelineContext ? `待总结楼层时间线：\n${input.timelineContext}` : '',
     `待总结聊天：\n${input.messages}`
   ].filter(Boolean).join('\n\n');
   const apiReply = await callTextApi(input.settings, prompt, input.modelOverride);
-  return apiReply || input.messages.slice(0, 1400);
-}
-
-function formatAtomForAudit(atom: Pick<ConversationMemoryAtom, 'id' | 'type' | 'status' | 'subject' | 'content' | 'importance' | 'owner' | 'counterparty' | 'due' | 'resolution' | 'evidenceFloors' | 'lastTouchedFloor' | 'timeLabel' | 'occurredAt' | 'occurredEndAt'>) {
-  const meta = [
-    atom.owner ? `owner=${atom.owner}` : '',
-    atom.counterparty ? `counterparty=${atom.counterparty}` : '',
-    atom.due ? `due=${atom.due}` : '',
-    atom.resolution ? `resolution=${atom.resolution}` : '',
-    atom.timeLabel ? `time=${atom.timeLabel}` : '',
-    atom.occurredAt ? `occurredAt=${atom.occurredAt}` : '',
-    atom.occurredEndAt ? `occurredEndAt=${atom.occurredEndAt}` : '',
-    atom.evidenceFloors?.length ? `floors=${atom.evidenceFloors.join('/')}` : '',
-    atom.lastTouchedFloor ? `lastFloor=${atom.lastTouchedFloor}` : ''
-  ].filter(Boolean).join('; ');
-  return `- id=${atom.id} [${atom.type}|${atom.status}|${atom.importance}|${atom.subject}${meta ? `|${meta}` : ''}] ${atom.content}`;
-}
-
-function normalizeMemoryAtomAuditResult(value: unknown, allowedIds: Set<string>): MemoryAtomAuditResult {
-  const record = value && typeof value === 'object' ? value as Record<string, unknown> : {};
-  const rawUpdates = Array.isArray(record.updates) ? record.updates : [];
-  const statuses: ConversationMemoryEntryStatus[] = ['active', 'open', 'resolved', 'superseded', 'cancelled'];
-  const types: ConversationMemoryEntryType[] = ['fact', 'preference', 'promise', 'conflict', 'plot', 'relationship', 'boundary', 'emotion', 'world'];
-  const updates = rawUpdates
-    .map((item): MemoryAtomAuditUpdate | null => {
-      if (!item || typeof item !== 'object') return null;
-      const update = item as Record<string, unknown>;
-      const id = String(update.id ?? '').trim();
-      if (!id || !allowedIds.has(id)) return null;
-      const status = String(update.status ?? '').trim() as ConversationMemoryEntryStatus;
-      const type = String(update.type ?? '').trim() as ConversationMemoryEntryType;
-      const normalizedUpdate: MemoryAtomAuditUpdate = { id };
-      if (statuses.includes(status)) normalizedUpdate.status = status;
-      if (types.includes(type)) normalizedUpdate.type = type;
-      const textFields = ['subject', 'content', 'owner', 'counterparty', 'due', 'resolution', 'timeLabel', 'reason'] as const;
-      textFields.forEach((field) => {
-        const text = String(update[field] ?? '').replace(/\s+/g, ' ').trim();
-        if (text) normalizedUpdate[field] = text;
-      });
-      const importance = Math.round(Number(update.importance));
-      if (Number.isFinite(importance)) normalizedUpdate.importance = Math.min(5, Math.max(1, importance));
-      const confidence = Number(update.confidence);
-      if (Number.isFinite(confidence)) normalizedUpdate.confidence = Math.min(1, Math.max(0, confidence));
-      const occurredAt = Number(update.occurredAt);
-      if (Number.isFinite(occurredAt) && occurredAt > 0) normalizedUpdate.occurredAt = occurredAt;
-      const occurredEndAt = Number(update.occurredEndAt);
-      if (Number.isFinite(occurredEndAt) && occurredEndAt > 0) normalizedUpdate.occurredEndAt = occurredEndAt;
-      return Object.keys(normalizedUpdate).length > 1 ? normalizedUpdate : null;
-    })
-    .filter((item): item is MemoryAtomAuditUpdate => Boolean(item));
-  return { updates };
-}
-
-export async function generateMemoryAtomAudit(input: {
-  conversationText: string;
-  previousAtoms: ConversationMemoryAtom[];
-  newAtoms: ConversationMemoryAtom[];
-  settings?: AppSettings;
-  modelOverride?: string;
-}) {
-  const previousAtoms = input.previousAtoms.slice(0, 28);
-  if (!previousAtoms.length || !input.conversationText.trim()) return { updates: [] } satisfies MemoryAtomAuditResult;
-  const allowedIds = new Set(previousAtoms.map((atom) => atom.id));
-  const prompt = [
-    '你是聊天记忆生命周期审查器。请只审查“旧原子记忆”是否被“本轮对话”和“新原子候选”更新、解决、推翻或取消。',
-    '只允许输出 JSON 对象，不要 Markdown，不要解释。格式：{"updates":[{"id":"旧原子ID","status":"active|open|resolved|superseded|cancelled","content":"可选的新内容","subject":"可选主题","owner":"可选责任方","counterparty":"可选对象","due":"可选期限","resolution":"可选结果","timeLabel":"可选发生时间文本","occurredAt":可选毫秒时间戳,"occurredEndAt":可选毫秒时间戳,"importance":1-5,"confidence":0-1,"reason":"简短原因"}]}。',
-    '规则：只能引用旧原子里存在的 id；不要为新事实编造 id；承诺/冲突仍需后续处理才保留 open；已经兑现、和解、拒绝、撤销或被新版本覆盖的，改为 resolved/superseded/cancelled；如果本轮对话明确修正了发生时间，必须同步 timeLabel/occurredAt/occurredEndAt；信息不足就不要输出该原子的更新。',
-    `旧原子记忆：\n${previousAtoms.map(formatAtomForAudit).join('\n')}`,
-    input.newAtoms.length ? `新原子候选：\n${input.newAtoms.slice(0, 18).map(formatAtomForAudit).join('\n')}` : '新原子候选：暂无。',
-    `本轮对话：\n${input.conversationText}`
-  ].join('\n\n');
-  const apiReply = await callTextApi(input.settings, prompt, input.modelOverride);
-  if (!apiReply.trim()) return { updates: [] } satisfies MemoryAtomAuditResult;
-  try {
-    return normalizeMemoryAtomAuditResult(JSON.parse(extractJsonContent(apiReply)), allowedIds);
-  } catch {
-    return { updates: [] } satisfies MemoryAtomAuditResult;
-  }
+  return normalizeConversationSummaryIdentityNames(apiReply || input.messages.slice(0, 1400), input.identityRules);
 }
 
 export function shouldAutoGenerateMoment(frequency: VoomFrequency) {
   return Math.random() < getVoomFrequencyChance(frequency);
-}
-
-export async function generateEmbeddingVector(input: {
-  text: string;
-  settings?: AppSettings;
-  modelOverride?: string;
-}) {
-  const resolved = getResolvedTextApiConfig(input.settings, input.modelOverride);
-  if (!resolved.endpoint.trim() || !resolved.model.trim() || !input.text.trim()) return [];
-
-  const embeddingsEndpoint = resolved.endpoint.replace(/\/chat\/completions\/?$/i, '/embeddings');
-  try {
-    const { response } = await fetchTextEndpoint(embeddingsEndpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(resolved.apiKey ? { Authorization: `Bearer ${resolved.apiKey}` } : {})
-      },
-      body: JSON.stringify({
-        model: resolved.model,
-        input: input.text
-      })
-    });
-
-    if (!response.ok) return [];
-    const data = await response.json();
-    const embedding = Array.isArray(data.data?.[0]?.embedding) ? data.data[0].embedding : [];
-    return embedding
-      .map((value: unknown) => Number(value))
-      .filter((value: number) => Number.isFinite(value));
-  } catch {
-    return [];
-  }
 }
 
 function getNovelAiEndpointBase(settings: AppSettings) {

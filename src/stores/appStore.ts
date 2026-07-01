@@ -2,7 +2,7 @@ import { computed, ref, toRaw } from 'vue';
 import { defineStore } from 'pinia';
 import { deleteEntity, loadSnapshot, putEntity, replaceSnapshot, scheduleStartupStorageMaintenance } from '@/data/db';
 import { defaultSettings } from '@/data/seed';
-import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationMemoryAtom, ConversationMemoryDebugTrace, ConversationMemoryRecord, ConversationSettings, FavoriteMessageKind, FavoriteMessageRecord, GeneratedImageRecord, ImageModuleId, MusicCommentThread, MusicTrack, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationMemoryAtom, ConversationMemoryRecord, ConversationSettings, FavoriteMessageKind, FavoriteMessageRecord, GeneratedImageRecord, ImageModuleId, MusicCommentThread, MusicTrack, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
 import { createAccountId, createId } from '@/utils/id';
 import { getCharacterAiName, getCharacterInitialProfile, getCharacterVoomAuthorName, getCharacterVoomDisplayName, normalizeCharacterMindStateLines, normalizeCharacterProfile } from '@/utils/character';
 import { getUserAiName, getUserDisplayName, getUserVoomAuthorName, normalizeUserProfile, normalizeVisualProfile } from '@/utils/profile';
@@ -10,9 +10,9 @@ import { getImageGenerationSize, getImagePromptPresetForProvider, getSelectedIma
 import { normalizeWorldBookEntry, normalizeWorldBooks } from '@/utils/worldBook';
 import { createDefaultSmallTheaterTopics, defaultSmallTheaterTopicDrafts, normalizeSmallTheaterTopic } from '@/utils/smallTheater';
 import { RECENT_STICKER_GROUP_NAME, cacheStickerImageUrl, createStickerFromDraft, createStickerGroup, getStickerDisplayImageUrl, isLegacyGanadiSticker, isLegacyGanadiStickerGroup, isRecentStickerGroupId, normalizeSticker, normalizeStickerGroup, shouldLocalizeStickerImageUrl, sortRecentStickers, type StickerImportDraft } from '@/utils/stickers';
-import { ageMemoryKind, buildMemoryAtomContext, createMemoryAtomsFromRecord, createMemoryRecord, estimateTokenCount, getConversationFloorCount, getHiddenMessageIds, getMemoryContext, getMemoryHiddenEndFloor, getMessageFloorMap, getMessagesInFloorRange, getNextSummaryRange, getVisibleMessages, mergeMemoryAtoms, normalizeConversationSettings, normalizeMemoryAtom, normalizeMemoryRecordEntries, renderCharacterMemoryPrompt, shouldCompressMemory } from '@/utils/memory';
+import { ageMemoryKind, collectIncrementalGrandSummaries, createMemoryRecord, estimateTokenCount, filterHighestMemoryLayers, getConversationFloorCount, getGrandSummaryHiddenEndFloor, getHiddenMessageIds, getMemoryContext, getMemoryMergeDepth, getMessageFloorMap, getMessagesInFloorRange, getNextSummaryRange, getNextSummaryStartFloor, getVisibleMessages, isIncrementalGrandSummary, normalizeConversationSettings, normalizeMemoryRecordEntries, renderCharacterMemoryPrompt, shouldCompressMemory } from '@/utils/memory';
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
-import { estimateRoleplayReplyInputTokens, fetchVendorModels, generateConversationSummary, generateEmbeddingVector, generateImageByProvider, generateMemoryAtomAudit, generateRoleplayReply, generateSmallTheater, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, shouldAutoGenerateMoment, type MemoryAtomAuditUpdate, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
+import { estimateRoleplayReplyInputTokens, fetchVendorModels, generateConversationSummary, generateImageByProvider, generateRoleplayReply, generateSmallTheater, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, shouldAutoGenerateMoment, type ConversationSummaryIdentityRule, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
 import { GitHubBackupError, downloadGitHubBackup, downloadGitHubBackupVersion, ensureGitHubBackupRepository, formatGitHubBackupError, listGitHubBackupHistory, uploadGitHubBackup } from '@/services/githubBackup';
 import { showLinkNotification } from '@/services/keepAlive';
 import { playRingtone } from '@/services/ringtone';
@@ -104,6 +104,99 @@ function renderMemoryRangeTimelineContext(memories: ConversationMemoryRecord[]) 
     .join('\n');
 }
 
+function normalizeSummaryIdentityName(name: string | null | undefined) {
+  return String(name ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function uniqueSummaryIdentityAliases(canonicalName: string, names: Array<string | null | undefined>) {
+  const canonicalKey = normalizeSummaryIdentityName(canonicalName).toLocaleLowerCase();
+  const seen = new Set<string>();
+  return names
+    .map(normalizeSummaryIdentityName)
+    .filter((name) => {
+      const key = name.toLocaleLowerCase();
+      if (!name || key === canonicalKey || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function createConversationSummaryIdentityRules(boundUser: UserProfile | null | undefined, character: CharacterProfile | null | undefined): ConversationSummaryIdentityRule[] {
+  const userCanonicalName = getUserAiName(boundUser);
+  const rules: ConversationSummaryIdentityRule[] = [
+    {
+      role: 'user',
+      canonicalName: userCanonicalName,
+      aliases: uniqueSummaryIdentityAliases(userCanonicalName, [
+        boundUser?.nickname,
+        getUserDisplayName(boundUser),
+        getUserVoomAuthorName(boundUser),
+        boundUser?.profile?.nickname,
+        boundUser?.profile?.handle
+      ])
+    }
+  ];
+
+  if (character) {
+    const characterCanonicalName = getCharacterAiName(character);
+    rules.push({
+      role: 'character',
+      canonicalName: characterCanonicalName,
+      aliases: uniqueSummaryIdentityAliases(characterCanonicalName, [
+        character.nickname,
+        character.userNote,
+        getCharacterVoomDisplayName(character),
+        getCharacterVoomAuthorName(character),
+        character.profile?.nickname,
+        character.profile?.handle
+      ])
+    });
+  }
+
+  return rules;
+}
+
+const fullConversationMergeSummaryPrompt = `停止剧情，停止输出其他所有内容，开始执行全文大总结。
+
+执行规则
+
+1. 将过往所有分段总结+本次新增剧情整合为一份完整连贯的剧情文档，不再拆分段落记录。
+2. 统一梳理整条故事时间线，理顺前后逻辑，合并重复内容，久远的细碎情节可以适当精简压缩。
+3. 区分时间节点，把所有事件按先后顺序串联起来。
+4. 留存全部主线转折点、人物约定、道具信息、情感走向与伏笔内容。
+5. 客观平铺事实，不用文学修辞，不做情绪点评，全程流水账叙事。
+6. 内容完整还原全部剧情，无遗漏、无篡改。
+
+固定输出格式
+
+plaintext
+
+<details>
+<summary>大总结(填写本次合并序号)</summary>
+- 时间：
+  - 关键事件：完整叙述事件经过与出场人物
+  - 重要细节：
+  - 关键对话与内心戏：标注对应角色
+  - 角色关键行为：标注对应角色
+  - 角色与用户之间的情感变化（选填）
+  - 事件收尾与后续小互动（选填）
+
+- 时间：
+  - 关键事件：完整叙述事件经过与出场人物
+  - 重要细节：
+  - 关键对话与内心戏：标注对应角色
+  - 角色关键行为：标注对应角色
+  - 角色与用户之间的情感变化（选填）
+  - 事件收尾与后续小互动（选填）
+
+（可无限顺延时间条目，完整写完整条剧情）
+</details>
+
+<details>
+<summary>角色表</summary>
+汇总全程所有主线人物，剔除一次性路人，生成 Markdown 人物档案表格+mermaid 人际关系变化流程图，严格遵循角色表格式要求。
+</details>`;
+
 function getCharacterTrackedMood(character: CharacterProfile) {
   return normalizeCharacterMindStateLines(character.mindState?.lines).join('\n');
 }
@@ -138,7 +231,6 @@ export const useAppStore = defineStore('app', () => {
   let githubBackupRunning = false;
   let stickerImportCacheQueue = Promise.resolve();
   const summarizingConversationRanges = new Set<string>();
-  const writingMemoryAtomConversationIds = new Set<string>();
   const autoMergingConversationIds = new Set<string>();
   const generatingMomentConversationIds = new Set<string>();
   const generatingSmallTheaterConversationIds = new Set<string>();
@@ -165,7 +257,6 @@ export const useAppStore = defineStore('app', () => {
   const conversationSettings = ref<ConversationSettings[]>([]);
   const conversationMemories = ref<ConversationMemoryRecord[]>([]);
   const conversationMemoryAtoms = ref<ConversationMemoryAtom[]>([]);
-  const memoryDebugTraces = ref<Record<string, ConversationMemoryDebugTrace>>({});
   const generatedImages = ref<GeneratedImageRecord[]>([]);
   const favorites = ref<FavoriteMessageRecord[]>([]);
   const settings = ref<AppSettings | null>(null);
@@ -373,11 +464,9 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function normalizeConversationMemoryAtoms(rawAtoms: ConversationMemoryAtom[], memories: ConversationMemoryRecord[]) {
-    const atomsFromSnapshot = rawAtoms
-      .map((atom) => normalizeMemoryAtom(atom, { conversationId: atom.conversationId, mode: atom.mode }))
-      .filter((atom): atom is ConversationMemoryAtom => Boolean(atom));
-    const atomsFromMemories = memories.flatMap((memory) => createMemoryAtomsFromRecord(memory));
-    return mergeMemoryAtoms([...atomsFromMemories, ...atomsFromSnapshot]);
+    void rawAtoms;
+    void memories;
+    return [];
   }
 
   function getMemoryRangeKey(memory: Pick<ConversationMemoryRecord, 'conversationId' | 'mode' | 'startFloor' | 'endFloor' | 'isMergedSummary'>) {
@@ -503,9 +592,7 @@ export const useAppStore = defineStore('app', () => {
       vector: Array.isArray(memory.vector) ? memory.vector : [],
       entries: normalizeMemoryRecordEntries(memory)
     })));
-    conversationMemoryAtoms.value = normalizeConversationMemoryAtoms(snapshot.conversationMemoryAtoms ?? [], conversationMemories.value);
-    await persistMissingMemoryAtoms(conversationMemoryAtoms.value);
-    await maintainMemoryAtoms();
+    conversationMemoryAtoms.value = [];
     generatedImages.value = normalizeGeneratedImages(snapshot.generatedImages ?? []);
     favorites.value = normalizeFavorites(snapshot.favorites ?? []);
     settings.value = normalizeAppSettings({
@@ -601,73 +688,16 @@ export const useAppStore = defineStore('app', () => {
       && !memory.sourceMessageIds.some((messageId) => excludedIds.has(messageId)));
   }
 
-  function filterRecallableMemoryAtoms(conversationId: string, atoms: ConversationMemoryAtom[], excludeSourceMessageIds: string[] = []) {
-    const excludedIds = new Set(excludeSourceMessageIds.map((id) => id.trim()).filter(Boolean));
-    const sourceMessagesById = messageMapForConversation(conversationId);
-    return atoms.filter((atom) => sourceMessageIdsAreRecallable(atom.sourceMessageIds, sourceMessagesById)
-      && !atom.sourceMessageIds.some((messageId) => excludedIds.has(messageId)));
-  }
-
-  function memoryStatusTimelineLabel(status: ConversationMemoryAtom['status']) {
-    return {
-      active: '有效',
-      open: '开放',
-      resolved: '已解决',
-      superseded: '已覆盖',
-      cancelled: '已取消'
-    }[status];
-  }
-
-  function memoryAtomFloorText(atom: ConversationMemoryAtom) {
-    const floors = [...new Set(atom.evidenceFloors.filter((floor) => Number.isFinite(floor) && floor > 0))].sort((left, right) => left - right);
-    if (floors.length) return `${floors.join('/')}楼`;
-    return `${atom.lastTouchedFloor || 1}楼`;
-  }
-
-  function renderSelectedMemoryTimelineContext(conversationId: string, atoms: ConversationMemoryAtom[], selectedAtomIds: string[], maxEntries = 12) {
-    const selectedIds = new Set(selectedAtomIds);
-    if (!selectedIds.size) return '';
-    const messageById = new Map(messagesForConversation(conversationId)
-      .filter((message) => message.replyVariantState !== 'inactive')
-      .map((message) => [message.id, message]));
-    const selectedAtoms = mergeMemoryAtoms(atoms)
-      .filter((atom) => atom.conversationId === conversationId && selectedIds.has(atom.id))
-      .sort((left, right) => (left.occurredAt ?? left.createdAt) - (right.occurredAt ?? right.createdAt) || left.lastTouchedFloor - right.lastTouchedFloor || left.updatedAt - right.updatedAt)
-      .slice(0, Math.min(16, Math.max(6, Math.floor(maxEntries))));
-    return selectedAtoms.map((atom) => {
-      const sourceMessages = atom.sourceMessageIds.map((messageId) => messageById.get(messageId)).filter((message): message is ChatMessage => Boolean(message));
-      const sourceTimeText = atom.timeLabel || (sourceMessages.length
-        ? formatMemoryTimelineTimeRange(sourceMessages.map((message) => message.createdAt))
-        : `记忆写入 ${formatMemoryTimelineTime(atom.createdAt)}`);
-      return `- ${memoryAtomFloorText(atom)}｜${sourceTimeText}｜${memoryStatusTimelineLabel(atom.status)}｜${atom.subject}：${compactMemoryTimelineText(atom.content, 110)}`;
-    }).join('\n');
-  }
-
-  function appendMemoryTimelineForTimeAwareness(conversationId: string, memoryText: string, atoms: ConversationMemoryAtom[], selectedAtomIds: string[], fallbackMemories: ConversationMemoryRecord[], maxEntries?: number) {
+  function appendMemoryTimelineForTimeAwareness(conversationId: string, memoryText: string, memories: ConversationMemoryRecord[]) {
     if (!settingsForConversation(conversationId).timeAwareness.enabled) return memoryText;
-    const atomTimeline = renderSelectedMemoryTimelineContext(conversationId, atoms, selectedAtomIds, maxEntries ?? 12);
-    const fallbackTimeline = atomTimeline || renderMemoryRangeTimelineContext(fallbackMemories);
-    if (!fallbackTimeline.trim()) return memoryText;
-    return [memoryText.trim(), `【记忆时间线】\n${fallbackTimeline}`].filter(Boolean).join('\n\n');
+    const timeline = renderMemoryRangeTimelineContext(memories);
+    if (!timeline.trim()) return memoryText;
+    return [memoryText.trim(), `【记忆时间线】\n${timeline}`].filter(Boolean).join('\n\n');
   }
 
   function memoryAtomsForConversation(id: string) {
-    return filterRecallableMemoryAtoms(id, memoryAtomsByConversationId.value.get(id) ?? []);
-  }
-
-  function memoryDebugTraceForConversation(id: string) {
-    return memoryDebugTraces.value[id] ?? null;
-  }
-
-  function previewMemoryRecallForConversation(id: string, queryText = '', options: { includeResolved?: boolean; maxTokens?: number; maxEntries?: number; excludeSourceMessageIds?: string[] } = {}) {
-    return buildMemoryAtomContext(filterRecallableMemoryAtoms(id, conversationMemoryAtoms.value, options.excludeSourceMessageIds), {
-      conversationId: id,
-      queryText,
-      maxEntries: options.maxEntries ?? (queryText.trim() ? 18 : 28),
-      maxTokens: options.maxTokens ?? (queryText.trim() ? 1200 : 1600),
-      includeResolved: options.includeResolved,
-      excludeSourceMessageIds: options.excludeSourceMessageIds
-    }).debug;
+    void id;
+    return [];
   }
 
   function stickersForGroup(groupId: string) {
@@ -718,66 +748,29 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function memoryContextForConversation(id: string, queryText = '', options: { includeResolved?: boolean; maxTokens?: number; maxEntries?: number; storeDebug?: boolean; excludeSourceMessageIds?: string[] } = {}) {
-    const recallableAtoms = filterRecallableMemoryAtoms(id, conversationMemoryAtoms.value, options.excludeSourceMessageIds);
     const recallableMemories = filterRecallableMemories(id, memoriesForConversation(id), options.excludeSourceMessageIds);
-    const { text, debug } = buildMemoryAtomContext(recallableAtoms, {
-      conversationId: id,
-      queryText,
-      maxEntries: options.maxEntries ?? (queryText.trim() ? 18 : 28),
-      maxTokens: options.maxTokens ?? (queryText.trim() ? 1200 : 1600),
-      includeResolved: options.includeResolved,
-      excludeSourceMessageIds: options.excludeSourceMessageIds
-    });
-    if (options.storeDebug !== false) memoryDebugTraces.value = { ...memoryDebugTraces.value, [id]: debug };
-    if (text.trim()) {
-      return appendMemoryTimelineForTimeAwareness(id, text, recallableAtoms, debug.selectedAtoms.map((atom) => atom.id), recallableMemories, options.maxEntries);
-    }
+    const readableMemories = filterHighestMemoryLayers(recallableMemories);
     const fallbackText = getMemoryContext(recallableMemories, {
       queryText,
       maxEntries: options.maxEntries ?? (queryText.trim() ? 18 : 28),
       includeResolved: options.includeResolved,
       excludeSourceMessageIds: options.excludeSourceMessageIds
     });
-    return appendMemoryTimelineForTimeAwareness(id, fallbackText, recallableAtoms, [], recallableMemories, options.maxEntries);
+    void options.storeDebug;
+    return appendMemoryTimelineForTimeAwareness(id, fallbackText, readableMemories);
   }
 
   async function memoryQueryVectorForConversation(id: string, queryText: string, modelOverride = '') {
-    const trimmedQuery = queryText.trim();
-    if (!trimmedQuery) return [];
-    const chatSettings = settingsForConversation(id);
-    if (!chatSettings.memory.vectorMemoryEnabled) return [];
-    const resolvedModelOverride = modelOverride || getConversationTextModelOverride(chatSettings, 'summary');
-    return generateEmbeddingVector({
-      text: trimmedQuery.slice(0, 4000),
-      settings: settings.value ?? undefined,
-      modelOverride: resolvedModelOverride
-    });
+    void id;
+    void queryText;
+    void modelOverride;
+    return [];
   }
 
   async function memoryContextForConversationAsync(id: string, queryText = '', options: { includeResolved?: boolean; maxTokens?: number; maxEntries?: number; storeDebug?: boolean; modelOverride?: string; queryVector?: number[]; excludeSourceMessageIds?: string[] } = {}) {
-    const queryVector = options.queryVector ?? await memoryQueryVectorForConversation(id, queryText, options.modelOverride);
-    const recallableAtoms = filterRecallableMemoryAtoms(id, conversationMemoryAtoms.value, options.excludeSourceMessageIds);
-    const recallableMemories = filterRecallableMemories(id, memoriesForConversation(id), options.excludeSourceMessageIds);
-    const { text, debug } = buildMemoryAtomContext(recallableAtoms, {
-      conversationId: id,
-      queryText,
-      queryVector,
-      maxEntries: options.maxEntries ?? (queryText.trim() ? 18 : 28),
-      maxTokens: options.maxTokens ?? (queryText.trim() ? 1200 : 1600),
-      includeResolved: options.includeResolved,
-      excludeSourceMessageIds: options.excludeSourceMessageIds
-    });
-    if (options.storeDebug !== false) memoryDebugTraces.value = { ...memoryDebugTraces.value, [id]: debug };
-    if (text.trim()) {
-      return appendMemoryTimelineForTimeAwareness(id, text, recallableAtoms, debug.selectedAtoms.map((atom) => atom.id), recallableMemories, options.maxEntries);
-    }
-    const fallbackText = getMemoryContext(recallableMemories, {
-      queryText,
-      maxEntries: options.maxEntries ?? (queryText.trim() ? 18 : 28),
-      includeResolved: options.includeResolved,
-      excludeSourceMessageIds: options.excludeSourceMessageIds
-    });
-    return appendMemoryTimelineForTimeAwareness(id, fallbackText, recallableAtoms, [], recallableMemories, options.maxEntries);
+    void options.modelOverride;
+    void options.queryVector;
+    return memoryContextForConversation(id, queryText, options);
   }
 
   function nextReplyTokenCountForConversation(id: string) {
@@ -1464,11 +1457,50 @@ export const useAppStore = defineStore('app', () => {
     return true;
   }
 
-  async function pruneMemoriesForMessageIds(messageIds: string[]) {
+  interface MemoryFloorImpact {
+    conversationId: string;
+    mode: ChatMode;
+    floor: number;
+  }
+
+  function memoryFloorImpactsForMessages(targetMessages: ChatMessage[]) {
+    const impacts: MemoryFloorImpact[] = [];
+    const byConversationMode = new Map<string, ChatMessage[]>();
+    targetMessages.forEach((message) => {
+      if (message.replyVariantState === 'inactive') return;
+      const key = `${message.conversationId}:${message.mode}`;
+      byConversationMode.set(key, messages.value.filter((item) => item.conversationId === message.conversationId && item.mode === message.mode && item.replyVariantState !== 'inactive'));
+    });
+    targetMessages.forEach((message) => {
+      if (message.replyVariantState === 'inactive') return;
+      const key = `${message.conversationId}:${message.mode}`;
+      const floorMap = getMessageFloorMap(byConversationMode.get(key) ?? []);
+      const floor = floorMap.get(message.id);
+      if (!floor) return;
+      impacts.push({ conversationId: message.conversationId, mode: message.mode, floor });
+    });
+    const earliestByConversationMode = new Map<string, MemoryFloorImpact>();
+    impacts.forEach((impact) => {
+      const key = `${impact.conversationId}:${impact.mode}`;
+      const existing = earliestByConversationMode.get(key);
+      if (!existing || impact.floor < existing.floor) earliestByConversationMode.set(key, impact);
+    });
+    return [...earliestByConversationMode.values()];
+  }
+
+  function memoryIsAfterFloorImpact(memory: ConversationMemoryRecord, impacts: MemoryFloorImpact[]) {
+    return impacts.some((impact) => memory.conversationId === impact.conversationId && memory.mode === impact.mode && memory.endFloor >= impact.floor);
+  }
+
+  function atomIsAfterFloorImpact(atom: ConversationMemoryAtom, impacts: MemoryFloorImpact[]) {
+    return impacts.some((impact) => atom.conversationId === impact.conversationId && atom.mode === impact.mode && atom.lastTouchedFloor >= impact.floor);
+  }
+
+  async function pruneMemoriesForMessageIds(messageIds: string[], floorImpacts: MemoryFloorImpact[] = []) {
     const idSet = new Set(messageIds);
-    if (!idSet.size) return;
-    const memoriesToRemove = conversationMemories.value.filter((memory) => memory.sourceMessageIds.some((id) => idSet.has(id)));
-    const atomsToRemove = conversationMemoryAtoms.value.filter((atom) => atom.sourceMessageIds.some((id) => idSet.has(id)));
+    if (!idSet.size && !floorImpacts.length) return;
+    const memoriesToRemove = conversationMemories.value.filter((memory) => memory.sourceMessageIds.some((id) => idSet.has(id)) || memoryIsAfterFloorImpact(memory, floorImpacts));
+    const atomsToRemove = conversationMemoryAtoms.value.filter((atom) => atom.sourceMessageIds.some((id) => idSet.has(id)) || atomIsAfterFloorImpact(atom, floorImpacts));
     if (!memoriesToRemove.length && !atomsToRemove.length) return;
     const removedMemoryIds = new Set(memoriesToRemove.map((memory) => memory.id));
     conversationMemories.value = conversationMemories.value.filter((memory) => !removedMemoryIds.has(memory.id));
@@ -1501,19 +1533,26 @@ export const useAppStore = defineStore('app', () => {
     const idSet = new Set(ids);
     const messagesToRemove = messages.value.filter((message) => idSet.has(message.id));
     if (!messagesToRemove.length) return 0;
+    const floorImpacts = memoryFloorImpactsForMessages(messagesToRemove);
     const affectedConversationIds = [...new Set(messagesToRemove.map((message) => message.conversationId))];
     messages.value = messages.value.filter((message) => !idSet.has(message.id));
     await Promise.all(messagesToRemove.map((message) => deleteEntity('messages', message.id)));
-    await pruneMemoriesForMessageIds(messagesToRemove.map((message) => message.id));
+    await pruneMemoriesForMessageIds(messagesToRemove.map((message) => message.id), floorImpacts);
     await Promise.all(affectedConversationIds.map((conversationId) => touchConversationAfterMessageChange(conversationId)));
     return messagesToRemove.length;
   }
 
   async function saveMessages(nextMessages: ChatMessage[]) {
     if (!nextMessages.length) return;
+    const changedMessages = nextMessages.filter((nextMessage) => {
+      const existingMessage = messages.value.find((message) => message.id === nextMessage.id);
+      return existingMessage && existingMessage.replyVariantState !== nextMessage.replyVariantState;
+    });
+    const floorImpacts = memoryFloorImpactsForMessages(changedMessages);
     const nextById = new Map(nextMessages.map((message) => [message.id, message]));
     messages.value = messages.value.map((message) => nextById.get(message.id) ?? message);
     await Promise.all(nextMessages.map((message) => putEntity('messages', message)));
+    await pruneMemoriesForMessageIds(changedMessages.map((message) => message.id), floorImpacts);
     const affectedConversationIds = [...new Set(nextMessages.map((message) => message.conversationId))];
     await Promise.all(affectedConversationIds.map((conversationId) => touchConversationAfterMessageChange(conversationId)));
   }
@@ -1524,6 +1563,7 @@ export const useAppStore = defineStore('app', () => {
     const messageIndex = messages.value.findIndex((message) => message.id === messageId);
     if (messageIndex < 0) return null;
     const existingMessage = messages.value[messageIndex];
+    const floorImpacts = memoryFloorImpactsForMessages([existingMessage]);
     const nextMessage: ChatMessage = {
       ...existingMessage,
       content: existingMessage.sticker
@@ -1543,7 +1583,7 @@ export const useAppStore = defineStore('app', () => {
     };
     messages.value[messageIndex] = nextMessage;
     await putEntity('messages', nextMessage);
-    await pruneMemoriesForMessageIds([nextMessage.id]);
+    await pruneMemoriesForMessageIds([nextMessage.id], floorImpacts);
     await touchConversationAfterMessageChange(nextMessage.conversationId, nextMessage.editedAt);
     return nextMessage;
   }
@@ -1555,6 +1595,7 @@ export const useAppStore = defineStore('app', () => {
     if (messageIndex < 0) return null;
     const existingMessage = messages.value[messageIndex];
     if (!existingMessage.location) return null;
+    const floorImpacts = memoryFloorImpactsForMessages([existingMessage]);
     const editedAt = Date.now();
     const nextMessage: ChatMessage = {
       ...existingMessage,
@@ -1564,7 +1605,7 @@ export const useAppStore = defineStore('app', () => {
     };
     messages.value[messageIndex] = nextMessage;
     await putEntity('messages', nextMessage);
-    await pruneMemoriesForMessageIds([nextMessage.id]);
+    await pruneMemoriesForMessageIds([nextMessage.id], floorImpacts);
     await touchConversationAfterMessageChange(nextMessage.conversationId, editedAt);
     return nextMessage;
   }
@@ -1577,6 +1618,7 @@ export const useAppStore = defineStore('app', () => {
     if (messageIndex < 0) return null;
     const existingMessage = messages.value[messageIndex];
     if (!existingMessage.transfer) return null;
+    const floorImpacts = memoryFloorImpactsForMessages([existingMessage]);
     const editedAt = Date.now();
     const nextTransfer: ChatTransferAttachment = {
       amount,
@@ -1595,7 +1637,7 @@ export const useAppStore = defineStore('app', () => {
     };
     messages.value[messageIndex] = nextMessage;
     await putEntity('messages', nextMessage);
-    await pruneMemoriesForMessageIds([nextMessage.id]);
+    await pruneMemoriesForMessageIds([nextMessage.id], floorImpacts);
     await touchConversationAfterMessageChange(nextMessage.conversationId, editedAt);
     return nextMessage;
   }
@@ -2850,7 +2892,7 @@ export const useAppStore = defineStore('app', () => {
       { id: 'stickers', label: '贴纸库', count: stickerGroups.value.length + stickers.value.length, bytes: estimateJsonBytes([stickerGroups.value, stickers.value]), clearable: true },
       { id: 'conversationSettings', label: '会话设置', count: conversationSettings.value.length, bytes: estimateJsonBytes(conversationSettings.value), clearable: true },
       { id: 'conversationMemories', label: '记忆摘要', count: conversationMemories.value.length, bytes: estimateJsonBytes(conversationMemories.value), clearable: true },
-      { id: 'conversationMemoryAtoms', label: '原子记忆', count: conversationMemoryAtoms.value.length, bytes: estimateJsonBytes(conversationMemoryAtoms.value), clearable: true },
+      { id: 'conversationMemoryAtoms', label: '旧版记忆索引', count: conversationMemoryAtoms.value.length, bytes: estimateJsonBytes(conversationMemoryAtoms.value), clearable: true },
       { id: 'generatedImages', label: '生成图历史', count: generatedImages.value.length, bytes: estimateJsonBytes(generatedImages.value), clearable: true },
       { id: 'settings', label: '全局设置', count: 1, bytes: estimateJsonBytes(settings.value), protected: true }
     ];
@@ -3174,28 +3216,27 @@ export const useAppStore = defineStore('app', () => {
     const conversation = conversationById(conversationId);
     if (!conversation) return null;
     const chatSettings = settingsForConversation(conversationId);
-    const conversationMessages = messagesForConversation(conversationId).filter((message) => message.replyVariantState !== 'inactive');
+    const conversationMessages = messagesForConversation(conversationId).filter((message) => message.mode === conversation.activeMode && message.replyVariantState !== 'inactive');
     const conversationFloorCount = getConversationFloorCount(conversationMessages);
     const memories = memoriesForConversation(conversationId);
     const nextRange = getNextSummaryRange(conversationMessages, memories, chatSettings, conversation.activeMode);
-    const completedEndFloor = memories.reduce((max, memory) => Math.max(max, memory.endFloor), 0);
-    const partialStartFloor = completedEndFloor + 1;
+    const partialStartFloor = getNextSummaryStartFloor(conversationMessages, memories, conversation.activeMode);
     const partialEndFloor = conversationFloorCount;
     const partialLength = partialEndFloor - partialStartFloor + 1;
     const range = options.forceStartFloor && options.forceEndFloor
       ? {
           startFloor: options.forceStartFloor,
           endFloor: options.forceEndFloor,
-          hiddenStartFloor: options.hiddenStartFloor ?? options.forceStartFloor,
-          hiddenEndFloor: options.hiddenEndFloor ?? getMemoryHiddenEndFloor(options.forceStartFloor, options.forceEndFloor),
+          hiddenStartFloor: 0,
+          hiddenEndFloor: 0,
           sourceMessages: getMessagesInFloorRange(conversationMessages, options.forceStartFloor, options.forceEndFloor)
         }
       : nextRange ?? (options.allowPartial && partialLength > 0
         ? {
             startFloor: partialStartFloor,
             endFloor: partialEndFloor,
-            hiddenStartFloor: partialStartFloor,
-            hiddenEndFloor: getMemoryHiddenEndFloor(partialStartFloor, partialEndFloor),
+            hiddenStartFloor: 0,
+            hiddenEndFloor: 0,
             sourceMessages: getMessagesInFloorRange(conversationMessages, partialStartFloor, partialEndFloor)
           }
         : null);
@@ -3239,6 +3280,7 @@ export const useAppStore = defineStore('app', () => {
           return `${floor}楼 ${sender}${sentAtText}: ${message.content}`;
         }).join('\n'),
         previousSummary: getMemoryContext(memoriesForConversation(conversationId), { includeResolved: true, maxEntries: 42 }),
+        identityRules: createConversationSummaryIdentityRules(boundUser, character),
         timeAwareness: chatSettings.timeAwareness,
         timeAwarenessUserName: getUserAiName(boundUser),
         timelineContext: renderMessageTimelineContext(range.sourceMessages, floorMap, range.startFloor),
@@ -3246,14 +3288,6 @@ export const useAppStore = defineStore('app', () => {
         modelOverride,
         promptOverride: renderCharacterMemoryPrompt(chatSettings.memory.summaryPrompt, characterName)
       });
-      const hasHiddenRange = chatSettings.memory.hideSummarizedMessages && range.hiddenStartFloor > 0 && range.hiddenEndFloor >= range.hiddenStartFloor;
-      const vector = chatSettings.memory.vectorMemoryEnabled
-        ? await generateEmbeddingVector({
-            text: summary,
-            settings: settings.value ?? undefined,
-            modelOverride
-          })
-        : [];
       const existingAfterGeneration = memoriesForConversation(conversationId).find((memory) => isSameMemoryRange(memory, rangeIdentity));
       if (existingAfterGeneration && existingAfterGeneration.id !== options.replaceMemoryId) {
         return { record: existingAfterGeneration, status: 'existing' };
@@ -3263,12 +3297,12 @@ export const useAppStore = defineStore('app', () => {
         mode: conversation.activeMode,
         startFloor: range.startFloor,
         endFloor: range.endFloor,
-        hiddenStartFloor: hasHiddenRange ? range.hiddenStartFloor : 0,
-        hiddenEndFloor: hasHiddenRange ? range.hiddenEndFloor : 0,
+        hiddenStartFloor: 0,
+        hiddenEndFloor: 0,
         summary,
         sourceMessages: range.sourceMessages,
         model: modelOverride || settings.value?.model || '',
-        vector
+        vector: []
       });
       if (replacingMemory) {
         const record = {
@@ -3280,7 +3314,7 @@ export const useAppStore = defineStore('app', () => {
           hiddenEndFloor: nextRecord.hiddenEndFloor,
           summary: nextRecord.summary,
           tokenCount: nextRecord.tokenCount,
-          vector: [...nextRecord.vector],
+          vector: [],
           entries: normalizeMemoryRecordEntries(nextRecord),
           sourceMessageIds: [...nextRecord.sourceMessageIds],
           model: nextRecord.model
@@ -3289,10 +3323,7 @@ export const useAppStore = defineStore('app', () => {
         return { record, status: 'updated' };
       }
       conversationMemories.value = [...conversationMemories.value, nextRecord];
-      await Promise.all([
-        putEntity('conversationMemories', nextRecord),
-        replaceMemoryAtomsForRecord(nextRecord)
-      ]);
+      await putEntity('conversationMemories', nextRecord);
       return { record: nextRecord, status: 'created' };
     } finally {
       summarizingConversationRanges.delete(rangeKey);
@@ -3313,93 +3344,127 @@ export const useAppStore = defineStore('app', () => {
 
   async function maybeAutoMergeConversationMemories(conversationId: string) {
     const chatSettings = settingsForConversation(conversationId);
-    if (!chatSettings.memory.autoMergeEnabled || autoMergingConversationIds.has(conversationId)) return null;
-    const threshold = Math.max(3, chatSettings.memory.autoMergeThreshold);
-    const batchSize = Math.min(Math.max(2, chatSettings.memory.autoMergeBatchSize), threshold);
-    const candidates = [...memoriesForConversation(conversationId)].sort(compareMemoryRecordsByRange);
-    if (candidates.length < threshold) return null;
+    if ((!chatSettings.memory.autoGrandSummaryEnabled && !chatSettings.memory.autoMergeEnabled) || autoMergingConversationIds.has(conversationId)) return null;
+    const grandSummaryThreshold = Math.max(3, chatSettings.memory.autoMergeThreshold);
+    const grandSummaryBatchSize = Math.min(Math.max(2, chatSettings.memory.autoMergeBatchSize), grandSummaryThreshold);
+    const getCandidatesByDepth = () => {
+      const candidates = filterHighestMemoryLayers([...memoriesForConversation(conversationId)]).sort(compareMemoryRecordsByRange);
+      const byDepth = new Map<number, ConversationMemoryRecord[]>();
+      candidates.forEach((memory) => {
+        const depth = memoryMergeDepthForStore(memory);
+        byDepth.set(depth, [...(byDepth.get(depth) ?? []), memory]);
+      });
+      return byDepth;
+    };
+    const findGrandSummaryBatch = (byDepth: Map<number, ConversationMemoryRecord[]>) => [...byDepth.entries()]
+      .filter(([depth, memories]) => depth >= 1 && memories.length >= grandSummaryThreshold)
+      .sort(([leftDepth], [rightDepth]) => leftDepth - rightDepth)[0]?.[1].slice(0, grandSummaryBatchSize) ?? [];
 
     autoMergingConversationIds.add(conversationId);
     try {
-      const shallowestDepth = candidates.reduce((min, memory) => Math.min(min, memoryMergeDepthForStore(memory)), Number.POSITIVE_INFINITY);
-      const selected = candidates
-        .filter((memory) => memoryMergeDepthForStore(memory) === shallowestDepth)
-        .slice(0, batchSize);
-      const selectedMemories = selected.length >= 2 ? selected : candidates.slice(0, batchSize);
-      if (selectedMemories.length < 2) return null;
-      return await mergeConversationMemories(conversationId, selectedMemories.map((memory) => memory.id));
+      const newGrandSummary = chatSettings.memory.autoGrandSummaryEnabled ? await createNextIncrementalGrandSummary(conversationId) : null;
+      const nextGrandSummaryBatch = chatSettings.memory.autoMergeEnabled ? findGrandSummaryBatch(getCandidatesByDepth()) : [];
+      if (nextGrandSummaryBatch.length >= 2) return await mergeConversationMemories(conversationId, nextGrandSummaryBatch.map((memory) => memory.id), { fullSummary: true });
+      if (newGrandSummary) return newGrandSummary;
+      return null;
     } finally {
       autoMergingConversationIds.delete(conversationId);
     }
   }
 
-  function isExternalMemoryVector(vector: number[] | undefined) {
-    return Array.isArray(vector) && vector.length > 32;
-  }
+  async function createNextIncrementalGrandSummary(conversationId: string) {
+    const conversation = conversationById(conversationId);
+    if (!conversation) return null;
+    const chatSettings = settingsForConversation(conversationId);
+    const conversationMessages = messagesForConversation(conversationId).filter((message) => message.mode === conversation.activeMode && message.replyVariantState !== 'inactive');
+    const floorCount = getConversationFloorCount(conversationMessages);
+    const summaryEvery = Math.max(20, chatSettings.memory.grandSummaryEvery);
+    const existingGrandSummaries = memoriesForConversation(conversationId)
+      .filter((memory) => memory.mode === conversation.activeMode)
+      .flatMap((memory) => collectIncrementalGrandSummaries(memory))
+      .sort(compareMemoryRecordsByRange);
+    const previousEndFloor = existingGrandSummaries.reduce((max, memory) => Math.max(max, memory.endFloor), 0);
+    const nextEndFloor = Math.max(summaryEvery, (Math.floor(previousEndFloor / summaryEvery) + 1) * summaryEvery);
+    if (floorCount < nextEndFloor) return null;
+    const existingSameRange = existingGrandSummaries.find((memory) => memory.startFloor === 1 && memory.endFloor === nextEndFloor);
+    if (existingSameRange) return existingSameRange;
 
-  async function hydrateMemoryAtomVector(atom: ConversationMemoryAtom) {
-    const chatSettings = settingsForConversation(atom.conversationId);
-    if (!chatSettings.memory.vectorMemoryEnabled || isExternalMemoryVector(atom.vector)) return atom;
-    const modelOverride = getConversationTextModelOverride(chatSettings, 'summary', atom.mode);
-    const vector = await generateEmbeddingVector({
-      text: `${atom.subject}\n${atom.content}`.slice(0, 4000),
+    const segmentStartFloor = previousEndFloor + 1;
+    const sourceMessages = getMessagesInFloorRange(conversationMessages, 1, nextEndFloor);
+    const memoirsForSegment = memoriesForConversation(conversationId)
+      .filter((memory) => memory.mode === conversation.activeMode && !memory.isMergedSummary && memory.startFloor >= segmentStartFloor && memory.endFloor <= nextEndFloor)
+      .sort(compareMemoryRecordsByRange);
+    if (!sourceMessages.length) return null;
+
+    const character = characterById(conversation.charId);
+    const characterName = character ? getCharacterAiName(character) : '角色';
+    const boundUser = character ? userById(character.boundUserId) ?? user.value : user.value;
+    const userSenderName = getUserAiName(boundUser);
+    const modelOverride = getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode);
+    const floorMap = getMessageFloorMap(conversationMessages);
+    const includeTimeline = chatSettings.timeAwareness.enabled;
+    const floorMessageText = sourceMessages.map((message) => {
+      const floor = floorMap.get(message.id) ?? 1;
+      const sender = message.sender === 'user' ? userSenderName : message.sender === 'char' ? characterName : '系统';
+      const sentAtText = includeTimeline ? `（发送时间：${formatMemoryTimelineTime(message.createdAt)}）` : '';
+      return `${floor}楼 ${sender}${sentAtText}: ${message.content}`;
+    }).join('\n');
+    const memoirText = memoirsForSegment.length
+      ? memoirsForSegment.map((memory) => `【回忆录 ${memory.startFloor}-${memory.endFloor}楼】\n${memory.summary}`).join('\n\n')
+      : '本轮暂无可读取回忆录，仅依据楼层正文总结。';
+    const summary = await generateConversationSummary({
+      messages: [
+        `【1-${nextEndFloor}楼楼层正文】`,
+        floorMessageText,
+        `【${segmentStartFloor}-${nextEndFloor}楼回忆录】`,
+        memoirText
+      ].join('\n\n'),
+      previousSummary: '',
+      identityRules: createConversationSummaryIdentityRules(boundUser, character),
+      timeAwareness: chatSettings.timeAwareness,
+      timeAwarenessUserName: getUserAiName(boundUser),
+      timelineContext: [
+        renderMessageTimelineContext(sourceMessages, floorMap, 1),
+        renderMemoryRangeTimelineContext(memoirsForSegment)
+      ].filter(Boolean).join('\n'),
       settings: settings.value ?? undefined,
-      modelOverride
+      modelOverride,
+      promptOverride: renderCharacterMemoryPrompt(chatSettings.memory.mergeSummaryPrompt, characterName)
     });
-    return vector.length ? { ...atom, vector } : atom;
-  }
-
-  async function hydrateMemoryAtomVectors(atoms: ConversationMemoryAtom[]) {
-    return Promise.all(atoms.map((atom) => hydrateMemoryAtomVector(atom)));
-  }
-
-  async function replaceMemoryAtomsForRecord(memory: ConversationMemoryRecord) {
+    const hiddenEndFloor = chatSettings.memory.hideSummarizedMessages ? getGrandSummaryHiddenEndFloor(nextEndFloor) : 0;
     const now = Date.now();
-    const nextAtoms = await hydrateMemoryAtomVectors(createMemoryAtomsFromRecord(memory, now));
-    const oldAtoms = conversationMemoryAtoms.value.filter((atom) => atom.sourceMemoryId === memory.id);
-    const oldAtomIds = new Set(oldAtoms.map((atom) => atom.id));
-    const nextAtomIds = new Set(nextAtoms.map((atom) => atom.id));
-    const pinnedOldAtoms = oldAtoms.filter((atom) => atom.pinned && !nextAtomIds.has(atom.id));
-    conversationMemoryAtoms.value = mergeMemoryAtoms([
-      ...conversationMemoryAtoms.value.filter((atom) => atom.sourceMemoryId !== memory.id),
-      ...pinnedOldAtoms,
-      ...nextAtoms
-    ]);
-    await Promise.all([
-      ...oldAtoms.filter((atom) => !atom.pinned && !nextAtomIds.has(atom.id)).map((atom) => deleteEntity('conversationMemoryAtoms', atom.id)),
-      ...nextAtoms.map((atom) => putEntity('conversationMemoryAtoms', oldAtomIds.has(atom.id) ? { ...atom, updatedAt: now } : atom))
-    ]);
-  }
+    const nextRecord: ConversationMemoryRecord = {
+      id: createId('memory'),
+      conversationId,
+      mode: conversation.activeMode,
+      kind: 'long-term',
+      startFloor: 1,
+      endFloor: nextEndFloor,
+      hiddenStartFloor: hiddenEndFloor >= 1 ? 1 : 0,
+      hiddenEndFloor,
+      summary,
+      tokenCount: estimateTokenCount(summary),
+      vector: [],
+      entries: [],
+      sourceMessageIds: sourceMessages.map((message) => message.id),
+      model: modelOverride || settings.value?.model || '',
+      summaryRole: 'incremental-grand',
+      isMergedSummary: true,
+      mergedFrom: memoirsForSegment.map((memory) => cloneMemoryRecordForMerge(memory)),
+      createdAt: now,
+      updatedAt: now
+    };
+    nextRecord.entries = normalizeMemoryRecordEntries(nextRecord);
 
-  async function deleteMemoryAtomsByMemoryIds(memoryIds: string[], options: { preservePinned?: boolean; preserveAtomIds?: string[] } = {}) {
-    const idSet = new Set(memoryIds.map((id) => id.trim()).filter(Boolean));
-    if (!idSet.size) return;
-    const atomsToDelete = conversationMemoryAtoms.value.filter((atom) => atom.sourceMemoryId && idSet.has(atom.sourceMemoryId));
-    if (!atomsToDelete.length) return;
-    const preserveAtomIds = new Set((options.preserveAtomIds ?? []).map((id) => id.trim()).filter(Boolean));
-    const atomsToKeep = atomsToDelete.filter((atom) => (options.preservePinned && atom.pinned) || preserveAtomIds.has(atom.id));
-    const atomsToActuallyDelete = atomsToDelete.filter((atom) => !atomsToKeep.some((keptAtom) => keptAtom.id === atom.id));
-    const atomIds = new Set(atomsToActuallyDelete.map((atom) => atom.id));
-    const detachedPinnedAtoms = atomsToKeep.map((atom) => ({
-      ...atom,
-      sourceMemoryId: undefined,
-      sourceAtomIds: [...new Set([...(atom.sourceAtomIds ?? []), atom.id])],
-      updatedAt: Date.now()
-    }));
-    const detachedPinnedMap = new Map(detachedPinnedAtoms.map((atom) => [atom.id, atom]));
-    conversationMemoryAtoms.value = conversationMemoryAtoms.value
-      .filter((atom) => !atomIds.has(atom.id))
-      .map((atom) => detachedPinnedMap.get(atom.id) ?? atom);
+    conversationMemories.value = [
+      ...conversationMemories.value.filter((memory) => memory.conversationId !== conversationId || !memoirsForSegment.some((item) => item.id === memory.id)),
+      nextRecord
+    ];
     await Promise.all([
-      ...atomsToActuallyDelete.map((atom) => deleteEntity('conversationMemoryAtoms', atom.id)),
-      ...detachedPinnedAtoms.map((atom) => putEntity('conversationMemoryAtoms', atom))
+      ...memoirsForSegment.map((memory) => deleteEntity('conversationMemories', memory.id)),
+      putEntity('conversationMemories', nextRecord)
     ]);
-  }
-
-  async function persistMemoryAtomsForRecords(memories: ConversationMemoryRecord[]) {
-    for (const memory of memories) {
-      await replaceMemoryAtomsForRecord(memory);
-    }
+    return nextRecord;
   }
 
   async function updateMemoryRecord(nextMemory: ConversationMemoryRecord) {
@@ -3434,23 +3499,14 @@ export const useAppStore = defineStore('app', () => {
       ];
     }
     if (duplicateIds.size) {
-      await Promise.all([
-        ...[...duplicateIds].map((memoryId) => deleteEntity('conversationMemories', memoryId)),
-        deleteMemoryAtomsByMemoryIds([...duplicateIds], { preservePinned: true })
-      ]);
+      await Promise.all([...duplicateIds].map((memoryId) => deleteEntity('conversationMemories', memoryId)));
     }
-    await Promise.all([
-      putEntity('conversationMemories', normalizedMemory),
-      replaceMemoryAtomsForRecord(normalizedMemory)
-    ]);
+    await putEntity('conversationMemories', normalizedMemory);
   }
 
   async function deleteMemoryRecord(memoryId: string) {
     conversationMemories.value = conversationMemories.value.filter((memory) => memory.id !== memoryId);
-    await Promise.all([
-      deleteEntity('conversationMemories', memoryId),
-      deleteMemoryAtomsByMemoryIds([memoryId])
-    ]);
+    await deleteEntity('conversationMemories', memoryId);
   }
 
   async function resummarizeMemory(memoryId: string) {
@@ -3468,10 +3524,28 @@ export const useAppStore = defineStore('app', () => {
   async function toggleMemoryHiddenRange(memoryId: string, hidden: boolean) {
     const memory = conversationMemories.value.find((entry) => entry.id === memoryId);
     if (!memory) return;
+    if (!isIncrementalGrandSummary(memory)) return;
+    const hiddenEndFloor = getGrandSummaryHiddenEndFloor(memory.endFloor);
     await updateMemoryRecord({
       ...memory,
-      hiddenStartFloor: hidden ? memory.startFloor : 0,
-      hiddenEndFloor: hidden ? getMemoryHiddenEndFloor(memory.startFloor, memory.endFloor) : 0
+      hiddenStartFloor: hidden && hiddenEndFloor >= 1 ? 1 : 0,
+      hiddenEndFloor: hidden ? hiddenEndFloor : 0
+    });
+  }
+
+  async function updateMemoryHiddenRange(memoryId: string, hiddenStartFloor: number, hiddenEndFloor: number) {
+    const memory = conversationMemories.value.find((entry) => entry.id === memoryId);
+    if (!memory) return;
+    if (!isIncrementalGrandSummary(memory)) return;
+    const startFloor = Math.max(0, Math.floor(Number(hiddenStartFloor) || 0));
+    const endFloor = Math.max(0, Math.floor(Number(hiddenEndFloor) || 0));
+    const hasHiddenRange = startFloor > 0 && endFloor >= startFloor && endFloor >= memory.startFloor && startFloor <= memory.endFloor;
+    const clampedStartFloor = Math.max(memory.startFloor, Math.min(startFloor, memory.endFloor));
+    const clampedEndFloor = Math.max(clampedStartFloor, Math.min(endFloor, memory.endFloor));
+    await updateMemoryRecord({
+      ...memory,
+      hiddenStartFloor: hasHiddenRange ? clampedStartFloor : 0,
+      hiddenEndFloor: hasHiddenRange ? clampedEndFloor : 0
     });
   }
 
@@ -3486,9 +3560,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function memoryMergeDepthForStore(memory: ConversationMemoryRecord): number {
-    if (!memory.isMergedSummary) return 0;
-    const childDepth = memory.mergedFrom?.reduce((max, childMemory) => Math.max(max, memoryMergeDepthForStore(childMemory)), 0) ?? 0;
-    return childDepth + 1;
+    return getMemoryMergeDepth(memory);
   }
 
   function compareMemoryRecordsByRange(leftMemory: ConversationMemoryRecord, rightMemory: ConversationMemoryRecord) {
@@ -3498,24 +3570,7 @@ export const useAppStore = defineStore('app', () => {
     return leftMemory.id.localeCompare(rightMemory.id);
   }
 
-  function protectedAtomsForMemoryMerge(memoryIds: string[]) {
-    const idSet = new Set(memoryIds);
-    const protectedTypes = new Set(['promise', 'conflict', 'relationship', 'boundary']);
-    return conversationMemoryAtoms.value.filter((atom) => atom.sourceMemoryId && idSet.has(atom.sourceMemoryId)
-      && atom.status === 'open'
-      && protectedTypes.has(atom.type)
-      && !atom.archivedAt);
-  }
-
-  function renderProtectedMergeAtomPrompt(atoms: ConversationMemoryAtom[]) {
-    if (!atoms.length) return '';
-    return [
-      '合并保护条目：以下开放承诺、冲突、关系或边界不得被压成模糊描述；如果仍开放，必须以结构化条目保留 open 状态，并保留责任方、对象、期限或结果。',
-      atoms.map((atom) => `- [${atom.type}|${atom.status}|${atom.importance}|${atom.subject}|${atom.evidenceFloors.join('/') || atom.lastTouchedFloor}|${atom.timeLabel || '时间未知'}] ${atom.content}${atom.owner ? `；责任 ${atom.owner}` : ''}${atom.counterparty ? `；对象 ${atom.counterparty}` : ''}${atom.due ? `；期限 ${atom.due}` : ''}`).join('\n')
-    ].join('\n');
-  }
-
-  async function mergeConversationMemories(conversationId: string, memoryIds?: string[]) {
+  async function mergeConversationMemories(conversationId: string, memoryIds?: string[], options: { fullSummary?: boolean } = {}) {
     const conversation = conversationById(conversationId);
     if (!conversation) return null;
     const selectedIds = new Set((memoryIds ?? []).map((memoryId) => memoryId.trim()).filter(Boolean));
@@ -3527,30 +3582,21 @@ export const useAppStore = defineStore('app', () => {
     const chatSettings = settingsForConversation(conversationId);
     const character = characterById(conversation.charId);
     const characterName = character ? getCharacterAiName(character) : '角色';
+    const boundUser = character ? userById(character.boundUserId) ?? user.value : user.value;
     const modelOverride = getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode);
-    const protectedAtoms = protectedAtomsForMemoryMerge(memories.map((memory) => memory.id));
-    const promptOverride = [
-      renderCharacterMemoryPrompt(chatSettings.memory.mergeSummaryPrompt, characterName),
-      renderProtectedMergeAtomPrompt(protectedAtoms)
-    ].filter(Boolean).join('\n\n');
+    const promptOverride = renderCharacterMemoryPrompt(options.fullSummary ? fullConversationMergeSummaryPrompt : chatSettings.memory.mergeSummaryPrompt, characterName);
     const summary = await generateConversationSummary({
       messages: memories.map((memory) => `【${memory.startFloor}-${memory.endFloor}楼】\n${memory.summary}`).join('\n\n'),
       previousSummary: '',
+      identityRules: createConversationSummaryIdentityRules(boundUser, character),
       timeAwareness: chatSettings.timeAwareness,
-      timeAwarenessUserName: getUserAiName(user.value),
+      timeAwarenessUserName: getUserAiName(boundUser),
       timelineContext: renderMemoryRangeTimelineContext(memories),
       settings: settings.value ?? undefined,
       modelOverride,
       promptOverride
     });
-    const vector = chatSettings.memory.vectorMemoryEnabled
-      ? await generateEmbeddingVector({
-          text: summary,
-          settings: settings.value ?? undefined,
-          modelOverride
-        })
-      : [];
-    const hiddenStartFloor = memories.reduce((min, memory) => memory.hiddenStartFloor ? Math.min(min, memory.hiddenStartFloor) : min, Number.POSITIVE_INFINITY);
+    const hiddenStartFloor = options.fullSummary ? 0 : memories.reduce((min, memory) => memory.hiddenStartFloor ? Math.min(min, memory.hiddenStartFloor) : min, Number.POSITIVE_INFINITY);
     const sourceMessageIds = [...new Set(memories.flatMap((memory) => memory.sourceMessageIds))];
     const now = Date.now();
     const mergedRecord: ConversationMemoryRecord = {
@@ -3561,13 +3607,14 @@ export const useAppStore = defineStore('app', () => {
       startFloor: memories.reduce((min, memory) => Math.min(min, memory.startFloor), Number.POSITIVE_INFINITY),
       endFloor: memories.reduce((max, memory) => Math.max(max, memory.endFloor), 0),
       hiddenStartFloor,
-      hiddenEndFloor: memories.reduce((max, memory) => Math.max(max, memory.hiddenEndFloor), 0),
+      hiddenEndFloor: options.fullSummary ? 0 : memories.reduce((max, memory) => Math.max(max, memory.hiddenEndFloor), 0),
       summary,
       tokenCount: estimateTokenCount(summary),
-      vector,
+      vector: [],
       entries: [],
       sourceMessageIds,
       model: modelOverride || settings.value?.model || '',
+      summaryRole: options.fullSummary ? 'full-grand' : 'incremental-grand',
       isMergedSummary: true,
       mergedFrom: memories.map((memory) => cloneMemoryRecordForMerge(memory)),
       createdAt: now,
@@ -3579,8 +3626,6 @@ export const useAppStore = defineStore('app', () => {
 
     conversationMemories.value = conversationMemories.value.filter((memory) => memory.conversationId !== conversationId || !memories.some((item) => item.id === memory.id));
     conversationMemories.value.push(mergedRecord);
-    await deleteMemoryAtomsByMemoryIds(memories.map((memory) => memory.id), { preservePinned: true, preserveAtomIds: protectedAtoms.map((atom) => atom.id) });
-    await replaceMemoryAtomsForRecord(mergedRecord);
     await Promise.all([
       ...memories.map((memory) => deleteEntity('conversationMemories', memory.id)),
       putEntity('conversationMemories', mergedRecord)
@@ -3597,8 +3642,6 @@ export const useAppStore = defineStore('app', () => {
       ...conversationMemories.value.filter((memory) => memory.id !== mergedMemory.id),
       ...restoredMemories
     ];
-    await deleteMemoryAtomsByMemoryIds([mergedMemory.id], { preservePinned: true });
-    await persistMemoryAtomsForRecords(restoredMemories);
     await Promise.all([
       deleteEntity('conversationMemories', mergedMemory.id),
       ...restoredMemories.map((memory) => putEntity('conversationMemories', memory))
@@ -3611,315 +3654,31 @@ export const useAppStore = defineStore('app', () => {
     const conversation = conversationById(conversationId);
     const character = conversation ? characterById(conversation.charId) : null;
     const characterName = character ? getCharacterAiName(character) : '角色';
+    const boundUser = character ? userById(character.boundUserId) ?? user.value : user.value;
     const chatSettings = settingsForConversation(conversationId);
     await Promise.all(oldMemories.map(async (memory) => {
       const modelOverride = getConversationTextModelOverride(chatSettings, 'summary', memory.mode);
       const summary = await generateConversationSummary({
         messages: memory.summary,
         previousSummary: '',
+        identityRules: createConversationSummaryIdentityRules(boundUser, character),
         timeAwareness: chatSettings.timeAwareness,
-        timeAwarenessUserName: getUserAiName(user.value),
+        timeAwarenessUserName: getUserAiName(boundUser),
         timelineContext: renderMemoryRangeTimelineContext([memory]),
         settings: settings.value ?? undefined,
         modelOverride,
         promptOverride: renderCharacterMemoryPrompt(chatSettings.memory.summaryPrompt, characterName)
       });
-      const vector = chatSettings.memory.vectorMemoryEnabled
-        ? await generateEmbeddingVector({
-            text: summary,
-            settings: settings.value ?? undefined,
-            modelOverride
-          })
-        : [];
       await updateMemoryRecord({
         ...memory,
         kind: 'long-term',
         summary,
         tokenCount: estimateTokenCount(summary),
-        vector,
+        vector: [],
         entries: [],
         compressedAt: Date.now()
       });
     }));
-  }
-
-  async function upsertStandaloneMemoryAtoms(atoms: ConversationMemoryAtom[]) {
-    const normalizedAtoms = await hydrateMemoryAtomVectors(
-      atoms
-        .map((atom) => normalizeMemoryAtom(atom, { conversationId: atom.conversationId, mode: atom.mode }))
-        .filter((atom): atom is ConversationMemoryAtom => Boolean(atom))
-    );
-    if (!normalizedAtoms.length) return;
-    conversationMemoryAtoms.value = mergeMemoryAtoms([...conversationMemoryAtoms.value, ...normalizedAtoms]);
-    await Promise.all(normalizedAtoms.map((atom) => putEntity('conversationMemoryAtoms', atom)));
-  }
-
-  async function updateMemoryAtom(atomId: string, updates: Partial<ConversationMemoryAtom>) {
-    const existingAtom = conversationMemoryAtoms.value.find((atom) => atom.id === atomId);
-    if (!existingAtom) return null;
-    const shouldRefreshVector = updates.content !== undefined || updates.subject !== undefined;
-    const normalizedAtom = normalizeMemoryAtom({
-      ...existingAtom,
-      ...updates,
-      id: existingAtom.id,
-      conversationId: existingAtom.conversationId,
-      mode: existingAtom.mode,
-      vector: shouldRefreshVector ? [] : existingAtom.vector,
-      updatedAt: Date.now()
-    }, { conversationId: existingAtom.conversationId, mode: existingAtom.mode });
-    if (!normalizedAtom) return null;
-    const atomToPersist = shouldRefreshVector ? await hydrateMemoryAtomVector(normalizedAtom) : normalizedAtom;
-    const index = conversationMemoryAtoms.value.findIndex((atom) => atom.id === atomId);
-    if (index >= 0) conversationMemoryAtoms.value[index] = atomToPersist;
-    conversationMemoryAtoms.value = mergeMemoryAtoms(conversationMemoryAtoms.value);
-    await putEntity('conversationMemoryAtoms', atomToPersist);
-    return atomToPersist;
-  }
-
-  async function deleteMemoryAtom(atomId: string) {
-    const existingAtom = conversationMemoryAtoms.value.find((atom) => atom.id === atomId);
-    if (!existingAtom) return false;
-    conversationMemoryAtoms.value = conversationMemoryAtoms.value.filter((atom) => atom.id !== atomId);
-    await deleteEntity('conversationMemoryAtoms', atomId);
-    return true;
-  }
-
-  async function toggleMemoryAtomPinned(atomId: string) {
-    const existingAtom = conversationMemoryAtoms.value.find((atom) => atom.id === atomId);
-    if (!existingAtom) return null;
-    return updateMemoryAtom(atomId, { pinned: !existingAtom.pinned });
-  }
-
-  async function maintainMemoryAtoms(conversationId?: string) {
-    const now = Date.now();
-    const supersededArchiveAfterFloors = 8;
-    const supersededDeleteAfterFloors = 24;
-    const resolvedSoftenAfterFloors = 10;
-    const resolvedHardSoftenAfterFloors = 20;
-    const resolvedArchiveAfterFloors = 30;
-    const resolvedDeleteAfterFloors = 45;
-    const archivedDeleteAfterFloors = 60;
-    const floorCountCache = new Map<string, number>();
-    const currentFloorForAtom = (atom: ConversationMemoryAtom) => {
-      const cacheKey = `${atom.conversationId}:${atom.mode}`;
-      const cached = floorCountCache.get(cacheKey);
-      if (cached !== undefined) return cached;
-      const floorCount = getConversationFloorCount(messagesForConversation(atom.conversationId)
-        .filter((message) => message.mode === atom.mode && message.replyVariantState !== 'inactive'));
-      const normalizedFloorCount = Math.max(floorCount, atom.lastTouchedFloor);
-      floorCountCache.set(cacheKey, normalizedFloorCount);
-      return normalizedFloorCount;
-    };
-    const targetAtoms = conversationId
-      ? conversationMemoryAtoms.value.filter((atom) => atom.conversationId === conversationId)
-      : conversationMemoryAtoms.value;
-    const mergedTargetAtoms = mergeMemoryAtoms(targetAtoms);
-    const shouldDeleteStaleAtom = (atom: ConversationMemoryAtom, floorAge: number) => {
-      if (atom.pinned) return false;
-      if ((atom.status === 'superseded' || atom.status === 'cancelled') && floorAge >= supersededDeleteAfterFloors) return true;
-      if (atom.status === 'resolved' && atom.archivedAt && atom.importance <= 1 && floorAge >= resolvedDeleteAfterFloors) return true;
-      return Boolean(atom.archivedAt && floorAge >= archivedDeleteAfterFloors && atom.importance <= 2);
-    };
-    const maintainedAtoms = mergedTargetAtoms.flatMap((atom) => {
-      if (atom.pinned) return atom;
-      const floorAge = Math.max(0, currentFloorForAtom(atom) - atom.lastTouchedFloor);
-      if (shouldDeleteStaleAtom(atom, floorAge)) return [];
-      if ((atom.status === 'superseded' || atom.status === 'cancelled') && !atom.archivedAt && floorAge >= supersededArchiveAfterFloors) {
-        return [{ ...atom, archivedAt: now, updatedAt: now }];
-      }
-      if (atom.status === 'resolved') {
-        const targetImportance = floorAge >= resolvedHardSoftenAfterFloors
-          ? Math.min(atom.importance, 1)
-          : floorAge >= resolvedSoftenAfterFloors
-            ? Math.min(atom.importance, 2)
-            : atom.importance;
-        const targetConfidence = floorAge >= resolvedHardSoftenAfterFloors
-          ? Math.min(atom.confidence, 0.35)
-          : floorAge >= resolvedSoftenAfterFloors
-            ? Math.min(atom.confidence, 0.5)
-            : atom.confidence;
-        const shouldArchive = !atom.archivedAt && floorAge >= resolvedArchiveAfterFloors && targetImportance <= 1;
-        if (targetImportance !== atom.importance || targetConfidence !== atom.confidence || shouldArchive) {
-          const nextAtom = {
-            ...atom,
-            importance: targetImportance,
-            confidence: targetConfidence,
-            archivedAt: shouldArchive ? now : atom.archivedAt,
-            updatedAt: now
-          };
-          return shouldDeleteStaleAtom(nextAtom, floorAge) ? [] : [nextAtom];
-        }
-      }
-      return [atom];
-    });
-    const maintainedMap = new Map(maintainedAtoms.map((atom) => [atom.id, atom]));
-    const maintainedIds = new Set(maintainedAtoms.map((atom) => atom.id));
-    const deletedAtoms = mergedTargetAtoms.filter((atom) => !maintainedIds.has(atom.id));
-    const nextAtoms = conversationId
-      ? conversationMemoryAtoms.value.filter((atom) => atom.conversationId !== conversationId).concat(maintainedAtoms)
-      : maintainedAtoms;
-    const changedAtoms = nextAtoms.filter((atom) => {
-      const existing = conversationMemoryAtoms.value.find((item) => item.id === atom.id);
-      return existing && JSON.stringify(existing) !== JSON.stringify(atom);
-    });
-    conversationMemoryAtoms.value = mergeMemoryAtoms(nextAtoms);
-    await Promise.all([
-      ...changedAtoms.map((atom) => putEntity('conversationMemoryAtoms', maintainedMap.get(atom.id) ?? atom)),
-      ...deletedAtoms.map((atom) => deleteEntity('conversationMemoryAtoms', atom.id))
-    ]);
-  }
-
-  function selectMemoryAtomsForAudit(conversationId: string, queryText: string, queryVector: number[]) {
-    const recallableAtoms = filterRecallableMemoryAtoms(conversationId, conversationMemoryAtoms.value);
-    const { debug } = buildMemoryAtomContext(recallableAtoms, {
-      conversationId,
-      queryText,
-      queryVector,
-      includeResolved: true,
-      maxEntries: 28,
-      maxTokens: 1800
-    });
-    const selectedIds = new Set(debug.selectedAtoms.map((atom) => atom.id));
-    return recallableAtoms
-      .filter((atom) => selectedIds.has(atom.id) && atom.conversationId === conversationId && !atom.archivedAt)
-      .sort((left, right) => Number(right.pinned) - Number(left.pinned) || right.importance - left.importance || right.updatedAt - left.updatedAt);
-  }
-
-  function normalizeAuditText(value: unknown) {
-    const text = String(value ?? '').replace(/\s+/g, ' ').trim();
-    return text || undefined;
-  }
-
-  async function applyMemoryAtomAuditUpdates(conversationId: string, updates: MemoryAtomAuditUpdate[]) {
-    const allowedStatuses = new Set(['active', 'open', 'resolved', 'superseded', 'cancelled']);
-    const allowedTypes = new Set(['fact', 'preference', 'promise', 'conflict', 'plot', 'relationship', 'boundary', 'emotion', 'world']);
-    for (const update of updates) {
-      const existingAtom = conversationMemoryAtoms.value.find((atom) => atom.id === update.id && atom.conversationId === conversationId);
-      if (!existingAtom || existingAtom.pinned) continue;
-      const nextUpdates: Partial<ConversationMemoryAtom> = {};
-      if (update.status && allowedStatuses.has(update.status)) nextUpdates.status = update.status;
-      if (update.type && allowedTypes.has(update.type)) nextUpdates.type = update.type;
-      const subject = normalizeAuditText(update.subject);
-      const content = normalizeAuditText(update.content);
-      const owner = normalizeAuditText(update.owner);
-      const counterparty = normalizeAuditText(update.counterparty);
-      const due = normalizeAuditText(update.due);
-      const resolution = normalizeAuditText(update.resolution) ?? (update.status && update.status !== 'open' ? normalizeAuditText(update.reason) : undefined);
-      const timeLabel = normalizeAuditText(update.timeLabel);
-      if (subject) nextUpdates.subject = subject;
-      if (content) nextUpdates.content = content;
-      if (owner !== undefined) nextUpdates.owner = owner;
-      if (counterparty !== undefined) nextUpdates.counterparty = counterparty;
-      if (due !== undefined) nextUpdates.due = due;
-      if (resolution !== undefined) nextUpdates.resolution = resolution;
-      if (timeLabel !== undefined) nextUpdates.timeLabel = timeLabel;
-      if (Number.isFinite(update.occurredAt) && Number(update.occurredAt) > 0) nextUpdates.occurredAt = Number(update.occurredAt);
-      if (Number.isFinite(update.occurredEndAt) && Number(update.occurredEndAt) > 0) nextUpdates.occurredEndAt = Number(update.occurredEndAt);
-      if (timeLabel !== undefined || Number.isFinite(update.occurredAt) || Number.isFinite(update.occurredEndAt)) nextUpdates.timeBasis = 'model-time';
-      if (Number.isFinite(update.importance)) nextUpdates.importance = Math.min(5, Math.max(1, Math.round(Number(update.importance))));
-      if (Number.isFinite(update.confidence)) nextUpdates.confidence = Math.min(1, Math.max(0, Number(update.confidence)));
-      if (!Object.keys(nextUpdates).length) continue;
-      await updateMemoryAtom(existingAtom.id, nextUpdates);
-    }
-  }
-
-  async function updateMemoryAtomsFromRecentExchange(conversationId: string, sourceMessages: ChatMessage[]) {
-    const conversation = conversationById(conversationId);
-    if (!conversation || writingMemoryAtomConversationIds.has(conversationId)) return;
-    const usefulMessages = sourceMessages.filter((message) => message.sender !== 'system' && messageReadableContent(message).trim());
-    if (usefulMessages.length < 2) return;
-    const chatSettings = settingsForConversation(conversationId);
-    if (!chatSettings.memory.atomWriterEnabled) return;
-    const writerEvery = Math.max(1, chatSettings.memory.atomWriterEvery);
-    if (writerEvery > 1) {
-      const latestStandaloneAtomAt = conversationMemoryAtoms.value
-        .filter((atom) => atom.conversationId === conversationId && !atom.sourceMemoryId)
-        .reduce((max, atom) => Math.max(max, atom.updatedAt), 0);
-      const charMessagesSinceLastWrite = messagesForConversation(conversationId)
-        .filter((message) => message.sender === 'char' && message.createdAt > latestStandaloneAtomAt)
-        .length;
-      if (charMessagesSinceLastWrite < writerEvery) return;
-    }
-    const character = characterById(conversation.charId);
-    const characterName = character ? getCharacterAiName(character) : '角色';
-    const boundUser = character ? userById(character.boundUserId) ?? user.value : user.value;
-    const modelOverride = getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode);
-    if (!hasConfiguredTextModel(modelOverride)) return;
-
-    writingMemoryAtomConversationIds.add(conversationId);
-    try {
-      const floorMap = getMessageFloorMap(messagesForConversation(conversationId).filter((message) => message.replyVariantState !== 'inactive'));
-      const exchangeText = usefulMessages.map((message) => messageReadableContent(message)).join('\n');
-      const exchangeTimelineText = renderMessageTimelineContext(usefulMessages, floorMap, floorMap.get(usefulMessages[0].id) ?? 1);
-      const sourceMessageIds = usefulMessages.map((message) => message.id);
-      const queryVector = await memoryQueryVectorForConversation(conversationId, exchangeText, modelOverride);
-      const summary = await generateConversationSummary({
-        messages: usefulMessages.map((message) => {
-          const floor = floorMap.get(message.id) ?? 1;
-          const sender = message.sender === 'user' ? getUserAiName(boundUser) : characterName;
-          const sentAtText = chatSettings.timeAwareness.enabled ? `（发送时间：${formatMemoryTimelineTime(message.createdAt)}）` : '';
-          return `${floor}楼 ${sender}${sentAtText}: ${messageReadableContent(message)}`;
-        }).join('\n'),
-        previousSummary: await memoryContextForConversationAsync(conversationId, exchangeText, { includeResolved: true, maxTokens: 1400, maxEntries: 24, storeDebug: false, modelOverride, queryVector }),
-        timeAwareness: chatSettings.timeAwareness,
-        timeAwarenessUserName: getUserAiName(boundUser),
-        timelineContext: exchangeTimelineText,
-        settings: settings.value ?? undefined,
-        modelOverride,
-        promptOverride: renderCharacterMemoryPrompt(chatSettings.memory.summaryPrompt, characterName)
-      });
-      if (!sourceMessageIdsAreRecallable(sourceMessageIds, messageMapForConversation(conversationId))) return;
-      const now = Date.now();
-      const floors = usefulMessages.map((message) => floorMap.get(message.id) ?? 1);
-      const tempRecord: ConversationMemoryRecord = {
-        id: createId('turn_memory'),
-        conversationId,
-        mode: conversation.activeMode,
-        kind: 'short-term',
-        startFloor: Math.min(...floors),
-        endFloor: Math.max(...floors),
-        hiddenStartFloor: 0,
-        hiddenEndFloor: 0,
-        summary,
-        tokenCount: estimateTokenCount(summary),
-        vector: [],
-        entries: [],
-        sourceMessageIds,
-        model: modelOverride || settings.value?.model || '',
-        createdAt: now,
-        updatedAt: now
-      };
-      tempRecord.entries = normalizeMemoryRecordEntries({
-        ...tempRecord,
-        sourceMessages: usefulMessages
-      }, now);
-      const atoms = await hydrateMemoryAtomVectors(createMemoryAtomsFromRecord(tempRecord, now).map((atom) => ({
-        ...atom,
-        id: createId('atom'),
-        sourceMemoryId: undefined,
-        sourceMessageIds,
-        confidence: Math.max(atom.confidence, 0.78),
-        updatedAt: now
-      })));
-      const relatedOldAtoms = selectMemoryAtomsForAudit(conversationId, exchangeText, queryVector)
-        .filter((atom) => !sourceMessageIds.some((messageId) => atom.sourceMessageIds.includes(messageId)));
-      if (relatedOldAtoms.length) {
-        const audit = await generateMemoryAtomAudit({
-          conversationText: chatSettings.timeAwareness.enabled ? `${exchangeText}\n\n本轮事件时间线：\n${exchangeTimelineText}` : exchangeText,
-          previousAtoms: relatedOldAtoms,
-          newAtoms: atoms,
-          settings: settings.value ?? undefined,
-          modelOverride
-        });
-        await applyMemoryAtomAuditUpdates(conversationId, audit.updates);
-      }
-      await upsertStandaloneMemoryAtoms(atoms);
-      await maintainMemoryAtoms(conversationId);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      writingMemoryAtomConversationIds.delete(conversationId);
-    }
   }
 
   async function requestRoleplayReply(conversationId: string, options?: { generateMoment?: boolean; proactive?: boolean; replyInstruction?: string; replyVariantGroupId?: string; replyVariantIndex?: number; excludeSourceMessageIds?: string[] }) {
@@ -4347,9 +4106,6 @@ export const useAppStore = defineStore('app', () => {
         const index = conversations.value.findIndex((item) => item.id === conversationId);
         conversations.value[index] = nextConversation;
         await putEntity('conversations', nextConversation);
-        if (incomingCharMessages.length) {
-          void updateMemoryAtomsFromRecentExchange(conversationId, [...lastUserMessages, ...charMessages]);
-        }
       } else {
         await touchConversationAfterMessageChange(conversationId);
       }
@@ -5523,7 +5279,6 @@ export const useAppStore = defineStore('app', () => {
     conversationSettings,
     conversationMemories,
     conversationMemoryAtoms,
-    memoryDebugTraces,
     generatedImages,
     settings,
     hydrate,
@@ -5540,8 +5295,6 @@ export const useAppStore = defineStore('app', () => {
     modelOverridesForConversation,
     memoriesForConversation,
     memoryAtomsForConversation,
-    memoryDebugTraceForConversation,
-    previewMemoryRecallForConversation,
     stickersForGroup,
     visibleMessagesForConversation,
     hiddenMessageIdsForConversation,
@@ -5618,13 +5371,10 @@ export const useAppStore = defineStore('app', () => {
     deleteMemoryRecord,
     resummarizeMemory,
     toggleMemoryHiddenRange,
+    updateMemoryHiddenRange,
     mergeConversationMemories,
     unmergeConversationMemories,
     maybeAutoMergeConversationMemories,
-    updateMemoryAtom,
-    deleteMemoryAtom,
-    toggleMemoryAtomPinned,
-    maintainMemoryAtoms,
     requestRoleplayReply,
     regenerateLatestReply,
     applyReplyVariant,

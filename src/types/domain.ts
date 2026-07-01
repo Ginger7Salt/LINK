@@ -152,6 +152,8 @@ export interface ChatMemorySettings {
   hideSummarizedMessages: boolean;
   atomWriterEnabled: boolean;
   atomWriterEvery: number;
+  autoGrandSummaryEnabled: boolean;
+  grandSummaryEvery: number;
   autoMergeEnabled: boolean;
   autoMergeThreshold: number;
   autoMergeBatchSize: number;
@@ -295,6 +297,7 @@ export interface ConversationMemoryRecord {
   entries?: ConversationMemoryEntry[];
   sourceMessageIds: string[];
   model: string;
+  summaryRole?: 'memoir' | 'incremental-grand' | 'full-grand';
   isMergedSummary?: boolean;
   mergedFrom?: ConversationMemoryRecord[];
   createdAt: number;

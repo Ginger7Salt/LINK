@@ -44,7 +44,7 @@ const store = useAppStore();
 const modelScopes: Array<{ id: ChatModelScope; label: string }> = [
   { id: 'online', label: '线上聊天模型' },
   { id: 'offline', label: '线下 RP 模型' },
-  { id: 'summary', label: '总结与向量化模型' },
+  { id: 'summary', label: '总结模型' },
   { id: 'voom', label: 'VOOM 生成模型' },
   { id: 'theater', label: '小剧场模型' }
 ];
@@ -97,11 +97,11 @@ function modelValueFor(scope: ChatModelScope) {
 }
 
 function fallbackLabel(scope: ChatModelScope) {
-  if (isGlobal.value) return scope === 'summary' ? '跟随 API 默认总结与向量化模型' : '跟随 API 默认模型';
+  if (isGlobal.value) return scope === 'summary' ? '跟随 API 默认总结模型' : '跟随 API 默认模型';
   const labels: Record<ChatModelScope, string> = {
     online: '跟随全局线上聊天模型',
     offline: '跟随全局线下 RP 模型',
-    summary: '跟随全局总结与向量化模型',
+    summary: '跟随全局总结模型',
     voom: '跟随全局 VOOM 生成模型',
     theater: '跟随全局小剧场模型'
   };
