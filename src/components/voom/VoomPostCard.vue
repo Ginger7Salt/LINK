@@ -52,8 +52,6 @@
         <button class="comment-line comment-main" type="button" @click="openCommentComposer(thread.comment.id)">
           <span class="comment-meta">
             <strong>{{ displayAuthorName(thread.comment.authorName, thread.comment.authorId) }}</strong>
-            <span v-if="isCurrentUserComment(thread.comment)" class="comment-user-tag">我</span>
-            <span v-if="isCharacterComment(thread.comment)" class="comment-role-tag">角色</span>
           </span>
           <span class="comment-text">{{ commentDisplayContent(thread.comment) }}</span>
           <time class="comment-inline-time" :datetime="commentDateTime(thread.comment)">{{ commentTime(thread.comment) }}</time>
@@ -67,8 +65,6 @@
             <button class="comment-line comment-reply" type="button" @click="openCommentComposer(reply.id)">
               <span class="comment-meta">
                 <strong>{{ displayAuthorName(reply.authorName, reply.authorId) }}</strong>
-                <span v-if="isCurrentUserComment(reply)" class="comment-user-tag">我</span>
-                <span v-if="isCharacterComment(reply)" class="comment-role-tag">角色</span>
               </span>
               <span class="comment-text">{{ replyDisplayContent(reply) }}</span>
               <time class="comment-inline-time" :datetime="commentDateTime(reply)">{{ commentTime(reply) }}</time>
@@ -278,17 +274,6 @@ function displayAuthorName(authorName = '', authorId = '') {
   const idDisplayName = authorId ? props.characterDisplayNames?.[authorId] : '';
   if (idDisplayName) return idDisplayName;
   return props.characterAuthorAliases?.[normalizeAuthorKey(authorName)] || authorName;
-}
-
-function isCharacterComment(comment: VoomPost['comments'][number]) {
-  if (isCurrentUserComment(comment)) return false;
-  if (comment.authorId && props.characterDisplayNames?.[comment.authorId]) return true;
-  return Boolean(props.characterAuthorAliases?.[normalizeAuthorKey(comment.authorName)]);
-}
-
-function isCurrentUserComment(comment: VoomPost['comments'][number]) {
-  if (props.currentUserId && comment.authorId === props.currentUserId) return true;
-  return Boolean(props.currentUserName && normalizeAuthorKey(comment.authorName) === normalizeAuthorKey(props.currentUserName));
 }
 
 function commentTimestamp(comment: VoomPost['comments'][number]) {
@@ -781,7 +766,7 @@ footer {
 
 .comments {
   display: grid;
-  gap: 7px;
+  gap: 6px;
   margin-top: 8px;
   padding: 8px;
   border-radius: 8px;
@@ -790,123 +775,72 @@ footer {
 
 .comment-thread {
   display: grid;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 }
 
 .comment-line {
-  display: grid;
-  gap: 2px;
+  display: block;
   width: 100%;
   min-width: 0;
-  padding: 2px 0;
+  padding: 1px 0;
   border-radius: 0;
   background: transparent;
-  color: #4b4f55;
-  font-size: 12px;
-  line-height: 1.45;
+  color: #4f555c;
+  font-size: 11px;
+  line-height: 1.42;
   text-align: left;
+  overflow-wrap: anywhere;
 }
 
 .comment-line:active {
   color: #171717;
 }
 
-.comment-main,
-.comment-reply {
-  display: block;
-}
-
-.comment-main .comment-meta,
-.comment-reply .comment-meta {
-  display: inline-flex;
+.comment-meta {
+  display: inline;
   margin-right: 4px;
   vertical-align: baseline;
 }
 
-.comment-main .comment-text,
-.comment-reply .comment-text {
-  display: inline;
-}
-
-.comment-main .comment-inline-time,
-.comment-reply .comment-inline-time {
+.comment-inline-time {
   margin-left: 6px;
-  color: #a0a5ab;
+  color: #9298a0;
   font-size: 10px;
   white-space: nowrap;
-}
-
-.comment-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-  min-width: 0;
 }
 
 .comment-meta strong {
   color: #14171a;
-  font-size: 13px;
-  font-weight: 900;
-  line-height: 1.2;
-}
-
-.comment-meta em {
-  color: #8c9299;
-  font-size: 12px;
-  font-weight: 500;
-  font-style: normal;
-}
-
-.comment-meta time {
-  margin-left: auto;
-  color: #9aa0a7;
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-.comment-role-tag {
-  display: inline-grid;
-  place-items: center;
-  min-height: 15px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: rgba(6, 199, 85, 0.1);
-  color: #08a54f;
-  font-size: 9px;
-  font-weight: 900;
-  line-height: 1;
-}
-
-.comment-user-tag {
-  display: inline-grid;
-  place-items: center;
-  min-height: 15px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: rgba(23, 23, 23, 0.08);
-  color: #555b62;
-  font-size: 9px;
-  font-weight: 900;
-  line-height: 1;
+  font-size: inherit;
+  font-weight: 800;
+  line-height: inherit;
 }
 
 .comment-text {
-  color: #50565e;
+  color: inherit;
   font-weight: 400;
   white-space: pre-wrap;
 }
 
 .comment-replies {
   display: grid;
-  gap: 3px;
-  margin: 1px 0 0 14px;
-  padding-left: 10px;
+  gap: 2px;
+  margin-top: 2px;
+  padding: 1px 0 1px 6px;
+  border-left: 1px solid rgba(20, 23, 26, 0.09);
 }
 
 .comment-reply {
-  color: #555b62;
+  color: #5c636c;
+}
+
+.comment-reply .comment-meta strong {
+  color: #2f343a;
+}
+
+.comment-reply .comment-inline-time {
+  color: #9aa0a7;
 }
 
 .comment-composer {
