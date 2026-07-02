@@ -153,6 +153,18 @@
                     <span>{{ block.label }}</span>
                     <p>{{ block.content }}</p>
                   </div>
+                  <article v-else-if="block.kind === 'event'" class="timeline-summary-event">
+                    <header>
+                      <span>时间</span>
+                      <strong>{{ block.time }}</strong>
+                    </header>
+                    <dl>
+                      <template v-for="field in block.fields" :key="`${block.id}-${field.label}`">
+                        <dt>{{ field.label }}</dt>
+                        <dd>{{ field.content || '未填写' }}</dd>
+                      </template>
+                    </dl>
+                  </article>
                   <ul v-else-if="block.kind === 'list'" class="timeline-summary-list">
                     <li v-for="listItem in block.items" :key="listItem">{{ listItem }}</li>
                   </ul>
@@ -1422,6 +1434,63 @@ function hasHiddenRange(memory: ConversationMemoryRecord) {
   padding: 6px;
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.58);
+}
+
+.timeline-summary-event {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(178, 139, 153, 0.14);
+  border-radius: 11px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 250, 252, 0.72)),
+    rgba(255, 255, 255, 0.68);
+  box-shadow: inset 3px 0 0 rgba(178, 139, 153, 0.34);
+}
+
+.timeline-summary-event header {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.timeline-summary-event header span {
+  color: var(--memory-accent);
+  font-size: 8px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.timeline-summary-event header strong {
+  color: #211d21;
+  font-size: 12px;
+  font-weight: 950;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.timeline-summary-event dl {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+
+.timeline-summary-event dt {
+  margin: 0;
+  color: #8d5f70;
+  font-size: 9px;
+  font-weight: 950;
+  line-height: 1.2;
+}
+
+.timeline-summary-event dd {
+  margin: -2px 0 0;
+  color: #4a4148;
+  font-size: 10px;
+  font-weight: 720;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .timeline-summary-field span {

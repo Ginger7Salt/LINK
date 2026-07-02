@@ -1,6 +1,7 @@
 export type MemorySummaryBlock =
   | { id: string; kind: 'heading'; content: string }
   | { id: string; kind: 'field'; label: string; content: string }
+  | { id: string; kind: 'event'; time: string; fields: Array<{ label: string; content: string }> }
   | { id: string; kind: 'paragraph'; content: string }
   | { id: string; kind: 'list'; items: string[] }
   | { id: string; kind: 'table'; headers: string[]; rows: string[][] }
@@ -10,6 +11,7 @@ export type MemorySummaryBlock =
 type MemorySummaryBlockInput =
   | { kind: 'heading'; content: string }
   | { kind: 'field'; label: string; content: string }
+  | { kind: 'event'; time: string; fields: Array<{ label: string; content: string }> }
   | { kind: 'paragraph'; content: string }
   | { kind: 'list'; items: string[] }
   | { kind: 'table'; headers: string[]; rows: string[][] }
@@ -125,6 +127,8 @@ export function parseMemorySummaryBlocks(summary: string): MemorySummaryBlock[] 
   const lines = summary
     .replace(/\r\n/g, '\n')
     .replace(/<\/?profile>/gi, '')
+    .replace(/<\/?details>/gi, '')
+    .replace(/<summary>(.*?)<\/summary>/gi, '\n$1\n')
     .trim()
     .split('\n');
   const blocks: MemorySummaryBlock[] = [];
@@ -145,6 +149,12 @@ export function parseMemorySummaryBlocks(summary: string): MemorySummaryBlock[] 
     const line = rawLine.trim();
 
     if (!line) {
+      flushParagraph();
+      lineIndex += 1;
+      continue;
+    }
+
+    if (/^plaintext$/i.test(line)) {
       flushParagraph();
       lineIndex += 1;
       continue;
@@ -176,6 +186,29 @@ export function parseMemorySummaryBlocks(summary: string): MemorySummaryBlock[] 
         lineIndex += 1;
       }
       pushBlock({ kind: 'table', headers, rows });
+      continue;
+    }
+
+    const eventMatch = line.match(/^[-*]\s*时间[：:]\s*(.*)$/);
+    if (eventMatch) {
+      flushParagraph();
+      const fields: Array<{ label: string; content: string }> = [];
+      const time = eventMatch[1].trim() || '时间未标注';
+      lineIndex += 1;
+      while (lineIndex < lines.length) {
+        const nextLine = lines[lineIndex] ?? '';
+        const trimmedNextLine = nextLine.trim();
+        if (!trimmedNextLine) {
+          lineIndex += 1;
+          continue;
+        }
+        if (/^[-*]\s*时间[：:]/.test(trimmedNextLine) || /^<summary>/i.test(trimmedNextLine) || isMarkdownTableStart(lines, lineIndex) || trimmedNextLine.startsWith('```')) break;
+        const fieldLineMatch = nextLine.match(/^\s*[-*]\s*([^：:]+)[：:]\s*(.*)$/);
+        if (!fieldLineMatch) break;
+        fields.push({ label: fieldLineMatch[1].trim(), content: fieldLineMatch[2].trim() });
+        lineIndex += 1;
+      }
+      pushBlock({ kind: 'event', time, fields });
       continue;
     }
 
