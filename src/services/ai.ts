@@ -1367,7 +1367,7 @@ export function estimateRoleplayReplyInputTokens(input: GenerateReplyInput) {
 interface VoomMomentPayload {
   content: string;
   contentTranslation?: string;
-  imageDescription: string;
+  imageDescription?: string;
   likes: string[];
   comments: Array<Pick<VoomComment, 'authorName' | 'content' | 'contentTranslation' | 'parentId'> & { draftId?: string }>;
 }
@@ -1403,16 +1403,6 @@ function formatVoomPostPromptContent(post: VoomPost, includeTimeContext: boolean
 function formatVoomCommentPromptLine(comment: VoomComment, includeTimeContext: boolean) {
   const timeText = includeTimeContext ? `（${formatVoomContextTime(comment.createdAt)}）` : '';
   return `${comment.id}｜${comment.authorName}${timeText}: ${formatContentWithChineseTranslation(comment.content, comment.contentTranslation)}`;
-}
-
-function createFallbackVoomImageDescription(context: PromptContext, content: string) {
-  const source = `${context.character.id}:${content}:${context.messages.length}`;
-  const hash = Array.from(source).reduce((total, char) => total + char.charCodeAt(0), 0);
-  const characterName = getCharacterAiName(context.character);
-  const options = [
-    `API供应商出错了，生图生出来了，欣赏一下就把这条错误动态删除吧！`
-  ];
-  return options[Math.abs(hash) % options.length];
 }
 
 function extractVoomCommentReplyTarget(content: string) {
@@ -1473,38 +1463,36 @@ function resolveInitialVoomComments(comments: VoomMomentPayload['comments']) {
   return generatedComments;
 }
 
-function parseVoomMomentPayload(rawContent: string, context: PromptContext): VoomMomentPayload {
-  const fallbackContent = context.mode === 'offline' ? '回去路上有点安静。' : '刚刚看到自动贩卖机出了新口味。';
+function parseVoomMomentPayload(rawContent: string): VoomMomentPayload {
   const trimmed = rawContent.trim();
 
   if (!trimmed) {
-    return {
-      content: fallbackContent,
-      imageDescription: createFallbackVoomImageDescription(context, fallbackContent),
-      likes: [],
-      comments: []
-    };
+    throw new Error('VOOM 文案模型没有返回动态正文。');
   }
 
+  const jsonContent = extractJsonContent(trimmed);
   try {
-    const parsed = JSON.parse(extractJsonContent(trimmed)) as Partial<VoomMomentPayload> & Record<string, unknown>;
-    const content = String(parsed.content ?? '').trim() || fallbackContent;
+    const parsed = JSON.parse(jsonContent) as Partial<VoomMomentPayload> & Record<string, unknown>;
+    const content = String(parsed.content ?? '').trim();
+    if (!content) throw new Error('VOOM 文案模型返回的 JSON 缺少 content。');
     const contentTranslation = normalizeTranslationText(parsed.contentTranslation ?? parsed.translation ?? parsed.translationZh ?? parsed.chineseTranslation);
-    const imageDescription = String(parsed.imageDescription ?? '').trim() || createFallbackVoomImageDescription(context, content);
+    const imageDescription = String(parsed.imageDescription ?? '').trim();
     const likes = Array.isArray(parsed.likes)
       ? [...new Set(parsed.likes.map((item) => String(item ?? '').trim()).filter(Boolean))]
       : [];
     return {
       content,
       ...(contentTranslation ? { contentTranslation } : {}),
-      imageDescription,
+      ...(imageDescription ? { imageDescription } : {}),
       likes,
       comments: normalizeVoomMomentComments(parsed.comments)
     };
-  } catch {
+  } catch (error) {
+    if (jsonContent.startsWith('{')) {
+      throw error;
+    }
     return {
       content: trimmed,
-      imageDescription: createFallbackVoomImageDescription(context, trimmed),
       likes: [],
       comments: []
     };
@@ -1513,7 +1501,7 @@ function parseVoomMomentPayload(rawContent: string, context: PromptContext): Voo
 
 async function generateVoomPayload(context: PromptContext, settings?: AppSettings, modelOverride = '') {
   const apiReply = await callTextApi(settings, buildMomentPrompt(context), modelOverride);
-  return parseVoomMomentPayload(apiReply, context);
+  return parseVoomMomentPayload(apiReply);
 }
 
 function normalizeVoomCommentReplies(input: unknown, fallbackAuthorName: string, post: VoomPost, blockedAuthorNames: string[] = []): VoomCommentReplyResult[] {
