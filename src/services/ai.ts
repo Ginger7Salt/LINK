@@ -2556,7 +2556,7 @@ export async function generateConversationSummary(input: {
     ? renderTimeAwarenessPrompt(input.timeAwareness, { userName: input.timeAwarenessUserName || '用户' })
     : '';
   const basePrompt = input.promptOverride?.trim() || [
-    '停止剧情，停止输出其他所有内容，开始执行六楼回忆录。',
+    '停止剧情，停止输出其他所有内容，开始执行五十楼回忆录。',
     '请把下面聊天楼层整理成由摘要、角色表组成的长期记忆。摘要必须包含 time、location、plot、echo；角色表必须使用 Markdown 表格和基础 mermaid 关系图。',
     'plot 使用流水账形式，全面记录本次剧情、新名词、新信息和关键伏笔；echo 记录 1-2 句重要对白并明确涉及人物；不要评价、升华或代替角色继续剧情。'
   ].join('\n');

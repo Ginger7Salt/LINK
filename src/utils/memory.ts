@@ -4,15 +4,21 @@ import { normalizeChatModelOverrides } from './settings';
 import { defaultTimeAwarenessSettings, normalizeTimeAwarenessSettings } from './timeAwareness';
 import { normalizeVoomFrequency } from './voom';
 
+const legacyChatMemoryDefaults = {
+  summarizeEvery: 6,
+  grandSummaryVisibleTailFloors: 10,
+  grandSummaryEvery: 60
+};
+
 export const defaultChatMemorySettings: ChatMemorySettings = {
   enabled: true,
   autoSummarize: true,
-  summarizeEvery: 6,
+  summarizeEvery: 50,
   summaryModel: '',
-  summaryPrompt: `停止剧情，停止输出其他所有内容，开始执行六楼回忆录。
+  summaryPrompt: `停止剧情，停止输出其他所有内容，开始执行五十楼回忆录。
 
 执行规则：
-1. 每六楼调用 API 生成一份由“摘要”和“角色表”组成的回忆录，以{{char}}相关会话为记录对象。
+1. 每五十楼调用 API 生成一份由“摘要”和“角色表”组成的回忆录，以{{char}}相关会话为记录对象。
 2. 摘要必须包含 time、location、plot、echo 四项。
 3. time：当前详细时间，精确到小时；如果开启时间感知，使用当前本机时间与待总结楼层时间线；如果没有开启，则跟随世界观，合理虚构精确时间，并保证时间流逝合理。
 4. location：角色所在地点；如正文未明说，可根据世界观和上下文合理推断，但不要随意跳地点。
@@ -82,11 +88,11 @@ plaintext
   vectorMemoryEnabled: false,
   hideSummarizedMessages: true,
   grandSummaryHiddenStartFloor: 1,
-  grandSummaryVisibleTailFloors: 10,
+  grandSummaryVisibleTailFloors: 20,
   atomWriterEnabled: false,
   atomWriterEvery: 1,
   autoGrandSummaryEnabled: true,
-  grandSummaryEvery: 60,
+  grandSummaryEvery: 250,
   autoMergeEnabled: true,
   autoMergeThreshold: 8,
   autoMergeBatchSize: 6
@@ -339,9 +345,13 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
   const voomFrequency = normalizeVoomFrequency(settings?.voomFrequency, defaultConversationSettings.voomFrequency);
   const theaterFrequency = normalizeVoomFrequency(settings?.theaterFrequency, defaultConversationSettings.theaterFrequency);
   const proactiveReply = settings?.proactiveReply ?? defaultConversationSettings.proactiveReply;
-  const summarizeEvery = Math.max(1, Math.round(Number(memory.summarizeEvery) || memoryDefaults.summarizeEvery));
+  const rawSummarizeEvery = Math.round(Number(memory.summarizeEvery) || memoryDefaults.summarizeEvery);
+  const summarizeEvery = Math.max(1, rawSummarizeEvery === legacyChatMemoryDefaults.summarizeEvery ? memoryDefaults.summarizeEvery : rawSummarizeEvery);
   const grandSummaryHiddenStartFloor = normalizeNonNegativeInteger(memory.grandSummaryHiddenStartFloor, memoryDefaults.grandSummaryHiddenStartFloor);
-  const grandSummaryVisibleTailFloors = normalizeNonNegativeInteger(memory.grandSummaryVisibleTailFloors, memoryDefaults.grandSummaryVisibleTailFloors);
+  const rawGrandSummaryVisibleTailFloors = normalizeNonNegativeInteger(memory.grandSummaryVisibleTailFloors, memoryDefaults.grandSummaryVisibleTailFloors);
+  const grandSummaryVisibleTailFloors = rawGrandSummaryVisibleTailFloors === legacyChatMemoryDefaults.grandSummaryVisibleTailFloors ? memoryDefaults.grandSummaryVisibleTailFloors : rawGrandSummaryVisibleTailFloors;
+  const rawGrandSummaryEvery = Math.round(Number(memory.grandSummaryEvery) || memoryDefaults.grandSummaryEvery);
+  const grandSummaryEvery = rawGrandSummaryEvery === legacyChatMemoryDefaults.grandSummaryEvery ? memoryDefaults.grandSummaryEvery : rawGrandSummaryEvery;
 
   return {
     conversationId,
@@ -359,7 +369,7 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
       atomWriterEnabled: false,
       atomWriterEvery: 1,
       autoGrandSummaryEnabled: memory.autoGrandSummaryEnabled ?? memory.autoMergeEnabled ?? memoryDefaults.autoGrandSummaryEnabled,
-      grandSummaryEvery: Math.min(300, Math.max(20, Math.round(Number(memory.grandSummaryEvery) || memoryDefaults.grandSummaryEvery))),
+      grandSummaryEvery: Math.min(300, Math.max(20, grandSummaryEvery)),
       autoMergeEnabled: memory.autoMergeEnabled ?? memoryDefaults.autoMergeEnabled,
       autoMergeThreshold: Math.min(30, Math.max(3, Math.round(Number(memory.autoMergeThreshold) || memoryDefaults.autoMergeThreshold))),
       autoMergeBatchSize: Math.min(20, Math.max(2, Math.round(Number(memory.autoMergeBatchSize) || memoryDefaults.autoMergeBatchSize)))

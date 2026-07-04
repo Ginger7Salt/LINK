@@ -79,7 +79,7 @@
               <label class="offline-field compact">
                 <span>每多少楼生成回忆录</span>
                 <input :value="memoryNumberDraft.summarizeEvery" inputmode="numeric" min="1" step="1" type="number" @input="updateMemoryNumberDraft('summarizeEvery', $event)" @change="commitMemoryNumberDraft('summarizeEvery', $event)" @blur="commitMemoryNumberDraft('summarizeEvery', $event)" @keydown.enter.prevent="commitMemoryNumberDraft('summarizeEvery', $event)" />
-                <small>默认 6，会按此楼数生成一份回忆录。</small>
+                <small>默认 50，会按此楼数生成一份回忆录。</small>
               </label>
             </div>
           </div>
@@ -93,12 +93,12 @@
               <label class="toggle-tile strategy-wide-control">
                 <input v-model="draft.memory.autoGrandSummaryEnabled" type="checkbox" @change="saveDraft" />
                 <span class="toggle-track"></span>
-                <span class="toggle-copy"><strong>自动生成新增大总结</strong><small>楼层达到 60、120、180... 时，读取累计楼层正文和本轮回忆录。</small></span>
+                <span class="toggle-copy"><strong>自动生成新增大总结</strong><small>楼层达到 250、500、750... 时，读取累计楼层正文和本轮回忆录。</small></span>
               </label>
               <label class="offline-field compact">
                 <span>每多少楼触发新增大总结</span>
                 <input :value="memoryNumberDraft.grandSummaryEvery" inputmode="numeric" min="20" max="300" type="number" @input="updateMemoryNumberDraft('grandSummaryEvery', $event)" @change="commitMemoryNumberDraft('grandSummaryEvery', $event)" @blur="commitMemoryNumberDraft('grandSummaryEvery', $event)" @keydown.enter.prevent="commitMemoryNumberDraft('grandSummaryEvery', $event)" />
-                <small>默认 60；第 60/120 楼触发，成功后删除本轮回忆录。</small>
+                <small>默认 250；第 250/500 楼触发，成功后删除本轮回忆录。</small>
               </label>
               <label class="toggle-tile strategy-wide-control">
                 <input v-model="draft.memory.hideSummarizedMessages" type="checkbox" @change="saveDraft" />
@@ -113,7 +113,7 @@
               <label class="offline-field compact">
                 <span>保留最新多少楼不隐藏</span>
                 <input :value="memoryNumberDraft.grandSummaryVisibleTailFloors" inputmode="numeric" min="0" step="1" type="number" @input="updateMemoryNumberDraft('grandSummaryVisibleTailFloors', $event)" @change="commitMemoryNumberDraft('grandSummaryVisibleTailFloors', $event)" @blur="commitMemoryNumberDraft('grandSummaryVisibleTailFloors', $event)" @keydown.enter.prevent="commitMemoryNumberDraft('grandSummaryVisibleTailFloors', $event)" />
-                <small>默认 10；设为 0 时可隐藏到大总结结束楼层。</small>
+                <small>默认 20；设为 0 时可隐藏到大总结结束楼层。</small>
               </label>
             </div>
           </div>
@@ -297,7 +297,7 @@
               <span>{{ memory.isMergedSummary ? 'Grand summary' : 'Memoir page' }}</span>
               <strong>{{ memoryRangeLabel(memory) }}</strong>
             </div>
-            <em>{{ memory.isMergedSummary ? '大总结' : '六楼回忆录' }}</em>
+            <em>{{ memory.isMergedSummary ? '大总结' : '回忆录' }}</em>
           </header>
           <textarea :value="memory.summary" @change="updateMemorySummary(memory, $event)"></textarea>
           <div v-if="canEditMemoryHiddenRange(memory)" class="memory-hidden-editor">
