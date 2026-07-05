@@ -297,6 +297,26 @@
             </span>
           </label>
         </section>
+        <section v-if="stylePresets.length" class="export-cover-panel">
+          <div class="field export-cover-copy">
+            <span>分享封面（可选）</span>
+            <small>选择一张图片作为导出 PNG 的展示封面，样式数据会隐藏写入图片中，导入时仍可识别。</small>
+          </div>
+          <label class="file-drop-card export-cover-picker">
+            <Upload :size="18" />
+            <strong>{{ selectedStyleExportCoverFile ? '更换分享封面' : '选择分享封面图片' }}</strong>
+            <span>{{ selectedStyleExportCoverFile ? selectedStyleExportCoverFile.name : '支持相册图片，导出时会统一转成 PNG' }}</span>
+            <input type="file" accept="image/*" @change="selectStyleExportCoverFile" />
+          </label>
+          <section v-if="styleExportCoverPreview" class="export-cover-preview">
+            <img :src="styleExportCoverPreview" alt="" />
+            <div>
+              <strong>{{ selectedStyleExportCoverFile ? selectedStyleExportCoverFile.name : '已选择分享封面' }}</strong>
+              <small>导出时会叠加样式标题，并把样式数据写入图片。</small>
+            </div>
+            <button class="card-action" type="button" @click="clearStyleExportCover">移除图片</button>
+          </section>
+        </section>
         <section v-else class="empty-shell">
           <strong>还没有可分享的自定义样式</strong>
           <p>先通过右上角 + 添加{{ activeStyleLabel }}样式，再导出 PNG。</p>
@@ -306,7 +326,7 @@
 
         <div class="composer-footer">
           <button class="footer-button footer-cancel" type="button" @click="showStyleExporter = false">取消</button>
-          <button class="footer-button footer-save" type="button" :disabled="!stylePresets.length" @click="exportSelectedThemeStyles">导出 PNG</button>
+          <button class="footer-button footer-save" type="button" :disabled="!stylePresets.length || isExportingStyle" @click="exportSelectedThemeStyles">{{ isExportingStyle ? '导出中...' : '导出 PNG' }}</button>
         </div>
       </section>
     </AppModal>
@@ -337,7 +357,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Check, FileCode2, Globe2, LoaderCircle, Minus, Moon, Pencil, Plus, Share2, Trash2, Type, Upload, Wifi } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
@@ -410,11 +430,14 @@ const styleExportError = ref('');
 const feedbackMessage = ref('');
 const isImportingFont = ref(false);
 const isImportingStyle = ref(false);
+const isExportingStyle = ref(false);
 const applyingFontId = ref('');
 const styleNameDraft = ref('');
 const styleCssDraft = ref('');
 const editingStylePresetId = ref('');
 const selectedExportStyleIds = ref<string[]>([]);
+const selectedStyleExportCoverFile = ref<File | null>(null);
+const styleExportCoverPreview = ref('');
 const fontLoadError = ref<FontLoadErrorState>({
   open: false,
   name: '',
@@ -457,6 +480,15 @@ const activeStyleName = computed(() => activeStylePreset.value.name);
 onMounted(async () => {
   await store.hydrate();
   await validateActiveFontOnOpen();
+});
+
+watch(showStyleExporter, (open) => {
+  if (open) return;
+  selectedExportStyleIds.value = [];
+  selectedStyleExportCoverFile.value = null;
+  styleExportCoverPreview.value = '';
+  styleExportError.value = '';
+  isExportingStyle.value = false;
 });
 
 function goBack() {
@@ -637,6 +669,8 @@ function openStyleEditor(entry: ThemeStylePreset) {
 
 function openStyleExporter() {
   selectedExportStyleIds.value = stylePresets.value.map((entry) => entry.id);
+  selectedStyleExportCoverFile.value = null;
+  styleExportCoverPreview.value = '';
   styleExportError.value = '';
   showStyleExporter.value = true;
 }
@@ -682,6 +716,32 @@ function selectStylePngFile(event: Event) {
   selectedStylePngFile.value = input.files?.[0] ?? null;
   input.value = '';
   styleImportError.value = '';
+}
+
+async function selectStyleExportCoverFile(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0] ?? null;
+  input.value = '';
+  if (!file) return;
+  if (file.type && !file.type.startsWith('image/')) {
+    styleExportError.value = '请选择图片文件作为分享封面。';
+    return;
+  }
+  try {
+    selectedStyleExportCoverFile.value = file;
+    styleExportCoverPreview.value = await readFileAsDataUrl(file);
+    styleExportError.value = '';
+  } catch (error) {
+    selectedStyleExportCoverFile.value = null;
+    styleExportCoverPreview.value = '';
+    styleExportError.value = error instanceof Error ? error.message : '分享封面图片读取失败。';
+  }
+}
+
+function clearStyleExportCover() {
+  selectedStyleExportCoverFile.value = null;
+  styleExportCoverPreview.value = '';
+  styleExportError.value = '';
 }
 
 async function submitImporter() {
@@ -765,8 +825,12 @@ async function importThemeStylesFromPng() {
     return;
   }
   try {
-    const decodedPresets = await decodeThemeStylePresetsFromPng(await readFileAsDataUrl(file));
-    const importedPresets = decodedPresets
+    const decoded = await decodeThemeStylePresetsFromPng(await readFileAsDataUrl(file));
+    if (decoded.scope && decoded.scope !== activeStyleScopeId.value) {
+      styleImportError.value = `这张 PNG 是${decoded.scope === 'offline' ? '线下' : '线上'}样式，请切换到对应标签后再导入。`;
+      return;
+    }
+    const importedPresets = decoded.presets
       .map((entry, index) => createStylePreset({
         name: String(entry.name ?? '').trim() || `导入样式 ${index + 1}`,
         css: String(entry.css ?? '').trim(),
@@ -816,8 +880,10 @@ function openFontLoadError(entry: ThemeFontEntry, summary: string, error: unknow
   feedbackMessage.value = '';
 }
 
-function withFontLoadTimeout<T>(promise: Promise<T>, message: string) {
-  const timeoutMs = 12000;
+const localFontLoadTimeoutMs = 12_000;
+const remoteFontLoadTimeoutMs = 5 * 60 * 1000;
+
+function withFontLoadTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
   let timer = 0;
   const timeout = new Promise<never>((_, reject) => {
     timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
@@ -825,11 +891,18 @@ function withFontLoadTimeout<T>(promise: Promise<T>, message: string) {
   return Promise.race([promise, timeout]).finally(() => window.clearTimeout(timer));
 }
 
+function getFontLoadTimeout(entry: ThemeFontEntry) {
+  return entry.source === 'url'
+    ? { ms: remoteFontLoadTimeoutMs, label: '5 分钟' }
+    : { ms: localFontLoadTimeoutMs, label: '12 秒' };
+}
+
 async function validateFontFileEntry(entry: ThemeFontEntry) {
   const fontFace = new FontFace(entry.family, `url("${escapeCssString(entry.url)}")`, { display: 'swap' });
   document.fonts.add(fontFace);
   try {
-    await withFontLoadTimeout(fontFace.load(), `字体文件加载超时，浏览器在 12 秒内没有完成下载：${entry.url}`);
+    const timeout = getFontLoadTimeout(entry);
+    await withFontLoadTimeout(fontFace.load(), timeout.ms, `字体文件加载超时，浏览器在 ${timeout.label} 内没有完成下载：${entry.url}`);
     if (fontFace.status !== 'loaded') throw new Error(`字体状态为 ${fontFace.status}，没有完成加载。`);
   } finally {
     document.fonts.delete(fontFace);
@@ -850,8 +923,8 @@ function loadTemporaryStylesheet(url: string) {
 async function validateStylesheetFontEntry(entry: ThemeFontEntry) {
   let link: HTMLLinkElement | null = null;
   try {
-    link = await withFontLoadTimeout(loadTemporaryStylesheet(entry.url), `CSS 字体链接加载超时，浏览器在 12 秒内没有完成下载：${entry.url}`);
-    const loadedFaces = await withFontLoadTimeout(document.fonts.load(`16px ${getQuotedFontFamily(entry.family)}`, 'LINK 字体检测'), `CSS 已下载，但字体名称「${entry.name}」没有在 12 秒内完成加载。`);
+    link = await withFontLoadTimeout(loadTemporaryStylesheet(entry.url), remoteFontLoadTimeoutMs, `CSS 字体链接加载超时，浏览器在 5 分钟内没有完成下载：${entry.url}`);
+    const loadedFaces = await withFontLoadTimeout(document.fonts.load(`16px ${getQuotedFontFamily(entry.family)}`, 'LINK 字体检测'), remoteFontLoadTimeoutMs, `CSS 已下载，但字体名称「${entry.name}」没有在 5 分钟内完成加载。`);
     if (!loadedFaces.length) throw new Error(`CSS 已下载，但没有找到字体名称「${entry.name}」对应的字体。`);
   } finally {
     link?.remove();
@@ -1044,17 +1117,30 @@ function downloadDataUrl(dataUrl: string, fileName: string) {
 }
 
 function exportSelectedThemeStyles() {
+  if (isExportingStyle.value) return;
   const selectedIds = new Set(selectedExportStyleIds.value);
   const presets = stylePresets.value.filter((entry) => selectedIds.has(entry.id));
   if (!presets.length) {
     styleExportError.value = '请至少选择一个已保存的样式预设。';
     return;
   }
-  const dataUrl = encodeThemeStylePresetsToPng(presets);
-  downloadDataUrl(dataUrl, getDownloadFileName(presets));
-  styleExportError.value = '';
-  showStyleExporter.value = false;
-  feedbackMessage.value = `已导出 ${presets.length} 个${activeStyleLabel.value}样式 PNG。`;
+  isExportingStyle.value = true;
+  void (async () => {
+    try {
+      const dataUrl = await encodeThemeStylePresetsToPng(presets, {
+        scope: activeStyleScopeId.value,
+        coverImageDataUrl: styleExportCoverPreview.value || undefined
+      });
+      downloadDataUrl(dataUrl, getDownloadFileName(presets));
+      styleExportError.value = '';
+      showStyleExporter.value = false;
+      feedbackMessage.value = `已导出 ${presets.length} 个${activeStyleLabel.value}样式 PNG。`;
+    } catch (error) {
+      styleExportError.value = error instanceof Error ? error.message : '样式 PNG 导出失败。';
+    } finally {
+      isExportingStyle.value = false;
+    }
+  })();
 }
 
 function fontPreviewStyle(entry: ThemeFontEntry) {
@@ -1721,6 +1807,70 @@ function formatFontMeta(entry: ThemeFontEntry) {
   color: #77808a;
   font-size: 12px;
   font-weight: 800;
+}
+
+.export-cover-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.export-cover-copy {
+  gap: 4px;
+}
+
+.export-cover-copy > span {
+  color: #111111;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.export-cover-copy > small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.export-cover-picker {
+  min-height: 112px;
+}
+
+.export-cover-preview {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 18px;
+  background: rgba(246, 248, 251, 0.96);
+}
+
+.export-cover-preview img {
+  width: 100%;
+  height: 148px;
+  border-radius: 14px;
+  object-fit: cover;
+}
+
+.export-cover-preview > div {
+  display: grid;
+  gap: 4px;
+}
+
+.export-cover-preview strong {
+  overflow: hidden;
+  color: #111111;
+  font-size: 13px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-cover-preview small {
+  color: #6d7680;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.export-cover-preview .card-action {
+  width: 100%;
 }
 
 .form-grid {

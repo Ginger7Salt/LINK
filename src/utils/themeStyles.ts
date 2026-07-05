@@ -3,9 +3,14 @@ import type { ThemeStylePreset } from '@/types/domain';
 export const defaultOnlineThemePresetId = 'online-default';
 export const defaultOfflineThemePresetId = 'offline-default';
 export const onlineThemeExportMime = 'application/link-online-theme+json';
-const exportMagic = 'LINK_ONLINE_THEME_V1';
+const exportMagic = 'LINK_THEME_STYLE_V2';
+const legacyExportMagic = 'LINK_ONLINE_THEME_V1';
 const pngChannelCount = 3;
 const pngPayloadWidth = 256;
+const exportPosterWidth = 1080;
+const exportPosterHeight = 1350;
+
+export type ThemeStyleExportScope = 'online' | 'offline';
 
 export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
    复制后可自由修改；建议所有选择器都保留 .chat-room 前缀，避免影响其他页面。 */
@@ -649,8 +654,19 @@ export const defaultOfflineThemeCss = `/* LINK 线下页默认完整样式。
 
 interface ThemeExportPayload {
   magic: string;
-  version: 1;
+  version: 1 | 2;
   exportedAt: number;
+  scope?: ThemeStyleExportScope;
+  presets: ThemeStylePreset[];
+}
+
+interface ThemeStylePngExportOptions {
+  scope?: ThemeStyleExportScope;
+  coverImageDataUrl?: string | null;
+}
+
+interface DecodedThemeStylePngPayload {
+  scope: ThemeStyleExportScope | null;
   presets: ThemeStylePreset[];
 }
 
@@ -665,16 +681,30 @@ function normalizePresetForExport(preset: ThemeStylePreset): ThemeStylePreset {
   };
 }
 
-export function createOnlineThemeExportPayload(presets: ThemeStylePreset[]) {
+function createThemeStyleExportJson(presets: ThemeStylePreset[], options: ThemeStylePngExportOptions = {}) {
   return JSON.stringify({
     magic: exportMagic,
-    version: 1,
+    version: 2,
     exportedAt: Date.now(),
+    scope: options.scope,
     presets: presets.map(normalizePresetForExport)
   } satisfies ThemeExportPayload);
 }
 
+export function createOnlineThemeExportPayload(presets: ThemeStylePreset[]) {
+  return createThemeStyleExportJson(presets, { scope: 'online' });
+}
+
 export const createThemeStyleExportPayload = createOnlineThemeExportPayload;
+
+function createPayloadBytes(json: string) {
+  const encoded = new TextEncoder().encode(json);
+  const payload = new Uint8Array(4 + encoded.length);
+  const view = new DataView(payload.buffer);
+  view.setUint32(0, encoded.length, false);
+  payload.set(encoded, 4);
+  return payload;
+}
 
 function getCanvasContext(width: number, height: number) {
   const canvas = document.createElement('canvas');
@@ -685,13 +715,177 @@ function getCanvasContext(width: number, height: number) {
   return { canvas, context };
 }
 
-export function encodeOnlineThemePresetsToPng(presets: ThemeStylePreset[]) {
-  const encoded = new TextEncoder().encode(createOnlineThemeExportPayload(presets));
-  const payload = new Uint8Array(4 + encoded.length);
-  const view = new DataView(payload.buffer);
-  view.setUint32(0, encoded.length, false);
-  payload.set(encoded, 4);
+function createRoundedRectPath(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+) {
+  const resolvedRadius = Math.max(0, Math.min(radius, width / 2, height / 2));
+  context.beginPath();
+  context.moveTo(x + resolvedRadius, y);
+  context.arcTo(x + width, y, x + width, y + height, resolvedRadius);
+  context.arcTo(x + width, y + height, x, y + height, resolvedRadius);
+  context.arcTo(x, y + height, x, y, resolvedRadius);
+  context.arcTo(x, y, x + width, y, resolvedRadius);
+  context.closePath();
+}
 
+function drawImageCover(
+  context: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  width: number,
+  height: number
+) {
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  const scale = Math.max(width / sourceWidth, height / sourceHeight);
+  const drawWidth = sourceWidth * scale;
+  const drawHeight = sourceHeight * scale;
+  const offsetX = (width - drawWidth) / 2;
+  const offsetY = (height - drawHeight) / 2;
+  context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+}
+
+function drawPosterBackground(
+  context: CanvasRenderingContext2D,
+  scope: ThemeStyleExportScope,
+  coverImage: HTMLImageElement | null
+) {
+  const width = exportPosterWidth;
+  const height = exportPosterHeight;
+
+  if (coverImage) {
+    drawImageCover(context, coverImage, width, height);
+    const overlay = context.createLinearGradient(0, 0, 0, height);
+    overlay.addColorStop(0, 'rgba(10, 14, 18, 0.12)');
+    overlay.addColorStop(0.46, 'rgba(10, 14, 18, 0.24)');
+    overlay.addColorStop(1, 'rgba(10, 14, 18, 0.72)');
+    context.fillStyle = overlay;
+    context.fillRect(0, 0, width, height);
+    return;
+  }
+
+  const background = context.createLinearGradient(0, 0, width, height);
+  if (scope === 'offline') {
+    background.addColorStop(0, '#f7f0f6');
+    background.addColorStop(0.45, '#edf5ff');
+    background.addColorStop(1, '#f6fbf9');
+  } else {
+    background.addColorStop(0, '#eef8f0');
+    background.addColorStop(0.38, '#f4fbf5');
+    background.addColorStop(1, '#eff7f1');
+  }
+  context.fillStyle = background;
+  context.fillRect(0, 0, width, height);
+
+  context.fillStyle = scope === 'offline' ? 'rgba(215, 161, 186, 0.18)' : 'rgba(108, 219, 146, 0.2)';
+  context.beginPath();
+  context.arc(width * 0.18, height * 0.14, width * 0.22, 0, Math.PI * 2);
+  context.fill();
+
+  context.fillStyle = scope === 'offline' ? 'rgba(178, 208, 255, 0.16)' : 'rgba(191, 242, 214, 0.22)';
+  context.beginPath();
+  context.arc(width * 0.84, height * 0.1, width * 0.18, 0, Math.PI * 2);
+  context.fill();
+
+  context.fillStyle = 'rgba(255, 255, 255, 0.42)';
+  context.fillRect(0, height * 0.58, width, height * 0.42);
+}
+
+function drawPosterText(
+  context: CanvasRenderingContext2D,
+  presets: ThemeStylePreset[],
+  scope: ThemeStyleExportScope,
+  hasCoverImage: boolean
+) {
+  const cardX = 76;
+  const cardY = 118;
+  const cardWidth = exportPosterWidth - 152;
+  const cardHeight = exportPosterHeight - 236;
+  createRoundedRectPath(context, cardX, cardY, cardWidth, cardHeight, 42);
+  context.fillStyle = hasCoverImage ? 'rgba(255, 255, 255, 0.16)' : 'rgba(255, 255, 255, 0.76)';
+  context.fill();
+  context.strokeStyle = hasCoverImage ? 'rgba(255, 255, 255, 0.32)' : 'rgba(255, 255, 255, 0.92)';
+  context.lineWidth = 2;
+  context.stroke();
+
+  const accent = scope === 'offline' ? '#9b5d78' : '#0a8a44';
+  const secondary = hasCoverImage ? 'rgba(255, 255, 255, 0.82)' : '#5f6771';
+  const primary = hasCoverImage ? '#ffffff' : '#111111';
+  const body = hasCoverImage ? 'rgba(255, 255, 255, 0.92)' : '#2a3139';
+  const names = presets.slice(0, 4).map((entry) => entry.name.trim() || '未命名样式');
+
+  context.fillStyle = accent;
+  context.font = '800 34px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  context.fillText('LINK THEME SHARE', cardX + 56, cardY + 84);
+
+  context.fillStyle = primary;
+  context.font = '900 74px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  context.fillText(scope === 'offline' ? '线下样式' : '线上样式', cardX + 56, cardY + 182);
+
+  context.fillStyle = secondary;
+  context.font = '600 34px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  context.fillText(`导出 ${presets.length} 个自定义预设`, cardX + 56, cardY + 236);
+
+  context.fillStyle = body;
+  context.font = '500 32px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  context.fillText('导入方式：在 LINK 主题页选择 PNG 导入。', cardX + 56, cardY + 310);
+
+  const chipTop = cardY + 366;
+  names.forEach((name, index) => {
+    const chipY = chipTop + index * 110;
+    createRoundedRectPath(context, cardX + 48, chipY, cardWidth - 96, 78, 24);
+    context.fillStyle = hasCoverImage ? 'rgba(12, 16, 22, 0.2)' : 'rgba(255, 255, 255, 0.84)';
+    context.fill();
+    context.strokeStyle = hasCoverImage ? 'rgba(255, 255, 255, 0.14)' : 'rgba(17, 17, 17, 0.05)';
+    context.stroke();
+
+    context.fillStyle = primary;
+    context.font = '800 34px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    context.fillText(name, cardX + 80, chipY + 50, cardWidth - 160);
+  });
+
+  if (presets.length > names.length) {
+    context.fillStyle = secondary;
+    context.font = '700 28px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    context.fillText(`还有 ${presets.length - names.length} 个预设包含在图片里`, cardX + 56, cardY + cardHeight - 96);
+  }
+}
+
+function createPosterCanvas(
+  presets: ThemeStylePreset[],
+  options: ThemeStylePngExportOptions,
+  coverImage: HTMLImageElement | null
+) {
+  const { canvas, context } = getCanvasContext(exportPosterWidth, exportPosterHeight);
+  const scope = options.scope === 'offline' ? 'offline' : 'online';
+  drawPosterBackground(context, scope, coverImage);
+  drawPosterText(context, presets, scope, Boolean(coverImage));
+  return { canvas, context };
+}
+
+function embedPayloadIntoImageData(data: Uint8ClampedArray, payload: Uint8Array) {
+  const capacityBits = (data.length / 4) * pngChannelCount;
+  const requiredBits = payload.length * 8;
+  if (requiredBits > capacityBits) {
+    throw new Error('选择的封面图可写入空间不足，请改用更大的图片后重试。');
+  }
+
+  let bitIndex = 0;
+  for (let index = 0; index < data.length && bitIndex < requiredBits; index += 4) {
+    for (let channel = 0; channel < pngChannelCount && bitIndex < requiredBits; channel += 1) {
+      const byte = payload[bitIndex >> 3] ?? 0;
+      const bit = (byte >> (7 - (bitIndex % 8))) & 1;
+      data[index + channel] = (data[index + channel] & 0xfe) | bit;
+      bitIndex += 1;
+    }
+  }
+}
+
+function createLegacyPayloadCanvas(payload: Uint8Array) {
   const pixelCount = Math.ceil(payload.length / pngChannelCount);
   const width = pngPayloadWidth;
   const height = Math.max(1, Math.ceil(pixelCount / width));
@@ -707,10 +901,8 @@ export function encodeOnlineThemePresetsToPng(presets: ThemeStylePreset[]) {
   }
 
   context.putImageData(imageData, 0, 0);
-  return canvas.toDataURL('image/png');
+  return canvas;
 }
-
-export const encodeThemeStylePresetsToPng = encodeOnlineThemePresetsToPng;
 
 function loadImageFromDataUrl(dataUrl: string) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
@@ -721,11 +913,84 @@ function loadImageFromDataUrl(dataUrl: string) {
   });
 }
 
-export async function decodeOnlineThemePresetsFromPng(dataUrl: string) {
-  const image = await loadImageFromDataUrl(dataUrl);
-  const { context } = getCanvasContext(image.naturalWidth || image.width, image.naturalHeight || image.height);
-  context.drawImage(image, 0, 0);
-  const { data } = context.getImageData(0, 0, image.naturalWidth || image.width, image.naturalHeight || image.height);
+async function loadCoverImage(dataUrl: string | null | undefined) {
+  if (!dataUrl) return null;
+  return loadImageFromDataUrl(dataUrl);
+}
+
+export async function encodeOnlineThemePresetsToPng(
+  presets: ThemeStylePreset[],
+  options: ThemeStylePngExportOptions = {}
+) {
+  const payload = createPayloadBytes(createThemeStyleExportJson(presets, options));
+  const coverImage = await loadCoverImage(options.coverImageDataUrl);
+
+  if (!coverImage && !options.coverImageDataUrl) {
+    const { canvas, context } = createPosterCanvas(presets, options, null);
+    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+    embedPayloadIntoImageData(imageData.data, payload);
+    context.putImageData(imageData, 0, 0);
+    return canvas.toDataURL('image/png');
+  }
+
+  if (!coverImage) {
+    const legacyCanvas = createLegacyPayloadCanvas(payload);
+    return legacyCanvas.toDataURL('image/png');
+  }
+
+  const { canvas, context } = createPosterCanvas(presets, options, coverImage);
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  embedPayloadIntoImageData(imageData.data, payload);
+  context.putImageData(imageData, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
+export const encodeThemeStylePresetsToPng = encodeOnlineThemePresetsToPng;
+
+function parseThemeExportPayload(payloadBytes: Uint8Array): DecodedThemeStylePngPayload {
+  const payload = JSON.parse(new TextDecoder().decode(payloadBytes)) as Partial<ThemeExportPayload>;
+  const scope = payload.scope === 'offline' || payload.scope === 'online' ? payload.scope : null;
+  const validMagic = payload.magic === exportMagic || payload.magic === legacyExportMagic;
+  const validVersion = payload.version === 1 || payload.version === 2;
+  if (!validMagic || !validVersion || !Array.isArray(payload.presets)) {
+    throw new Error('这张 PNG 不是 LINK 样式预设。');
+  }
+  return {
+    scope,
+    presets: payload.presets
+  };
+}
+
+function decodePayloadBytesFromLsb(data: Uint8ClampedArray) {
+  const totalBytes = Math.floor(((data.length / 4) * pngChannelCount) / 8);
+  if (totalBytes < 4) throw new Error('这张 PNG 不包含 LINK 样式数据。');
+
+  const bytes = new Uint8Array(totalBytes);
+  let byteIndex = 0;
+  let bitOffset = 0;
+  let currentByte = 0;
+
+  for (let index = 0; index < data.length && byteIndex < totalBytes; index += 4) {
+    for (let channel = 0; channel < pngChannelCount && byteIndex < totalBytes; channel += 1) {
+      currentByte = (currentByte << 1) | (data[index + channel] & 1);
+      bitOffset += 1;
+      if (bitOffset === 8) {
+        bytes[byteIndex] = currentByte;
+        byteIndex += 1;
+        bitOffset = 0;
+        currentByte = 0;
+      }
+    }
+  }
+
+  const length = new DataView(bytes.buffer, 0, 4).getUint32(0, false);
+  if (!Number.isFinite(length) || length <= 0 || length > bytes.length - 4) {
+    throw new Error('这张 PNG 的样式数据不完整。');
+  }
+  return bytes.slice(4, 4 + length);
+}
+
+function decodePayloadBytesFromRawRgb(data: Uint8ClampedArray) {
   const bytes: number[] = [];
   for (let index = 0; index < data.length; index += 4) {
     bytes.push(data[index], data[index + 1], data[index + 2]);
@@ -734,14 +999,25 @@ export async function decodeOnlineThemePresetsFromPng(dataUrl: string) {
   if (bytes.length < 4) throw new Error('这张 PNG 不包含 LINK 样式数据。');
   const lengthView = new DataView(new Uint8Array(bytes.slice(0, 4)).buffer);
   const length = lengthView.getUint32(0, false);
-  if (!Number.isFinite(length) || length <= 0 || length > bytes.length - 4) throw new Error('这张 PNG 的样式数据不完整。');
-
-  const payloadBytes = new Uint8Array(bytes.slice(4, 4 + length));
-  const payload = JSON.parse(new TextDecoder().decode(payloadBytes)) as Partial<ThemeExportPayload>;
-  if (payload.magic !== exportMagic || payload.version !== 1 || !Array.isArray(payload.presets)) {
-    throw new Error('这张 PNG 不是 LINK 样式预设。');
+  if (!Number.isFinite(length) || length <= 0 || length > bytes.length - 4) {
+    throw new Error('这张 PNG 的样式数据不完整。');
   }
-  return payload.presets;
+  return new Uint8Array(bytes.slice(4, 4 + length));
+}
+
+export async function decodeOnlineThemePresetsFromPng(dataUrl: string) {
+  const image = await loadImageFromDataUrl(dataUrl);
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  const { context } = getCanvasContext(width, height);
+  context.drawImage(image, 0, 0);
+  const { data } = context.getImageData(0, 0, width, height);
+
+  try {
+    return parseThemeExportPayload(decodePayloadBytesFromLsb(data));
+  } catch {
+    return parseThemeExportPayload(decodePayloadBytesFromRawRgb(data));
+  }
 }
 
 export const decodeThemeStylePresetsFromPng = decodeOnlineThemePresetsFromPng;
