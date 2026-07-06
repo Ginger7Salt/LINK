@@ -2694,18 +2694,21 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function persistStickerCacheInBackground(sticker: Sticker, options: { readImageUrl?: () => Promise<string>; cleanupImageUrl?: () => void } = {}) {
-    let nextSticker = sticker;
     try {
       const cachedImageUrl = await cacheStickerImageUrl(sticker.imageUrl, options.readImageUrl);
+      const currentSticker = stickers.value.find((item) => item.id === sticker.id);
+      if (!currentSticker) return;
+      if (currentSticker.imageUrl !== sticker.imageUrl) return;
+      let nextSticker = currentSticker;
       if (cachedImageUrl) {
         nextSticker = {
-          ...sticker,
-          imageUrl: isPersistableStickerSourceUrl(sticker.imageUrl) ? sticker.imageUrl : stickerBackupPlaceholder,
+          ...currentSticker,
+          imageUrl: isPersistableStickerSourceUrl(currentSticker.imageUrl) ? currentSticker.imageUrl : stickerBackupPlaceholder,
           cachedImageUrl,
           cachedImageUpdatedAt: Date.now()
         };
-      } else if (!isPersistableStickerSourceUrl(sticker.imageUrl)) {
-        nextSticker = { ...sticker, imageUrl: stickerBackupPlaceholder };
+      } else if (!isPersistableStickerSourceUrl(currentSticker.imageUrl)) {
+        nextSticker = { ...currentSticker, imageUrl: stickerBackupPlaceholder };
       }
       const index = stickers.value.findIndex((item) => item.id === nextSticker.id);
       if (index >= 0) stickers.value[index] = nextSticker;
@@ -2754,8 +2757,15 @@ export const useAppStore = defineStore('app', () => {
     const createdStickers = createdEntries.map((entry) => entry.sticker);
     if (!createdStickers.length) return [];
     stickers.value.unshift(...createdStickers);
+    await Promise.all(createdStickers.map((sticker) => putEntity('stickers', sticker)));
     createdEntries.forEach((entry) => queueImportedStickerCache(entry.sticker, entry.draft));
     return createdStickers;
+  }
+
+  function queueMissingStickerImageCaches(targetStickers = stickers.value) {
+    targetStickers
+      .filter((sticker) => !sticker.cachedImageUrl && shouldLocalizeStickerImageUrl(sticker.imageUrl))
+      .forEach((sticker) => queueStickerCache(sticker));
   }
 
   async function deleteSticker(stickerId: string) {
@@ -3201,6 +3211,7 @@ export const useAppStore = defineStore('app', () => {
 
     options.onProgress?.('正在刷新本地数据', 92);
     applySnapshotToStore(preparedSnapshot);
+    queueMissingStickerImageCaches(preparedSnapshot.stickers);
     void refreshEnabledVendorModels();
     return { slimmedForMobile, persistentStorageGranted };
   }

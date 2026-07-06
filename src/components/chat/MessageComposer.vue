@@ -35,13 +35,16 @@
       <ImageIcon :size="23" />
     </button>
     <label class="composer-input">
-      <input
+      <textarea
         ref="inputRef"
         v-model="text"
+        rows="1"
+        enterkeyhint="send"
         :placeholder="placeholder"
         :disabled="effectiveInputDisabled"
-        @pointerdown="emit('prepare-focus')"
-        @touchstart.passive="emit('prepare-focus')"
+        @pointerdown="handleInputPointerDown"
+        @touchstart="handleInputPointerDown"
+        @keydown.enter="handleEnterKey"
         @focus="handleFocus"
         @blur="handleBlur"
       />
@@ -62,7 +65,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { Camera, Image as ImageIcon, Mic, Plus, Smile, X } from 'lucide-vue-next';
 import type { ChatMessageQuote, Sticker } from '@/types/domain';
 import { getStickerDisplayImageUrl } from '@/utils/stickers';
@@ -71,6 +74,7 @@ const props = defineProps<{
   canSendReply?: boolean;
   disabled?: boolean;
   inputDisabled?: boolean;
+  modelValue?: string;
   online?: boolean;
   placeholder?: string;
   quote?: ChatMessageQuote | null;
@@ -88,14 +92,15 @@ const emit = defineEmits<{
   'open-stickers': [];
   'open-voice-panel': [];
   'draft-text': [content: string];
+  'update:modelValue': [content: string];
   reply: [content: string];
   send: [content: string];
   'send-sticker': [sticker: Sticker];
 }>();
 
-const text = ref('');
+const text = ref(props.modelValue ?? '');
 const inputFocused = ref(false);
-const inputRef = ref<HTMLInputElement | null>(null);
+const inputRef = ref<HTMLTextAreaElement | null>(null);
 const cameraInputRef = ref<HTMLInputElement | null>(null);
 let blurTimer: number | undefined;
 const effectiveInputDisabled = computed(() => props.inputDisabled ?? props.disabled ?? false);
@@ -135,6 +140,26 @@ function focusInput() {
   try {
     input.setSelectionRange(cursorPosition, cursorPosition);
   } catch {}
+  resizeInput();
+}
+
+function resizeInput() {
+  const input = inputRef.value;
+  if (!input) return;
+  input.style.height = '0px';
+  input.style.height = `${Math.min(input.scrollHeight, 92)}px`;
+  input.scrollTop = input.scrollHeight;
+}
+
+function shouldPreventNativeInputFocusScroll() {
+  return document.documentElement.classList.contains('is-ios');
+}
+
+function handleInputPointerDown(event: Event) {
+  emit('prepare-focus');
+  if (!shouldPreventNativeInputFocusScroll()) return;
+  event.preventDefault();
+  focusInput();
 }
 
 function handleFocus() {
@@ -160,6 +185,12 @@ function submit() {
   text.value = '';
 }
 
+function handleEnterKey(event: KeyboardEvent) {
+  if (event.isComposing || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+  event.preventDefault();
+  submit();
+}
+
 function submitAndReply() {
   if (props.disabled) return;
   const content = text.value.trim();
@@ -170,7 +201,6 @@ function submitAndReply() {
 function pickStickerSuggestion(sticker: Sticker) {
   if (props.disabled) return;
   emit('send-sticker', sticker);
-  text.value = '';
 }
 
 function pressSendButton() {
@@ -192,7 +222,20 @@ function handleCameraFile(event: Event) {
   if (file?.type.startsWith('image/')) emit('capture-photo', file);
 }
 
-watch(text, (value) => emit('draft-text', value));
+watch(
+  () => props.modelValue,
+  (value) => {
+    const nextText = value ?? '';
+    if (nextText === text.value) return;
+    text.value = nextText;
+  }
+);
+
+watch(text, (value) => {
+  emit('update:modelValue', value);
+  emit('draft-text', value);
+  void nextTick(resizeInput);
+}, { immediate: true });
 
 onBeforeUnmount(clearBlurTimer);
 
@@ -205,10 +248,10 @@ defineExpose({ focusInput });
   z-index: 12;
   display: grid;
   grid-template-columns: 32px 32px minmax(0, 1fr) 30px;
-  align-items: center;
+  align-items: end;
   gap: 3px;
-  min-height: calc(52px + var(--safe-bottom));
-  padding: 6px calc(8px + var(--safe-right)) calc(6px + var(--safe-bottom)) calc(8px + var(--safe-left));
+  min-height: calc(46px + var(--safe-bottom));
+  padding: 4px calc(8px + var(--safe-right)) calc(4px + var(--safe-bottom)) calc(8px + var(--safe-left));
   background: rgba(255, 255, 255, 0.98);
   transform: translate3d(0, calc(0px - var(--keyboard-inset)), 0);
   will-change: transform;
@@ -338,14 +381,38 @@ defineExpose({ focusInput });
 
 .composer-input {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
+  align-self: end;
   gap: 5px;
   min-width: 0;
-  height: 34px;
-  padding: 0 10px;
-  border-radius: 17px;
+  height: auto;
+  min-height: 30px;
+  max-height: 104px;
+  padding: 5px 9px;
+  border-radius: 15px;
   background: #f0f1f2;
   color: #777b80;
+  overflow: hidden;
+}
+
+.composer-input textarea {
+  display: block;
+  flex: 1 1 auto;
+  min-height: 20px;
+  max-height: 92px;
+  padding: 0;
+  resize: none;
+  overflow-y: auto;
+  color: #2d333a;
+  font: inherit;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  scrollbar-width: none;
+}
+
+.composer-input textarea::-webkit-scrollbar {
+  display: none;
 }
 
 .composer-input svg {
@@ -426,8 +493,8 @@ defineExpose({ focusInput });
 }
 
 .composer--text-mode .composer-input {
-  height: 36px;
-  border-radius: 18px;
+  min-height: 32px;
+  border-radius: 16px;
   font-size: 14px;
 }
 

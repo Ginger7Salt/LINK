@@ -57,6 +57,7 @@
 
     <MessageComposer
       ref="composerRef"
+      :model-value="composerText"
       :can-send-reply="true"
       :disabled="currentConversationReplying"
       :input-disabled="false"
@@ -72,7 +73,7 @@
       @capture-photo="sendCapturedPhoto"
       @open-image-panel="openImagePanel"
       @open-menu="showActionMenu = true"
-      @open-stickers="showStickers = true"
+      @open-stickers="openStickerPanel"
       @open-voice-panel="openVoicePanel"
       @reply="sendAndReply"
       @send="sendBubble"
@@ -555,6 +556,7 @@
       :disabled="chatActionLocked"
       :recommendation-query="composerText"
       :recommended-stickers="stickerModalRecommendations"
+      @panel-height-change="handleStickerPanelHeightChange"
     />
     <ChatModelSwitchPanel v-model="showModelSwitch" :conversation-id="props.id" />
 
@@ -633,6 +635,30 @@ type MessageComposerExpose = {
 };
 
 const voiceTranscriptLimit = 500;
+const composerDraftStoragePrefix = 'link.chat.composerDraft.';
+const composerDrafts = new Map<string, string>();
+
+function composerDraftKey(conversationId: string) {
+  return `${composerDraftStoragePrefix}${conversationId}`;
+}
+
+function readComposerDraft(conversationId: string) {
+  if (composerDrafts.has(conversationId)) return composerDrafts.get(conversationId) ?? '';
+  try {
+    return window.sessionStorage.getItem(composerDraftKey(conversationId)) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function writeComposerDraft(conversationId: string, content: string) {
+  composerDrafts.set(conversationId, content);
+  try {
+    const key = composerDraftKey(conversationId);
+    if (content) window.sessionStorage.setItem(key, content);
+    else window.sessionStorage.removeItem(key);
+  } catch {}
+}
 
 const props = defineProps<{
   id: string;
@@ -648,6 +674,7 @@ const showRegeneratePrompt = ref(false);
 const showModelSwitch = ref(false);
 const showOfflineConfirm = ref(false);
 const showStickers = ref(false);
+const stickerPanelHeight = ref(0);
 const showImagePanel = ref(false);
 const showVoicePanel = ref(false);
 const showLocationPanel = ref(false);
@@ -673,7 +700,7 @@ const selectionMode = ref(false);
 const selectedMessageIds = ref<string[]>([]);
 const quoteTarget = ref<ChatMessageQuote | null>(null);
 const composerFocused = ref(false);
-const composerText = ref('');
+const composerText = ref(readComposerDraft(props.id));
 const editDraft = ref('');
 const editLocationNameDraft = ref('');
 const editLocationAddressDraft = ref('');
@@ -770,7 +797,8 @@ function shouldHideAvatar(index: number) {
 
 const chatSurfaceStyle = computed(() => ({
   backgroundColor: chatSettings.value.appearance.backgroundColor,
-  backgroundImage: chatSettings.value.appearance.backgroundImage ? `url(${chatSettings.value.appearance.backgroundImage})` : 'none'
+  backgroundImage: chatSettings.value.appearance.backgroundImage ? `url(${chatSettings.value.appearance.backgroundImage})` : 'none',
+  '--sticker-panel-offset': `${stickerPanelHeight.value}px`
 }));
 const messageListStyle = computed(() => ({
   backgroundColor: 'transparent',
@@ -932,6 +960,29 @@ function handleComposerBlur() {
 function handleComposerDraftText(content: string) {
   const shouldStickToBottom = composerFocused.value || isMessageListNearBottom();
   composerText.value = content;
+  writeComposerDraft(props.id, content);
+  if (shouldStickToBottom) queueMessagesToBottomAfterLayout();
+}
+
+function blurActiveKeyboardInput() {
+  const activeElement = document.activeElement;
+  if (activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement || activeElement instanceof HTMLSelectElement) {
+    activeElement.blur();
+  }
+}
+
+function openStickerPanel() {
+  const shouldStickToBottom = composerFocused.value || isMessageListNearBottom();
+  blurActiveKeyboardInput();
+  showStickers.value = true;
+  if (shouldStickToBottom) queueMessagesToBottomAfterLayout();
+}
+
+function handleStickerPanelHeightChange(height: number) {
+  const previousHeight = stickerPanelHeight.value;
+  if (previousHeight === height) return;
+  const shouldStickToBottom = showStickers.value && (previousHeight === 0 || isMessageListNearBottom());
+  stickerPanelHeight.value = height;
   if (shouldStickToBottom) queueMessagesToBottomAfterLayout();
 }
 
@@ -974,6 +1025,7 @@ onMounted(async () => {
 
 watch(() => props.id, (id) => {
   void (async () => {
+    composerText.value = readComposerDraft(id);
     resetMessageWindow();
     await syncConversationState(id);
     const focusId = focusedMessageId();
@@ -1002,6 +1054,13 @@ watch(() => composerStickerSuggestions.value.length, () => {
   if (composerFocused.value || isMessageListNearBottom()) queueMessagesToBottomAfterLayout();
 });
 
+watch(showStickers, (open) => {
+  if (!open) {
+    stickerPanelHeight.value = 0;
+    if (isMessageListNearBottom()) queueMessagesToBottomAfterLayout();
+  }
+});
+
 watch(showVoicePanel, (open) => {
   if (!open) resetVoicePanel();
 });
@@ -1010,6 +1069,7 @@ async function sendBubble(content: string) {
   releaseKeyboardScrollGuard();
   await store.appendUserMessage(props.id, content, quoteTarget.value);
   quoteTarget.value = null;
+  writeComposerDraft(props.id, '');
 }
 
 async function sendAndReply(content: string) {
@@ -1017,6 +1077,7 @@ async function sendAndReply(content: string) {
   if (content.trim()) {
     await store.appendUserMessage(props.id, content, quoteTarget.value);
     quoteTarget.value = null;
+    writeComposerDraft(props.id, '');
   }
   await store.requestRoleplayReply(props.id);
 }
@@ -1025,7 +1086,6 @@ async function sendStickerSuggestion(sticker: Sticker) {
   releaseKeyboardScrollGuard();
   await store.sendStickerMessage(props.id, sticker, quoteTarget.value);
   quoteTarget.value = null;
-  composerText.value = '';
 }
 
 function openImagePanel() {
@@ -1959,6 +2019,7 @@ async function enterOffline() {
 }
 
 onBeforeUnmount(() => {
+  writeComposerDraft(props.id, composerText.value);
   abortVoiceRecording();
   clearQueuedBottomRestores();
   if (proactiveReplyTimer !== undefined) window.clearInterval(proactiveReplyTimer);
@@ -1987,10 +2048,14 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 8px 10px calc(8px + var(--keyboard-inset));
+  padding: 8px 10px calc(8px + var(--keyboard-inset) + var(--sticker-panel-offset, 0px));
   -webkit-overflow-scrolling: touch;
   overflow-anchor: none;
-  scroll-padding-bottom: calc(8px + var(--keyboard-inset));
+  scroll-padding-bottom: calc(8px + var(--keyboard-inset) + var(--sticker-panel-offset, 0px));
+}
+
+.chat-room :deep(.composer) {
+  transform: translate3d(0, calc(0px - var(--keyboard-inset) - var(--sticker-panel-offset, 0px)), 0);
 }
 
 .message-list :deep(.message-focus-pulse .bubble) {
@@ -3388,7 +3453,7 @@ onBeforeUnmount(() => {
   border-top: 1px solid rgba(20, 20, 20, 0.08);
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(12px);
-  transform: translate3d(0, calc(0px - var(--keyboard-inset)), 0);
+  transform: translate3d(0, calc(0px - var(--keyboard-inset) - var(--sticker-panel-offset, 0px)), 0);
   will-change: transform;
 }
 

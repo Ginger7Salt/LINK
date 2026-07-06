@@ -1,8 +1,15 @@
 <template>
   <section class="sticker-sheet" :class="[`sticker-sheet-${presentation}`, { 'is-managing': managementMode }]" @click="hideTransientUi">
-    <header class="sticker-head" @click.stop>
-      <strong>Stickers</strong>
-      <div v-if="showToolbarActions || showManageAction || showClose" class="head-actions">
+    <header class="sticker-head" :class="{ 'is-searching': showInlineSearch }" @click.stop>
+      <form v-if="showInlineSearch" class="head-search-row" @submit.prevent>
+        <Search :size="15" />
+        <input v-model="searchText" type="search" aria-label="搜索 Stickers" placeholder="搜索 Stickers" />
+        <button class="icon-action" type="button" :disabled="!searchText" aria-label="清除搜索" @click="clearSearch">
+          <X :size="15" />
+        </button>
+      </form>
+      <strong v-else>Stickers</strong>
+      <div v-if="showToolbarActions || showSearchAction || showManageAction || showClose" class="head-actions">
         <template v-if="showToolbarActions">
           <button class="head-icon" :class="{ active: activeTool === 'group-name' }" type="button" aria-label="分组名" @click="toggleTool('group-name')">
             <PencilLine :size="17" />
@@ -105,7 +112,7 @@
       <p v-if="feedback" class="feedback">{{ feedback }}</p>
     </section>
 
-    <section v-if="showToolbarActions && activeTool" class="tool-popover" @click.stop>
+    <section v-if="activeTool && !showInlineSearch" class="tool-popover" @click.stop>
       <form v-if="activeTool === 'group-name'" class="group-editor" @submit.prevent="submitGroupName">
         <input v-model="newGroupName" :disabled="isActiveRecentGroup" aria-label="Stickers 分组名" :placeholder="isActiveRecentGroup ? '固定分组' : '新分组'" />
         <button class="icon-action" type="submit" :disabled="isActiveRecentGroup" :aria-label="currentActiveGroupId === 'all' ? '添加分组' : '保存分组名'">
@@ -116,10 +123,17 @@
         </button>
       </form>
 
-      <div v-else class="import-row">
+      <div v-else-if="activeTool === 'import'" class="import-row">
         <textarea v-model="importText" aria-label="URL / 文本导入"></textarea>
         <button class="mini-action" type="button" :disabled="importing || !importText.trim()" aria-label="导入" @click="importFromText"></button>
       </div>
+      <form v-else class="search-row" @submit.prevent>
+        <Search :size="15" />
+        <input v-model="searchText" type="search" aria-label="搜索 Stickers" placeholder="搜索描述或分组" />
+        <button class="icon-action" type="button" :disabled="!searchText" aria-label="清除搜索" @click="clearSearch">
+          <X :size="15" />
+        </button>
+      </form>
       <p v-if="feedback" class="feedback">{{ feedback }}</p>
     </section>
 
@@ -148,7 +162,7 @@
     </section>
     <section v-else class="empty-stickers">
       <ImagePlus :size="28" />
-      <strong>暂无 Stickers</strong>
+      <strong>{{ emptyStickerTitle }}</strong>
     </section>
 
     <form v-if="allowStickerEditing && selectedSticker && !conversationId" class="sticker-editor" @click.stop @submit.prevent="saveSelectedSticker">
@@ -179,7 +193,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { ArrowDown, ArrowUp, Check, FileUp, ImagePlus, MoveRight, PencilLine, Plus, Settings2, Trash2, Upload, X } from 'lucide-vue-next';
+import { ArrowDown, ArrowUp, Check, FileUp, ImagePlus, MoveRight, PencilLine, Plus, Search, Settings2, Trash2, Upload, X } from 'lucide-vue-next';
 import { useAppStore } from '@/stores/appStore';
 import type { Sticker, StickerSourceType } from '@/types/domain';
 import { RECENT_STICKER_GROUP_ID, RECENT_STICKER_GROUP_NAME, createImageFileStickerDraft, getStickerDisplayImageUrl, parseStickerImportText, readStickerImportFile } from '@/utils/stickers';
@@ -221,6 +235,7 @@ const store = useAppStore();
 const internalActiveGroupId = ref(props.activeGroupId ?? RECENT_STICKER_GROUP_ID);
 const newGroupName = ref('');
 const importText = ref('');
+const searchText = ref('');
 const feedback = ref('');
 const importing = ref(false);
 const selectedStickerId = ref('');
@@ -245,6 +260,10 @@ const currentActiveGroupId = computed({
 
 const firstGroupId = computed(() => sortedStickerGroups.value[0]?.id ?? '');
 const hasRecommendations = computed(() => Boolean(props.recommendedStickers.length));
+const showSearchAction = computed(() => props.presentation === 'modal' && !props.managementMode);
+const showInlineSearch = computed(() => showSearchAction.value);
+const searchQuery = computed(() => searchText.value.replace(/\s+/g, ' ').trim().toLocaleLowerCase());
+const stickerGroupNamesById = computed(() => new Map(stickerGroups.value.map((group) => [group.id, group.name])));
 const groupTabs = computed(() => [
   ...(hasRecommendations.value ? [{
     id: RECOMMENDED_STICKER_GROUP_ID,
@@ -262,10 +281,18 @@ const groupTabs = computed(() => [
     count: store.stickersForGroup(group.id).length
   }))]
 );
+const searchableStickers = computed(() => {
+  const stickerMap = new Map<string, Sticker>();
+  for (const sticker of stickers.value) stickerMap.set(sticker.id, sticker);
+  for (const sticker of props.recommendedStickers) stickerMap.set(sticker.id, sticker);
+  return [...stickerMap.values()];
+});
 const filteredStickers = computed(() => {
+  if (searchQuery.value) return searchableStickers.value.filter((sticker) => stickerMatchesSearch(sticker, searchQuery.value));
   if (currentActiveGroupId.value === RECOMMENDED_STICKER_GROUP_ID) return props.recommendedStickers;
   return currentActiveGroupId.value ? store.stickersForGroup(currentActiveGroupId.value) : [];
 });
+const emptyStickerTitle = computed(() => searchQuery.value ? '没有找到匹配的 Stickers' : '暂无 Stickers');
 const selectedSticker = computed(() => stickers.value.find((sticker) => sticker.id === selectedStickerId.value) ?? null);
 const isActiveRecentGroup = computed(() => currentActiveGroupId.value === RECENT_STICKER_GROUP_ID);
 const activeGroupIndex = computed(() => sortedStickerGroups.value.findIndex((group) => group.id === currentActiveGroupId.value));
@@ -387,10 +414,19 @@ function hideTransientUi() {
   activeTool.value = '';
 }
 
+function stickerMatchesSearch(sticker: Sticker, query: string) {
+  const groupNames = sticker.groupIds.map((groupId) => stickerGroupNamesById.value.get(groupId) ?? '').join(' ');
+  return `${sticker.description} ${groupNames}`.toLocaleLowerCase().includes(query);
+}
+
 function toggleTool(tool: 'group-name' | 'import') {
   selectedStickerId.value = '';
   feedback.value = '';
   activeTool.value = activeTool.value === tool ? '' : tool;
+}
+
+function clearSearch() {
+  searchText.value = '';
 }
 
 async function handleStickerClick(sticker: Sticker) {
@@ -549,6 +585,19 @@ async function deleteSelectedSticker() {
   container-type: inline-size;
 }
 
+.sticker-sheet-modal {
+  display: flex;
+  flex-direction: column;
+  align-content: stretch;
+  align-items: stretch;
+  min-height: 0;
+}
+
+.sticker-sheet-modal .sticker-head,
+.sticker-sheet-modal .group-tabs {
+  flex: 0 0 auto;
+}
+
 .sticker-head,
 .group-tabs,
 .sticker-grid,
@@ -570,16 +619,61 @@ async function deleteSelectedSticker() {
   gap: 8px;
 }
 
+.sticker-head {
+  min-height: 30px;
+}
+
 .sticker-head strong {
+  flex: 1 1 auto;
+  min-width: 0;
   color: #8c848c;
   font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
 }
 
+.head-search-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 3px 0 8px;
+  border-radius: 10px;
+  background: rgba(244, 245, 247, 0.96);
+}
+
+.head-search-row > svg {
+  justify-self: center;
+  color: #8c848c;
+}
+
+.head-search-row input {
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #211f22;
+  font-size: 12px;
+  font-weight: 800;
+  outline: none;
+}
+
+.head-search-row input::placeholder {
+  color: #9c969d;
+}
+
+.head-search-row .icon-action {
+  background: transparent;
+}
+
 .head-actions {
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 3px;
 }
 
@@ -659,11 +753,11 @@ async function deleteSelectedSticker() {
 .group-pill {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   flex: 0 0 auto;
   max-width: min(220px, 70vw);
   min-height: 26px;
-  padding: 0 8px;
+  padding: 0 7px 0 9px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.72);
   color: #68616b;
@@ -684,7 +778,39 @@ async function deleteSelectedSticker() {
 }
 
 .group-pill small {
-  opacity: 0.72;
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  min-height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.12);
+  color: #4f4850;
+  font-size: 10px;
+  line-height: 1;
+  text-align: center;
+  opacity: 0.78;
+}
+
+.group-pill.active small {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  opacity: 0.9;
+}
+
+.sticker-sheet-modal .group-pill {
+  max-width: min(160px, 48vw);
+  padding: 0 11px;
+}
+
+.sticker-sheet-modal .group-tabs {
+  min-height: 28px;
+  padding-bottom: 2px;
+}
+
+.sticker-sheet-modal .group-pill small {
+  display: none;
 }
 
 .group-editor {
@@ -695,6 +821,7 @@ async function deleteSelectedSticker() {
 
 .group-editor input,
 .import-row textarea,
+.search-row input,
 .field-stack input,
 .batch-action-row select,
 .editor-fields input,
@@ -906,11 +1033,25 @@ async function deleteSelectedSticker() {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.import-row {
+.import-row,
+.search-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px;
   gap: 5px;
   align-items: stretch;
+}
+
+.import-row {
+  grid-template-columns: minmax(0, 1fr) 28px;
+}
+
+.search-row {
+  grid-template-columns: 24px minmax(0, 1fr) 28px;
+  align-items: center;
+}
+
+.search-row > svg {
+  justify-self: center;
+  color: #8c848c;
 }
 
 .import-row textarea {
@@ -1062,17 +1203,20 @@ async function deleteSelectedSticker() {
 .sticker-sheet-modal .sticker-grid {
   --modal-grid-width: min(calc(100vw - var(--safe-left) - var(--safe-right) - 44px), 424px);
   --modal-grid-column: calc((var(--modal-grid-width) - 18px) / 4);
-  --modal-grid-row: calc(var(--modal-grid-column) + 34px);
+  flex: 1 1 auto;
+  min-height: 0;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
-  max-height: min(
-    calc(var(--app-height) - var(--safe-top) - var(--safe-bottom) - 132px),
-    calc(var(--modal-grid-row) * 3 + 12px)
-  );
+  max-height: none;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 2px;
   -webkit-overflow-scrolling: touch;
+}
+
+.sticker-sheet-modal .empty-stickers {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .sticker-sheet-modal .sticker-tile {

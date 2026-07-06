@@ -104,7 +104,7 @@ html.is-ios .confirm-field textarea {
   line-height: 1.5 !important;
 }
 
-html.is-ios .composer-input input {
+html.is-ios .composer-input textarea {
   line-height: 1.2 !important;
 }
 
@@ -136,12 +136,12 @@ html.is-ios .modal-panel .modal-body .edit-message-sheet textarea {
 
 html.is-ios.keyboard-open #app .chat-room .composer,
 html.is-ios.keyboard-open #app .chat-room .selection-toolbar {
-  transform: none;
+  transform: translate3d(0, calc(0px - var(--sticker-panel-offset, 0px)), 0);
 }
 
 html.is-ios.keyboard-open #app .chat-room .message-list {
-  padding-bottom: 8px;
-  scroll-padding-bottom: 8px;
+  padding-bottom: calc(8px + var(--sticker-panel-offset, 0px));
+  scroll-padding-bottom: calc(8px + var(--sticker-panel-offset, 0px));
 }
 
 a {
