@@ -170,15 +170,20 @@
             </span>
           </div>
           <div v-if="memoryTimelineItems.length" class="memory-timeline-list" role="list">
-            <article v-for="item in visibleMemoryTimelineItems" :key="item.id" class="memory-timeline-row" :class="[`timeline-${item.kind}`, { 'is-archived': item.archived }]" role="listitem">
-              <time>{{ item.timeLabel }}</time>
-              <div class="timeline-dot" aria-hidden="true"></div>
+            <article v-for="item in visibleMemoryTimelineItems" :key="item.id" class="memory-timeline-row" :class="[`timeline-${item.kind}`, `timeline-${item.tone}`, { 'is-archived': item.archived }]" role="listitem">
               <div class="timeline-copy">
-                <span>{{ item.eyebrow }}</span>
-                <strong>{{ item.title }}</strong>
-                <section class="timeline-summary-display" aria-label="完整记忆摘要">
+                <button class="timeline-card-heading" type="button" :aria-expanded="isTimelineDetailExpanded(timelineCardId(item))" @click="toggleTimelineDetail(timelineCardId(item))">
+                  <em>{{ item.eyebrow }}</em>
+                  <span>
+                    <strong>{{ item.title }}</strong>
+                    <ChevronDown :size="14" aria-hidden="true" />
+                  </span>
+                </button>
+                <section v-if="isTimelineDetailExpanded(timelineCardId(item))" class="timeline-summary-display" aria-label="完整记忆摘要">
                   <template v-for="block in item.blocks" :key="block.id">
-                    <h4 v-if="block.kind === 'heading'" class="timeline-summary-heading">{{ block.content }}</h4>
+                    <template v-if="block.kind === 'heading'">
+                      <h4 v-if="shouldShowTimelineHeading(block.content)" class="timeline-summary-heading">{{ block.content }}</h4>
+                    </template>
                     <div v-else-if="block.kind === 'field'" class="timeline-summary-field">
                       <span>{{ block.label }}</span>
                       <p>{{ block.content }}</p>
@@ -188,15 +193,40 @@
                         <span>时间</span>
                         <strong>{{ block.time }}</strong>
                       </header>
-                      <dl>
-                        <template v-for="field in block.fields" :key="`${block.id}-${field.label}`">
+                      <dl class="timeline-event-core">
+                        <template v-for="field in eventPrimaryFields(block)" :key="`${block.id}-${field.label}`">
                           <dt>{{ field.label }}</dt>
                           <dd>{{ field.content || '未填写' }}</dd>
                         </template>
                       </dl>
+                      <div v-if="eventFoldedFields(block).length" class="timeline-foldout timeline-event-details" :class="{ 'is-open': isTimelineDetailExpanded(timelineDetailId(item, block, 'event')) }">
+                        <button type="button" @click="toggleTimelineDetail(timelineDetailId(item, block, 'event'))">
+                          <span>更多细节</span>
+                          <em>{{ eventFoldedFields(block).length }} 项</em>
+                          <ChevronDown :size="14" aria-hidden="true" />
+                        </button>
+                        <dl v-if="isTimelineDetailExpanded(timelineDetailId(item, block, 'event'))">
+                          <template v-for="field in eventFoldedFields(block)" :key="`${block.id}-${field.label}`">
+                            <dt>{{ field.label }}</dt>
+                            <dd>{{ field.content || '未填写' }}</dd>
+                          </template>
+                        </dl>
+                      </div>
                     </article>
                     <ul v-else-if="block.kind === 'list'" class="timeline-summary-list">
-                      <li v-for="listItem in block.items" :key="listItem">{{ listItem }}</li>
+                      <li v-for="listItem in listPrimaryItems(block)" :key="listItem">{{ listItem }}</li>
+                      <li v-if="listFoldedItems(block).length" class="timeline-list-foldout">
+                        <div class="timeline-foldout" :class="{ 'is-open': isTimelineDetailExpanded(timelineDetailId(item, block, 'list')) }">
+                          <button type="button" @click="toggleTimelineDetail(timelineDetailId(item, block, 'list'))">
+                            <span>继续展开</span>
+                            <em>{{ listFoldedItems(block).length }} 条</em>
+                            <ChevronDown :size="14" aria-hidden="true" />
+                          </button>
+                          <ul v-if="isTimelineDetailExpanded(timelineDetailId(item, block, 'list'))" class="timeline-summary-list nested-list">
+                            <li v-for="listItem in listFoldedItems(block)" :key="listItem">{{ listItem }}</li>
+                          </ul>
+                        </div>
+                      </li>
                     </ul>
                     <div v-else-if="block.kind === 'table'" class="timeline-profile-table-shell">
                       <table>
@@ -232,11 +262,18 @@
                         </g>
                       </svg>
                     </div>
-                    <pre v-else-if="block.kind === 'code'" class="timeline-summary-code"><span>{{ block.language || 'code' }}</span>{{ block.content }}</pre>
+                    <div v-else-if="block.kind === 'code'" class="timeline-foldout timeline-block-foldout" :class="{ 'is-open': isTimelineDetailExpanded(timelineDetailId(item, block, 'code')) }">
+                      <button type="button" @click="toggleTimelineDetail(timelineDetailId(item, block, 'code'))">
+                        <span>{{ block.language || 'code' }}</span>
+                        <em>代码块</em>
+                        <ChevronDown :size="14" aria-hidden="true" />
+                      </button>
+                      <pre v-if="isTimelineDetailExpanded(timelineDetailId(item, block, 'code'))" class="timeline-summary-code"><span>{{ block.language || 'code' }}</span>{{ block.content }}</pre>
+                    </div>
                     <p v-else class="timeline-summary-paragraph">{{ block.content }}</p>
                   </template>
                 </section>
-                <div v-if="item.meta.length" class="timeline-meta">
+                <div v-if="isTimelineDetailExpanded(timelineCardId(item)) && item.meta.length" class="timeline-meta">
                   <em v-for="meta in item.meta" :key="meta">{{ meta }}</em>
                 </div>
               </div>
@@ -563,20 +600,15 @@
           <textarea v-model="characterDraft.description" rows="7" @change="saveCharacterDraft"></textarea>
         </label>
 
-        <section class="local-book-bind wide-field" aria-labelledby="profile-local-world-book-title">
-          <div class="local-book-header">
-            <strong id="profile-local-world-book-title">绑定局部世界书</strong>
-            <span v-if="localWorldBooks.length">{{ characterDraft.localWorldBookIds.length }}/{{ localWorldBooks.length }}</span>
-          </div>
-          <div v-if="localWorldBooks.length" class="local-book-list">
-            <label v-for="book in localWorldBooks" :key="book.id" class="local-book-row" :class="{ selected: characterDraft.localWorldBookIds.includes(book.id) }">
-              <input :checked="characterDraft.localWorldBookIds.includes(book.id)" type="checkbox" @change="toggleLocalWorldBook(book.id, $event)" />
-              <span>{{ book.title }}</span>
-              <span class="book-check" aria-hidden="true"></span>
-            </label>
-          </div>
-          <p v-else class="local-book-empty">暂无局部世界书</p>
-        </section>
+        <label class="field wide-field add-page-select-field">
+          <span>绑定局部世界书</span>
+          <select :value="localWorldBookSelectValue" :disabled="!localWorldBooks.length" @change="toggleLocalWorldBookFromSelect">
+            <option :value="localWorldBookSelectValue" disabled>{{ characterLocalWorldBookSummary }}</option>
+            <option v-for="book in localWorldBooks" :key="book.id" :value="book.id">
+              {{ characterDraft.localWorldBookIds.includes(book.id) ? '✓ ' : '' }}{{ book.title }}
+            </option>
+          </select>
+        </label>
       </section>
 
       <section v-else class="panel-section other-panel">
@@ -619,21 +651,15 @@
               <span>输入文字时基于描述、最近发送和当前会话习惯推荐贴纸。</span>
             </div>
           </label>
-          <button class="sticker-bind-trigger" type="button" @click="toggleStickerGroupPicker">
-            <span>
-              <strong>角色绑定 Stickers分组</strong>
-              <small>{{ characterStickerBindingSummary }}</small>
-            </span>
-            <ChevronDown :size="18" aria-hidden="true" />
-          </button>
-          <section v-if="showStickerGroupPicker" class="sticker-group-popover">
-            <label v-for="group in stickerGroupPickerRows" :key="group.id" class="sticker-group-option switch-card compact-switch">
-              <input :checked="draft.characterStickerGroupIds.includes(group.id)" type="checkbox" @change="updateCharacterStickerGroup(group.id, $event)" />
-              <span class="switch-track"></span>
-              <span class="sticker-group-name">{{ group.name }}</span>
-            </label>
-            <div v-if="!stickerGroupPickerRows.length" class="empty-note">暂无 Stickers 分组。</div>
-          </section>
+          <label class="field wide-field add-page-select-field">
+            <span>角色绑定 Stickers分组</span>
+            <select :value="stickerGroupSelectValue" :disabled="!stickerGroupPickerRows.length" @change="toggleStickerGroupFromSelect">
+              <option :value="stickerGroupSelectValue" disabled>{{ characterStickerBindingSummary }}</option>
+              <option v-for="group in stickerGroupPickerRows" :key="group.id" :value="group.id">
+                {{ draft.characterStickerGroupIds.includes(group.id) ? '✓ ' : '' }}{{ group.name }}
+              </option>
+            </select>
+          </label>
         </section>
         <section class="settings-block">
           <header class="section-header">
@@ -770,6 +796,9 @@ type ConfirmTone = 'primary' | 'danger';
 type ConfirmAction = () => Promise<void> | void;
 type MemoryNumberField = 'summarizeEvery' | 'grandSummaryEvery' | 'grandSummaryHiddenStartFloor' | 'grandSummaryVisibleTailFloors' | 'autoMergeThreshold' | 'autoMergeBatchSize';
 type ThemeStyleBindingScope = 'online' | 'offline';
+type MemoryEventField = Extract<MemorySummaryBlock, { kind: 'event' }>['fields'][number];
+type MemoryEventBlock = Extract<MemorySummaryBlock, { kind: 'event' }>;
+type MemoryListBlock = Extract<MemorySummaryBlock, { kind: 'list' }>;
 
 type IdleWindow = Window & {
   requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
@@ -779,6 +808,7 @@ type IdleWindow = Window & {
 interface MemoryTimelineItem {
   id: string;
   kind: 'summary';
+  tone: 'memoir' | 'grand' | 'merged';
   time: number;
   timeEnd?: number;
   timeLabel: string;
@@ -820,7 +850,6 @@ const summarizing = ref(false);
 const showManualSummary = ref(false);
 const showMergePicker = ref(false);
 const showUnmergePicker = ref(false);
-const showStickerGroupPicker = ref(false);
 const showAvatarEditor = ref(false);
 const avatarEditorSource = ref('');
 const backgroundImageUrlDraft = ref('');
@@ -857,6 +886,7 @@ const manualSummary = reactive({
   hiddenStartFloor: draft.memory.grandSummaryHiddenStartFloor,
   visibleTailFloors: draft.memory.grandSummaryVisibleTailFloors
 });
+const expandedTimelineDetailIds = ref<Set<string>>(new Set());
 const timelineDisplayLimit = ref(80);
 const memoryDisplayLimit = ref(40);
 const totalMemoryTokens = ref<number | null>(null);
@@ -878,11 +908,12 @@ const memoryTimelineItems = computed<MemoryTimelineItem[]>(() => {
   const summaryItems = memories.value.map((memory): MemoryTimelineItem => ({
     id: `memory:${memory.id}`,
     kind: 'summary',
+    tone: memoryTimelineTone(memory),
     time: memory.createdAt,
     timeEnd: memory.updatedAt > memory.createdAt ? memory.updatedAt : undefined,
     timeLabel: formatTimelineRange(memory.createdAt, memory.updatedAt > memory.createdAt ? memory.updatedAt : undefined),
-    eyebrow: `${memoryRangeLabel(memory)} · ${memoryMergeBadge(memory)}`,
-    title: memory.isMergedSummary ? '合并大总结' : '分段总结',
+    eyebrow: memoryRangeLabel(memory),
+    title: memoryTimelineTitle(memory),
     blocks: parseMemorySummaryBlocks(memory.summary),
     meta: [`${memory.tokenCount} tokens`, hiddenRangeLabel(memory)]
   }));
@@ -942,7 +973,16 @@ const boundUserVisualProfile = computed(() => props.character.boundUserProfile);
 const userAvatarPreview = computed(() => boundUserVisualProfile.value?.avatar || boundUser.value?.avatar || defaultProfileAvatar);
 const userAvatarAlt = computed(() => boundUserVisualProfile.value?.nickname || boundUser.value?.nickname || boundUser.value?.name || '我');
 const backgroundImageOptions = computed(() => draft.appearance.backgroundImages);
+const localWorldBookSelectValue = '__local_world_book_summary__';
+const stickerGroupSelectValue = '__sticker_group_summary__';
 const localWorldBooks = computed(() => store.worldBooks.filter((book) => book.scope === 'local'));
+const selectedCharacterLocalWorldBooks = computed(() => localWorldBooks.value.filter((book) => characterDraft.localWorldBookIds.includes(book.id)));
+const characterLocalWorldBookSummary = computed(() => {
+  if (!localWorldBooks.value.length) return '暂无局部世界书';
+  if (!selectedCharacterLocalWorldBooks.value.length) return '请选择局部世界书';
+  if (selectedCharacterLocalWorldBooks.value.length === 1) return selectedCharacterLocalWorldBooks.value[0]?.title ?? '已绑定 1 本局部世界书';
+  return `已绑定 ${selectedCharacterLocalWorldBooks.value.length} 本局部世界书`;
+});
 const onlineThemeStyleOptions = computed(() => createThemeStyleOptions('online', store.settings?.themeSettings.online.presets ?? []));
 const offlineThemeStyleOptions = computed(() => createThemeStyleOptions('offline', store.settings?.themeSettings.offline.presets ?? []));
 const bubblePreviewStyle = computed(() => ({
@@ -967,12 +1007,14 @@ const stickerGroupPickerRows = computed(() => store.sortedStickerGroups.map((gro
 })));
 const characterStickerBindingSummary = computed(() => {
   const groupIds = new Set(draft.characterStickerGroupIds);
-  if (!groupIds.size) return '未选择';
+  if (!stickerGroupPickerRows.value.length) return '暂无 Stickers 分组';
+  if (!groupIds.size) return '请选择 Stickers 分组';
   const names = stickerGroupPickerRows.value
     .filter((group) => groupIds.has(group.id))
     .map((group) => group.name);
-  if (!names.length) return '未选择';
-  return names.join('、');
+  if (!names.length) return '请选择 Stickers 分组';
+  if (names.length === 1) return names[0] ?? '已绑定 1 个 Stickers 分组';
+  return `已绑定 ${names.length} 个 Stickers 分组`;
 });
 const canManualSummarize = computed(() => {
   const start = Number(manualSummary.startFloor);
@@ -1125,6 +1167,47 @@ function showMoreTimelineItems() {
   timelineDisplayLimit.value += 80;
 }
 
+function timelineDetailId(item: MemoryTimelineItem, block: MemorySummaryBlock, suffix: string) {
+  return `${item.id}:${block.id}:${suffix}`;
+}
+
+function timelineCardId(item: MemoryTimelineItem) {
+  return `${item.id}:card`;
+}
+
+function isTimelineDetailExpanded(detailId: string) {
+  return expandedTimelineDetailIds.value.has(detailId);
+}
+
+function toggleTimelineDetail(detailId: string) {
+  const nextIds = new Set(expandedTimelineDetailIds.value);
+  if (nextIds.has(detailId)) nextIds.delete(detailId);
+  else nextIds.add(detailId);
+  expandedTimelineDetailIds.value = nextIds;
+}
+
+function isPrimaryEventField(field: MemoryEventField) {
+  return /关键事件|主要事件|事件概要/.test(field.label);
+}
+
+function eventPrimaryFields(block: MemoryEventBlock) {
+  const primaryFields = block.fields.filter(isPrimaryEventField);
+  return primaryFields.length ? primaryFields : block.fields.slice(0, 1);
+}
+
+function eventFoldedFields(block: MemoryEventBlock) {
+  const primaryFields = new Set(eventPrimaryFields(block));
+  return block.fields.filter((field) => !primaryFields.has(field));
+}
+
+function listPrimaryItems(block: MemoryListBlock) {
+  return block.items.slice(0, 3);
+}
+
+function listFoldedItems(block: MemoryListBlock) {
+  return block.items.slice(3);
+}
+
 function showMoreMemories() {
   memoryDisplayLimit.value += 40;
 }
@@ -1134,7 +1217,6 @@ watch(
   () => {
     Object.assign(draft, normalizeConversationSettings(currentConversationSettings.value, props.conversationId, 'online'));
     syncMemoryNumberDraft();
-    showStickerGroupPicker.value = false;
     showMergePicker.value = false;
     showUnmergePicker.value = false;
     selectedMergeIds.value = [];
@@ -1154,6 +1236,7 @@ watch(
   () => {
     timelineDisplayLimit.value = 80;
     memoryDisplayLimit.value = 40;
+    expandedTimelineDetailIds.value = new Set();
   }
 );
 
@@ -1322,15 +1405,14 @@ function normalizeSelectedStickerGroupIds(groupIds: string[]) {
   return store.sortedStickerGroups.map((group) => group.id).filter((groupId) => selectedIds.has(groupId));
 }
 
-function toggleStickerGroupPicker() {
-  showStickerGroupPicker.value = !showStickerGroupPicker.value;
-}
-
-async function updateCharacterStickerGroup(groupId: string, event: Event) {
-  const checked = (event.target as HTMLInputElement).checked;
+async function toggleStickerGroupFromSelect(event: Event) {
+  if (!(event.target instanceof HTMLSelectElement)) return;
+  const groupId = event.target.value;
+  if (!groupId || groupId === stickerGroupSelectValue) return;
+  event.target.value = stickerGroupSelectValue;
   const groupIds = new Set(draft.characterStickerGroupIds);
-  if (checked) groupIds.add(groupId);
-  else groupIds.delete(groupId);
+  if (groupIds.has(groupId)) groupIds.delete(groupId);
+  else groupIds.add(groupId);
   const nextSettings = normalizeConversationSettings({
     ...draft,
     conversationId: props.conversationId,
@@ -1424,6 +1506,20 @@ function memoryMergeDepth(memory: ConversationMemoryRecord): number {
 function memoryMergeBadge(memory: ConversationMemoryRecord) {
   if (!memory.isMergedSummary) return '片段记忆';
   return `第 ${memoryMergeDepth(memory)} 层大总结 · ${leafMemoryCount(memory)} 个来源`;
+}
+
+function memoryTimelineTone(memory: ConversationMemoryRecord): MemoryTimelineItem['tone'] {
+  if (!memory.isMergedSummary) return 'memoir';
+  return memoryMergeDepth(memory) > 1 ? 'merged' : 'grand';
+}
+
+function memoryTimelineTitle(memory: ConversationMemoryRecord) {
+  if (!memory.isMergedSummary) return '回忆录';
+  return memoryMergeDepth(memory) > 1 ? '合并大总结' : '新增大总结';
+}
+
+function shouldShowTimelineHeading(content: string) {
+  return !/^大总结[（(]/.test(content.trim());
 }
 
 const timelineTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
@@ -1612,6 +1708,8 @@ async function resummarize(memoryId: string) {
     } else if (result?.status === 'busy') {
       const rangeLabel = result.record ? `${result.record.startFloor}-${result.record.endFloor} 楼` : '该楼层范围';
       store.showConfigAlert(`${rangeLabel}正在总结中，请稍后再试。`, '总结进行中');
+    } else if (!result) {
+      store.showConfigAlert('这条记忆缺少可重新读取的原始楼层或上一层来源，无法重新总结。', '无法重新总结');
     }
   } finally {
     summarizing.value = false;
@@ -1840,11 +1938,14 @@ function updateCharacterThemeStyleBinding(scope: ThemeStyleBindingScope, event: 
   saveCharacterDraft();
 }
 
-function toggleLocalWorldBook(bookId: string, event: Event) {
-  const checked = event.target instanceof HTMLInputElement ? event.target.checked : false;
+function toggleLocalWorldBookFromSelect(event: Event) {
+  if (!(event.target instanceof HTMLSelectElement)) return;
+  const bookId = event.target.value;
+  if (!bookId || bookId === localWorldBookSelectValue) return;
+  event.target.value = localWorldBookSelectValue;
   const ids = new Set(characterDraft.localWorldBookIds);
-  if (checked) ids.add(bookId);
-  else ids.delete(bookId);
+  if (ids.has(bookId)) ids.delete(bookId);
+  else ids.add(bookId);
   characterDraft.localWorldBookIds = localWorldBooks.value.map((book) => book.id).filter((id) => ids.has(id));
   saveCharacterDraft();
 }
@@ -2163,24 +2264,7 @@ function applyEditedAvatar(value: string) {
 .memory-timeline-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 4px;
   min-width: 0;
-}
-
-.memory-timeline-row time {
-  justify-self: start;
-  padding: 3px 6px;
-  border-radius: 999px;
-  background: rgba(6, 199, 85, 0.08);
-  color: #326743;
-  font-size: 8px;
-  font-weight: 900;
-  line-height: 1.25;
-  text-align: left;
-}
-
-.timeline-dot {
-  display: none;
 }
 
 .timeline-copy {
@@ -2195,18 +2279,69 @@ function applyEditedAvatar(value: string) {
     rgba(255, 255, 255, 0.82);
 }
 
-.timeline-copy > span {
+.timeline-grand .timeline-copy {
+  border-color: rgba(6, 199, 85, 0.12);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(241, 252, 246, 0.88)),
+    rgba(255, 255, 255, 0.88);
+}
+
+.timeline-merged .timeline-copy {
+  border-color: rgba(48, 112, 73, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(236, 249, 243, 0.9)),
+    rgba(255, 255, 255, 0.9);
+  box-shadow: inset 3px 0 0 rgba(6, 199, 85, 0.34);
+}
+
+.timeline-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.timeline-card-heading > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.timeline-card-heading em {
+  min-width: 0;
   color: #6d8a73;
   font-size: 8px;
   font-weight: 950;
   line-height: 1.2;
+  font-style: normal;
+  overflow-wrap: anywhere;
 }
 
-.timeline-copy strong {
+.timeline-card-heading strong {
   color: #171717;
   font-size: 11px;
   font-weight: 950;
   line-height: 1.25;
+  white-space: nowrap;
+}
+
+.timeline-card-heading svg {
+  flex: 0 0 auto;
+  color: #6d8a73;
+  transition: transform 160ms ease;
+}
+
+.timeline-card-heading[aria-expanded='true'] svg {
+  transform: rotate(180deg);
 }
 
 .timeline-summary-display {
@@ -2286,6 +2421,82 @@ function applyEditedAvatar(value: string) {
   font-weight: 720;
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+
+.timeline-event-core {
+  padding-bottom: 2px;
+}
+
+.timeline-foldout {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.timeline-foldout > button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 100%;
+  min-height: 30px;
+  padding: 0 8px 0 10px;
+  border: 1px solid rgba(6, 199, 85, 0.12);
+  border-radius: 9px;
+  background: linear-gradient(90deg, rgba(6, 199, 85, 0.08), rgba(255, 255, 255, 0.72));
+  color: #326743;
+  font-size: 9px;
+  font-weight: 950;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+}
+
+.memory-panel .timeline-foldout > button {
+  min-height: 30px;
+  padding-block: 0;
+  line-height: 1;
+}
+
+.timeline-foldout > button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-foldout > button em {
+  margin-left: auto;
+  color: #6d8a73;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.timeline-foldout > button svg {
+  flex: 0 0 auto;
+  transition: transform 0.18s ease;
+}
+
+.timeline-foldout.is-open > button svg {
+  transform: rotate(180deg);
+}
+
+.timeline-event-details dl {
+  padding: 7px;
+  border-radius: 9px;
+  background: rgba(237, 244, 240, 0.7);
+}
+
+.timeline-block-foldout {
+  padding: 2px 0;
+}
+
+.timeline-list-foldout {
+  list-style: none;
+}
+
+.timeline-summary-list.nested-list {
+  margin-top: 2px;
 }
 
 .timeline-summary-field span {
@@ -5220,5 +5431,34 @@ function applyEditedAvatar(value: string) {
   .beauty-panel .background-quick-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+.add-page-select-field {
+  gap: 7px;
+}
+
+.add-page-select-field > span {
+  color: #4c5357;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.add-page-select-field select {
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #151719;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.06);
+}
+
+.add-page-select-field:focus-within select {
+  box-shadow: inset 0 0 0 1px rgba(6, 199, 85, 0.35), 0 0 0 3px rgba(6, 199, 85, 0.1);
 }
 </style>

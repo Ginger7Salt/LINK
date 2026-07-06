@@ -56,6 +56,8 @@ interface IncrementalGrandSummaryOptions {
   visibleTailFloors?: number;
 }
 
+type GrandSummaryPromptMode = 'incremental' | 'full';
+
 type BackupProgressCallback = (label: string, percent: number) => void | Promise<void>;
 
 interface ImportBackupOptions {
@@ -211,11 +213,9 @@ const fullConversationMergeSummaryPrompt = `停止剧情，停止输出其他所
 
 plaintext
 
-<details>
-<summary>大总结(填写本次合并序号)</summary>
 - 时间：日期 + 时段 + 具体小时
   - 关键事件：完整叙述事件经过与出场人物
-  - 重要细节：写明时间依据；如有时间冲突，标注冲突来源与最终采用时间
+  - 重要细节：
   - 关键对话与内心戏：标注对应角色
   - 角色关键行为：标注对应角色
   - 角色与用户之间的情感变化（选填）
@@ -223,19 +223,27 @@ plaintext
 
 - 时间：日期 + 时段 + 具体小时
   - 关键事件：完整叙述事件经过与出场人物
-  - 重要细节：写明时间依据；如有时间冲突，标注冲突来源与最终采用时间
+  - 重要细节：
   - 关键对话与内心戏：标注对应角色
   - 角色关键行为：标注对应角色
   - 角色与用户之间的情感变化（选填）
   - 事件收尾与后续小互动（选填）
 
 （可无限顺延时间条目，完整写完整条剧情）
-</details>
 
-<details>
-<summary>角色表</summary>
+角色表
+
 汇总全程所有主线人物，剔除一次性路人，生成 Markdown 人物档案表格+mermaid 人际关系变化流程图，严格遵循角色表格式要求。
-</details>`;
+
+| 名字 | 身份 | 重要伏笔 |
+| --- | --- | --- |
+|  |  |  |
+
+用 mermaid 记录角色之间的互动和变化。仅基础结构，不含任何样式和配色。
+\`\`\`mermaid
+graph TD
+A[角色A]-->|关系变化|B[角色B]
+\`\`\``;
 
 function getCharacterTrackedMood(character: CharacterProfile) {
   return normalizeCharacterMindStateLines(character.mindState?.lines).join('\n');
@@ -4422,9 +4430,156 @@ export const useAppStore = defineStore('app', () => {
     await deleteEntity('conversationMemories', memoryId);
   }
 
+  function messagesForMemorySource(conversationId: string, memory: ConversationMemoryRecord) {
+    const conversationMessages = getConversationActiveMessages(messagesForConversation(conversationId));
+    const sourceIds = new Set(memory.sourceMessageIds ?? []);
+    const messagesBySourceIds = sourceIds.size
+      ? conversationMessages.filter((message) => sourceIds.has(message.id))
+      : [];
+    return messagesBySourceIds.length ? messagesBySourceIds : getMessagesInFloorRange(conversationMessages, memory.startFloor, memory.endFloor);
+  }
+
+  function grandSummaryPromptMode(memory: ConversationMemoryRecord): GrandSummaryPromptMode {
+    return memory.summaryRole === 'full-grand' || getMemoryMergeDepth(memory) > 1 ? 'full' : 'incremental';
+  }
+
+  async function resummarizeIncrementalGrandMemory(memory: ConversationMemoryRecord): Promise<ConversationSummaryResult | null> {
+    const conversation = conversationById(memory.conversationId);
+    if (!conversation) return null;
+    const sourceMessages = messagesForMemorySource(memory.conversationId, memory);
+    if (!sourceMessages.length) return null;
+    const rangeIdentity = {
+      conversationId: memory.conversationId,
+      mode: memory.mode,
+      startFloor: memory.startFloor,
+      endFloor: memory.endFloor,
+      isMergedSummary: true
+    } satisfies Pick<ConversationMemoryRecord, 'conversationId' | 'mode' | 'startFloor' | 'endFloor' | 'isMergedSummary'>;
+    const rangeKey = getMemoryRangeKey(rangeIdentity);
+    if (summarizingConversationRanges.has(rangeKey)) return { record: memory, status: 'busy' };
+    summarizingConversationRanges.add(rangeKey);
+
+    try {
+      const chatSettings = settingsForConversation(memory.conversationId);
+      const character = characterById(conversation.charId);
+      const characterName = character ? getCharacterAiName(character) : '角色';
+      const boundUser = character ? userById(character.boundUserId) ?? user.value : user.value;
+      const userSenderName = getUserAiName(boundUser);
+      const modelOverride = getConversationTextModelOverride(chatSettings, 'summary', memory.mode);
+      const conversationMessages = getConversationActiveMessages(messagesForConversation(memory.conversationId));
+      const floorMap = getMessageFloorMap(conversationMessages);
+      const includeTimeline = chatSettings.timeAwareness.enabled;
+      const floorMessageText = sourceMessages.map((message) => {
+        const floor = floorMap.get(message.id) ?? memory.startFloor;
+        const sender = message.sender === 'user' ? userSenderName : message.sender === 'char' ? characterName : '系统';
+        const sentAtText = includeTimeline ? `（发送时间：${formatMemoryTimelineTime(message.createdAt)}）` : '';
+        return `${floor}楼 ${sender}${sentAtText}: ${message.content}`;
+      }).join('\n');
+      const sourceMemoirs = (memory.mergedFrom ?? []).filter((sourceMemory) => !sourceMemory.isMergedSummary).sort(compareMemoryRecordsByRange);
+      const memoirStartFloor = sourceMemoirs.length
+        ? sourceMemoirs.reduce((min, sourceMemory) => Math.min(min, sourceMemory.startFloor), Number.POSITIVE_INFINITY)
+        : memory.startFloor;
+      const memoirText = sourceMemoirs.length
+        ? sourceMemoirs.map((sourceMemory) => `【回忆录 ${sourceMemory.startFloor}-${sourceMemory.endFloor}楼】\n${sourceMemory.summary}`).join('\n\n')
+        : '本轮暂无可读取回忆录，仅依据楼层正文总结。';
+      const summary = await generateConversationSummary({
+        messages: [
+          `【${memory.startFloor}-${memory.endFloor}楼楼层正文】`,
+          floorMessageText,
+          `【${memoirStartFloor}-${memory.endFloor}楼回忆录】`,
+          memoirText
+        ].join('\n\n'),
+        previousSummary: '',
+        identityRules: createConversationSummaryIdentityRules(boundUser, character),
+        timeAwareness: chatSettings.timeAwareness,
+        timeAwarenessUserName: getUserAiName(boundUser),
+        timelineContext: [
+          renderMessageTimelineContext(sourceMessages, floorMap, memory.startFloor),
+          renderMemoryRangeTimelineContext(sourceMemoirs)
+        ].filter(Boolean).join('\n'),
+        settings: settings.value ?? undefined,
+        modelOverride,
+        promptOverride: renderCharacterMemoryPrompt(chatSettings.memory.mergeSummaryPrompt, characterName)
+      });
+      const record = {
+        ...memory,
+        summary,
+        tokenCount: estimateTokenCount(summary),
+        vector: [],
+        entries: [],
+        sourceMessageIds: sourceMessages.map((message) => message.id),
+        model: modelOverride || settings.value?.model || '',
+        summaryRole: 'incremental-grand' as const,
+        isMergedSummary: true,
+        mergedFrom: sourceMemoirs.map((sourceMemory) => cloneMemoryRecordForMerge(sourceMemory))
+      };
+      await updateMemoryRecord(record);
+      return { record, status: 'updated' };
+    } finally {
+      summarizingConversationRanges.delete(rangeKey);
+    }
+  }
+
+  async function resummarizeMergedGrandMemory(memory: ConversationMemoryRecord): Promise<ConversationSummaryResult | null> {
+    const conversation = conversationById(memory.conversationId);
+    if (!conversation || !memory.mergedFrom?.length) return null;
+    const rangeIdentity = {
+      conversationId: memory.conversationId,
+      mode: memory.mode,
+      startFloor: memory.startFloor,
+      endFloor: memory.endFloor,
+      isMergedSummary: true
+    } satisfies Pick<ConversationMemoryRecord, 'conversationId' | 'mode' | 'startFloor' | 'endFloor' | 'isMergedSummary'>;
+    const rangeKey = getMemoryRangeKey(rangeIdentity);
+    if (summarizingConversationRanges.has(rangeKey)) return { record: memory, status: 'busy' };
+    summarizingConversationRanges.add(rangeKey);
+
+    try {
+      const chatSettings = settingsForConversation(memory.conversationId);
+      const sourceMemories = memory.mergedFrom.map((sourceMemory) => cloneMemoryRecordForMerge(sourceMemory)).sort(compareMemoryRecordsByRange);
+      const character = characterById(conversation.charId);
+      const characterName = character ? getCharacterAiName(character) : '角色';
+      const boundUser = character ? userById(character.boundUserId) ?? user.value : user.value;
+      const modelOverride = getConversationTextModelOverride(chatSettings, 'summary', memory.mode);
+      const promptTemplate = grandSummaryPromptMode(memory) === 'full' ? fullConversationMergeSummaryPrompt : chatSettings.memory.mergeSummaryPrompt;
+      const summary = await generateConversationSummary({
+        messages: sourceMemories.map((sourceMemory) => `【${sourceMemory.startFloor}-${sourceMemory.endFloor}楼】\n${sourceMemory.summary}`).join('\n\n'),
+        previousSummary: '',
+        identityRules: createConversationSummaryIdentityRules(boundUser, character),
+        timeAwareness: chatSettings.timeAwareness,
+        timeAwarenessUserName: getUserAiName(boundUser),
+        timelineContext: renderMemoryRangeTimelineContext(sourceMemories),
+        settings: settings.value ?? undefined,
+        modelOverride,
+        promptOverride: renderCharacterMemoryPrompt(promptTemplate, characterName)
+      });
+      const sourceMessageIds = [...new Set(sourceMemories.flatMap((sourceMemory) => sourceMemory.sourceMessageIds))];
+      const record = {
+        ...memory,
+        summary,
+        tokenCount: estimateTokenCount(summary),
+        vector: [],
+        entries: [],
+        sourceMessageIds,
+        model: modelOverride || settings.value?.model || '',
+        isMergedSummary: true,
+        mergedFrom: sourceMemories
+      };
+      await updateMemoryRecord(record);
+      return { record, status: 'updated' };
+    } finally {
+      summarizingConversationRanges.delete(rangeKey);
+    }
+  }
+
   async function resummarizeMemory(memoryId: string) {
     const memory = conversationMemories.value.find((entry) => entry.id === memoryId);
     if (!memory) return null;
+    if (memory.isMergedSummary) {
+      return grandSummaryPromptMode(memory) === 'incremental'
+        ? resummarizeIncrementalGrandMemory(memory)
+        : resummarizeMergedGrandMemory(memory);
+    }
     return summarizeConversationWindow(memory.conversationId, {
       forceStartFloor: memory.startFloor,
       forceEndFloor: memory.endFloor,
@@ -4572,6 +4727,9 @@ export const useAppStore = defineStore('app', () => {
     const chatSettings = settingsForConversation(conversationId);
     await Promise.all(oldMemories.map(async (memory) => {
       const modelOverride = getConversationTextModelOverride(chatSettings, 'summary', memory.mode);
+      const promptTemplate = memory.isMergedSummary
+        ? grandSummaryPromptMode(memory) === 'full' ? fullConversationMergeSummaryPrompt : chatSettings.memory.mergeSummaryPrompt
+        : chatSettings.memory.summaryPrompt;
       const summary = await generateConversationSummary({
         messages: memory.summary,
         previousSummary: '',
@@ -4581,7 +4739,7 @@ export const useAppStore = defineStore('app', () => {
         timelineContext: renderMemoryRangeTimelineContext([memory]),
         settings: settings.value ?? undefined,
         modelOverride,
-        promptOverride: renderCharacterMemoryPrompt(chatSettings.memory.summaryPrompt, characterName)
+        promptOverride: renderCharacterMemoryPrompt(promptTemplate, characterName)
       });
       await updateMemoryRecord({
         ...memory,
@@ -5728,7 +5886,7 @@ export const useAppStore = defineStore('app', () => {
     const authorName = voomAuthorNameForPost(post).trim();
     const subject = authorName ? `发布角色「${authorName}」本人` : '发布角色本人';
     return [
-      `VOOM 人物像模式开启：图片必须以${subject}为明确主体`,
+      `VOOM 人像模式开启：图片必须以${subject}为明确主体`,
       '必须生成清晰可见的人像、半身像或全身像，人物占据画面主要视觉焦点',
       '即使描述包含环境、物品或氛围，也要把人物放在前景主体位置，不能生成纯风景、纯物品、抽象图、空镜或无人物画面'
     ].join(', ');

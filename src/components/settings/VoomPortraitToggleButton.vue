@@ -3,12 +3,12 @@
     <UserRound :size="18" stroke-width="2.4" />
   </button>
 
-  <AppModal v-model="showPanel" title="VOOM 人物像" :show-header="false" variant="ins">
+  <AppModal v-model="showPanel" title="VOOM 人像模式" :show-header="false" variant="ins">
     <section class="voom-portrait-panel">
       <button class="portrait-toggle-card" :class="{ active: requirePortrait }" type="button" @click="togglePortraitRequirement">
         <span class="toggle-indicator" aria-hidden="true"></span>
         <span class="toggle-copy">
-          <strong>VOOM 人物像</strong>
+          <strong>VOOM 人像模式</strong>
           <small>{{ requirePortrait ? '已要求 VOOM 生图包含发布角色本人。' : '关闭后 VOOM 生图提示词保持原样。' }}</small>
         </span>
       </button>
@@ -27,7 +27,7 @@ const store = useAppStore();
 const showPanel = ref(false);
 
 const requirePortrait = computed(() => store.settings?.voomImageRequirePortrait !== false);
-const buttonLabel = computed(() => requirePortrait.value ? 'VOOM 人物像：已开启' : 'VOOM 人物像：已关闭');
+const buttonLabel = computed(() => requirePortrait.value ? 'VOOM 人像模式：已开启' : 'VOOM 人像模式：已关闭');
 
 async function togglePortraitRequirement() {
   if (!store.settings) return;

@@ -62,11 +62,9 @@ end
 
 plaintext
 
-<details>
-<summary>大总结(填写本次序号)</summary>
 - 时间：日期 + 时段 + 具体小时
   - 关键事件：用 2-6 句概括事件经过、出场人物和结果
-  - 重要细节：写明时间依据、关键物品、承诺、伏笔或时间冲突
+  - 重要细节：
   - 关键对话/内心证据：最多 2 条，标注对应角色
   - 角色关键行为：标注对应角色
   - 角色与用户之间的情感变化（选填）
@@ -74,17 +72,26 @@ plaintext
 
 - 时间：日期 + 时段 + 具体小时
   - 关键事件：用 2-6 句概括事件经过、出场人物和结果
-  - 重要细节：写明时间依据、关键物品、承诺、伏笔或时间冲突
+  - 重要细节：
   - 关键对话/内心证据：最多 2 条，标注对应角色
   - 角色关键行为：标注对应角色
   - 角色与用户之间的情感变化（选填）
   - 事件收尾与后续小互动（选填）
-</details>
 
-<details>
-<summary>角色表</summary>
+角色表
+
 只保留影响主线剧情的人物，路人 NPC 全部剔除，附带 Markdown 人物表格与 mermaid 角色互动关系图，严格遵守角色表规范。
-</details>`,
+
+| 名字 | 身份 | 重要伏笔 |
+| --- | --- | --- |
+|  |  |  |
+
+用 mermaid 记录角色之间的互动和变化。仅基础结构，不含任何样式和配色。
+\`\`\`mermaid
+graph TD
+A[角色A]-->|关系变化|B[角色B]
+\`\`\`
+`,
   vectorMemoryEnabled: false,
   hideSummarizedMessages: true,
   grandSummaryHiddenStartFloor: 1,
@@ -348,8 +355,7 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
   const rawSummarizeEvery = Math.round(Number(memory.summarizeEvery) || memoryDefaults.summarizeEvery);
   const summarizeEvery = Math.max(1, rawSummarizeEvery === legacyChatMemoryDefaults.summarizeEvery ? memoryDefaults.summarizeEvery : rawSummarizeEvery);
   const grandSummaryHiddenStartFloor = normalizeNonNegativeInteger(memory.grandSummaryHiddenStartFloor, memoryDefaults.grandSummaryHiddenStartFloor);
-  const rawGrandSummaryVisibleTailFloors = normalizeNonNegativeInteger(memory.grandSummaryVisibleTailFloors, memoryDefaults.grandSummaryVisibleTailFloors);
-  const grandSummaryVisibleTailFloors = rawGrandSummaryVisibleTailFloors === legacyChatMemoryDefaults.grandSummaryVisibleTailFloors ? memoryDefaults.grandSummaryVisibleTailFloors : rawGrandSummaryVisibleTailFloors;
+  const grandSummaryVisibleTailFloors = normalizeNonNegativeInteger(memory.grandSummaryVisibleTailFloors, memoryDefaults.grandSummaryVisibleTailFloors);
   const rawGrandSummaryEvery = Math.round(Number(memory.grandSummaryEvery) || memoryDefaults.grandSummaryEvery);
   const grandSummaryEvery = rawGrandSummaryEvery === legacyChatMemoryDefaults.grandSummaryEvery ? memoryDefaults.grandSummaryEvery : rawGrandSummaryEvery;
 
