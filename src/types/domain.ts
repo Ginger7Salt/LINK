@@ -117,6 +117,24 @@ export interface CharacterProfile {
 
 export type VoomFrequency = 'very-low' | 'low' | 'medium' | 'high' | 'very-high' | 'always';
 
+export type VoomAutoCleanupPreset = '3' | '7' | '30' | 'custom';
+
+export type SmallTheaterAutoCleanupPreset = VoomAutoCleanupPreset;
+
+export interface CharacterVoomAutoCleanupSettings {
+  enabled: boolean;
+  days: number;
+  preset: VoomAutoCleanupPreset;
+  lastCleanupAt: number;
+}
+
+export interface CharacterSmallTheaterAutoCleanupSettings {
+  enabled: boolean;
+  days: number;
+  preset: SmallTheaterAutoCleanupPreset;
+  lastCleanupAt: number;
+}
+
 export type ChatModelScope = 'online' | 'offline' | 'summary' | 'voom' | 'theater';
 
 export interface ChatModelOverrides {
@@ -949,6 +967,8 @@ export interface AppSettings {
   voomImageModel: string;
   voomImageRequirePortrait: boolean;
   voomReadAtByUser: Record<string, Record<string, number>>;
+  voomAutoCleanup: Record<string, CharacterVoomAutoCleanupSettings>;
+  smallTheaterAutoCleanup: Record<string, CharacterSmallTheaterAutoCleanupSettings>;
   smallTheaterTopicDefaultsInitialized: Record<string, number>;
   keepAlive: AppKeepAliveSettings;
   ringtoneSettings: AppRingtoneSettings;

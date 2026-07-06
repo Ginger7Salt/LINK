@@ -92,6 +92,7 @@ const memoryTimelineTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
   hourCycle: 'h23'
 });
 const oversizedImportSourceBytes = 48 * 1024 * 1024;
+const oneDayMs = 24 * 60 * 60 * 1000;
 
 function formatMemoryTimelineTime(timestamp: number) {
   if (!Number.isFinite(timestamp) || timestamp <= 0) return '未知时间';
@@ -1976,57 +1977,6 @@ export const useAppStore = defineStore('app', () => {
     return true;
   }
 
-  interface MemoryFloorImpact {
-    conversationId: string;
-    floor: number;
-  }
-
-  function memoryFloorImpactsForMessages(targetMessages: ChatMessage[]) {
-    const impacts: MemoryFloorImpact[] = [];
-    const byConversation = new Map<string, ChatMessage[]>();
-    targetMessages.forEach((message) => {
-      if (message.replyVariantState === 'inactive') return;
-      byConversation.set(message.conversationId, getConversationActiveMessages(messagesForConversation(message.conversationId)));
-    });
-    targetMessages.forEach((message) => {
-      if (message.replyVariantState === 'inactive') return;
-      const floorMap = getMessageFloorMap(byConversation.get(message.conversationId) ?? []);
-      const floor = floorMap.get(message.id);
-      if (!floor) return;
-      impacts.push({ conversationId: message.conversationId, floor });
-    });
-    const earliestByConversation = new Map<string, MemoryFloorImpact>();
-    impacts.forEach((impact) => {
-      const existing = earliestByConversation.get(impact.conversationId);
-      if (!existing || impact.floor < existing.floor) earliestByConversation.set(impact.conversationId, impact);
-    });
-    return [...earliestByConversation.values()];
-  }
-
-  function memoryIsAfterFloorImpact(memory: ConversationMemoryRecord, impacts: MemoryFloorImpact[]) {
-    return impacts.some((impact) => memory.conversationId === impact.conversationId && memory.endFloor >= impact.floor);
-  }
-
-  function atomIsAfterFloorImpact(atom: ConversationMemoryAtom, impacts: MemoryFloorImpact[]) {
-    return impacts.some((impact) => atom.conversationId === impact.conversationId && atom.lastTouchedFloor >= impact.floor);
-  }
-
-  async function pruneMemoriesForMessageIds(messageIds: string[], floorImpacts: MemoryFloorImpact[] = []) {
-    const idSet = new Set(messageIds);
-    if (!idSet.size && !floorImpacts.length) return;
-    const memoriesToRemove = conversationMemories.value.filter((memory) => memory.sourceMessageIds.some((id) => idSet.has(id)) || memoryIsAfterFloorImpact(memory, floorImpacts));
-    const atomsToRemove = conversationMemoryAtoms.value.filter((atom) => atom.sourceMessageIds.some((id) => idSet.has(id)) || atomIsAfterFloorImpact(atom, floorImpacts));
-    if (!memoriesToRemove.length && !atomsToRemove.length) return;
-    const removedMemoryIds = new Set(memoriesToRemove.map((memory) => memory.id));
-    conversationMemories.value = conversationMemories.value.filter((memory) => !removedMemoryIds.has(memory.id));
-    const removedAtomIds = new Set(atomsToRemove.map((atom) => atom.id));
-    conversationMemoryAtoms.value = conversationMemoryAtoms.value.filter((atom) => !removedAtomIds.has(atom.id));
-    await Promise.all([
-      ...memoriesToRemove.map((memory) => deleteEntity('conversationMemories', memory.id)),
-      ...atomsToRemove.map((atom) => deleteEntity('conversationMemoryAtoms', atom.id))
-    ]);
-  }
-
   async function touchConversationAfterMessageChange(conversationId: string, fallbackTime = Date.now()) {
     const conversation = conversationById(conversationId);
     if (!conversation) return;
@@ -2048,26 +1998,18 @@ export const useAppStore = defineStore('app', () => {
     const idSet = new Set(ids);
     const messagesToRemove = messages.value.filter((message) => idSet.has(message.id));
     if (!messagesToRemove.length) return 0;
-    const floorImpacts = memoryFloorImpactsForMessages(messagesToRemove);
     const affectedConversationIds = [...new Set(messagesToRemove.map((message) => message.conversationId))];
     messages.value = messages.value.filter((message) => !idSet.has(message.id));
     await Promise.all(messagesToRemove.map((message) => deleteEntity('messages', message.id)));
-    await pruneMemoriesForMessageIds(messagesToRemove.map((message) => message.id), floorImpacts);
     await Promise.all(affectedConversationIds.map((conversationId) => touchConversationAfterMessageChange(conversationId)));
     return messagesToRemove.length;
   }
 
   async function saveMessages(nextMessages: ChatMessage[]) {
     if (!nextMessages.length) return;
-    const changedMessages = nextMessages.filter((nextMessage) => {
-      const existingMessage = messages.value.find((message) => message.id === nextMessage.id);
-      return existingMessage && existingMessage.replyVariantState !== nextMessage.replyVariantState;
-    });
-    const floorImpacts = memoryFloorImpactsForMessages(changedMessages);
     const nextById = new Map(nextMessages.map((message) => [message.id, message]));
     messages.value = messages.value.map((message) => nextById.get(message.id) ?? message);
     await Promise.all(nextMessages.map((message) => putEntity('messages', message)));
-    await pruneMemoriesForMessageIds(changedMessages.map((message) => message.id), floorImpacts);
     const affectedConversationIds = [...new Set(nextMessages.map((message) => message.conversationId))];
     await Promise.all(affectedConversationIds.map((conversationId) => touchConversationAfterMessageChange(conversationId)));
   }
@@ -2078,7 +2020,6 @@ export const useAppStore = defineStore('app', () => {
     const messageIndex = messages.value.findIndex((message) => message.id === messageId);
     if (messageIndex < 0) return null;
     const existingMessage = messages.value[messageIndex];
-    const floorImpacts = memoryFloorImpactsForMessages([existingMessage]);
     const nextMessage: ChatMessage = {
       ...existingMessage,
       content: existingMessage.sticker
@@ -2098,7 +2039,6 @@ export const useAppStore = defineStore('app', () => {
     };
     messages.value[messageIndex] = nextMessage;
     await putEntity('messages', nextMessage);
-    await pruneMemoriesForMessageIds([nextMessage.id], floorImpacts);
     await touchConversationAfterMessageChange(nextMessage.conversationId, nextMessage.editedAt);
     return nextMessage;
   }
@@ -2110,7 +2050,6 @@ export const useAppStore = defineStore('app', () => {
     if (messageIndex < 0) return null;
     const existingMessage = messages.value[messageIndex];
     if (!existingMessage.location) return null;
-    const floorImpacts = memoryFloorImpactsForMessages([existingMessage]);
     const editedAt = Date.now();
     const nextMessage: ChatMessage = {
       ...existingMessage,
@@ -2120,7 +2059,6 @@ export const useAppStore = defineStore('app', () => {
     };
     messages.value[messageIndex] = nextMessage;
     await putEntity('messages', nextMessage);
-    await pruneMemoriesForMessageIds([nextMessage.id], floorImpacts);
     await touchConversationAfterMessageChange(nextMessage.conversationId, editedAt);
     return nextMessage;
   }
@@ -2138,7 +2076,6 @@ export const useAppStore = defineStore('app', () => {
       ? existingMessage.transfer.status === 'rejected' ? 'rejected' : 'accepted'
       : requestedStatus;
     const relatedReceiptMessages = messages.value.filter((message) => message.transfer?.responseToMessageId === existingMessage.id);
-    const floorImpacts = memoryFloorImpactsForMessages([existingMessage, ...relatedReceiptMessages]);
     const editedAt = Date.now();
     const note = transfer.note?.trim() || undefined;
 
@@ -2186,7 +2123,6 @@ export const useAppStore = defineStore('app', () => {
       }
 
       await Promise.all(nextMessages.map((message) => putEntity('messages', message)));
-      await pruneMemoriesForMessageIds(nextMessages.map((message) => message.id), memoryFloorImpactsForMessages([existingMessage, ...(originalMessage?.transfer ? [originalMessage] : [])]));
       await touchConversationAfterMessageChange(nextMessage.conversationId, editedAt);
       return nextMessage;
     }
@@ -2213,7 +2149,6 @@ export const useAppStore = defineStore('app', () => {
     await putEntity('messages', nextMessage);
     if (status === 'pending') {
       if (relatedReceiptMessages.length) await deleteMessages(relatedReceiptMessages.map((message) => message.id));
-      await pruneMemoriesForMessageIds([nextMessage.id], floorImpacts);
       await touchConversationAfterMessageChange(nextMessage.conversationId, editedAt);
       return nextMessage;
     }
@@ -2262,7 +2197,6 @@ export const useAppStore = defineStore('app', () => {
 
     if (!relatedReceiptMessages.length) messages.value.push(...receiptMessages);
     await Promise.all(receiptMessages.map((message) => putEntity('messages', message)));
-    await pruneMemoriesForMessageIds([nextMessage.id, ...relatedReceiptMessages.map((message) => message.id)], floorImpacts);
     await touchConversationAfterMessageChange(nextMessage.conversationId, editedAt);
     return nextMessage;
   }
@@ -5563,6 +5497,45 @@ export const useAppStore = defineStore('app', () => {
     return true;
   }
 
+  function smallTheatersForCleanup(characterIds: string[], olderThanDays: number) {
+    const characterIdSet = new Set(characterIds.map((id) => id.trim()).filter(Boolean));
+    const days = Math.max(1, Math.round(Number(olderThanDays) || 0));
+    if (!characterIdSet.size || !days) return [];
+    const cutoff = Date.now() - days * oneDayMs;
+    return smallTheaters.value.filter((theater) => characterIdSet.has(theater.charId) && (theater.updatedAt ?? theater.createdAt) < cutoff);
+  }
+
+  async function cleanupSmallTheatersForCharacters(characterIds: string[], olderThanDays: number) {
+    const theatersToDelete = smallTheatersForCleanup(characterIds, olderThanDays);
+    for (const theater of theatersToDelete) {
+      await deleteSmallTheater(theater.id);
+    }
+    return theatersToDelete.length;
+  }
+
+  async function runSmallTheaterAutoCleanupForCharacters(characterIds: string[]) {
+    if (!settings.value) return 0;
+    const now = Date.now();
+    const cleanupSettings = { ...settings.value.smallTheaterAutoCleanup };
+    let removedCount = 0;
+    let settingsChanged = false;
+
+    for (const characterId of characterIds.map((id) => id.trim()).filter(Boolean)) {
+      const entry = cleanupSettings[characterId];
+      if (!entry?.enabled) continue;
+      const days = Math.max(1, Math.round(Number(entry.days) || 0));
+      if (entry.lastCleanupAt && now - entry.lastCleanupAt < days * oneDayMs) continue;
+      removedCount += await cleanupSmallTheatersForCharacters([characterId], days);
+      cleanupSettings[characterId] = { ...entry, days, lastCleanupAt: now };
+      settingsChanged = true;
+    }
+
+    if (settingsChanged) {
+      await saveSettings({ ...settings.value, smallTheaterAutoCleanup: cleanupSettings });
+    }
+    return removedCount;
+  }
+
   async function createSmallTheaterFromConversation(conversationId: string, topicId?: string, options?: { silent?: boolean }) {
     const conversation = conversationById(conversationId);
     if (generatingSmallTheaterConversationIds.has(conversationId)) return null;
@@ -6131,6 +6104,45 @@ export const useAppStore = defineStore('app', () => {
     return true;
   }
 
+  function voomPostsForCleanup(characterIds: string[], olderThanDays: number) {
+    const characterIdSet = new Set(characterIds.map((id) => id.trim()).filter(Boolean));
+    const days = Math.max(1, Math.round(Number(olderThanDays) || 0));
+    if (!characterIdSet.size || !days) return [];
+    const cutoff = Date.now() - days * oneDayMs;
+    return voomPosts.value.filter((post) => post.authorType !== 'user' && characterIdSet.has(post.charId) && post.createdAt < cutoff);
+  }
+
+  async function cleanupVoomPostsForCharacters(characterIds: string[], olderThanDays: number) {
+    const postsToDelete = voomPostsForCleanup(characterIds, olderThanDays);
+    for (const post of postsToDelete) {
+      await deleteVoomPost(post.id);
+    }
+    return postsToDelete.length;
+  }
+
+  async function runVoomAutoCleanupForCharacters(characterIds: string[]) {
+    if (!settings.value) return 0;
+    const now = Date.now();
+    const cleanupSettings = { ...settings.value.voomAutoCleanup };
+    let removedCount = 0;
+    let settingsChanged = false;
+
+    for (const characterId of characterIds.map((id) => id.trim()).filter(Boolean)) {
+      const entry = cleanupSettings[characterId];
+      if (!entry?.enabled) continue;
+      const days = Math.max(1, Math.round(Number(entry.days) || 0));
+      if (entry.lastCleanupAt && now - entry.lastCleanupAt < days * oneDayMs) continue;
+      removedCount += await cleanupVoomPostsForCharacters([characterId], days);
+      cleanupSettings[characterId] = { ...entry, days, lastCleanupAt: now };
+      settingsChanged = true;
+    }
+
+    if (settingsChanged) {
+      await saveSettings({ ...settings.value, voomAutoCleanup: cleanupSettings });
+    }
+    return removedCount;
+  }
+
   async function addVoomComment(postId: string, content: string, parentId = '') {
     const post = voomPosts.value.find((entry) => entry.id === postId);
     const parentName = parentId ? post?.comments.find((entry) => entry.id === parentId)?.authorName ?? '' : '';
@@ -6487,8 +6499,12 @@ export const useAppStore = defineStore('app', () => {
     continueSmallTheater,
     forwardSmallTheaterToCharacter,
     deleteSmallTheater,
+    cleanupSmallTheatersForCharacters,
+    runSmallTheaterAutoCleanupForCharacters,
     regenerateVoomPostImage,
     applyVoomPostImageCandidate,
+    cleanupVoomPostsForCharacters,
+    runVoomAutoCleanupForCharacters,
     addVoomComment,
     toggleVoomLike,
     replyToVoomComments,

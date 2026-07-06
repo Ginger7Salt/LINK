@@ -5,6 +5,9 @@
         <h1 class="top-title">Small Theater</h1>
       </button>
       <div class="theater-header-actions">
+        <button class="header-action-button" type="button" aria-label="小剧场清理设置" title="清理设置" @click="openTheaterCleanupSettings">
+          <SlidersHorizontal :size="18" stroke-width="2.4" />
+        </button>
         <button class="header-action-button" type="button" aria-label="新增题材" title="新增题材" @click="openCreateTopic">
           <Plus :size="18" stroke-width="2.4" />
         </button>
@@ -180,6 +183,65 @@
         </div>
       </form>
     </AppModal>
+
+    <AppModal v-model="showTheaterCleanupSettings" title="小剧场清理" variant="ins">
+      <section class="theater-cleanup-panel">
+        <section class="cleanup-character-card single-character">
+          <div class="cleanup-character-top">
+            <div class="cleanup-character-head">
+              <img :src="character.avatar" :alt="characterLabel(character)" />
+              <span>
+                <strong>{{ characterLabel(character) }}</strong>
+                <small>{{ theaterCleanupSetting.enabled ? `${theaterCleanupSetting.days} 天前自动清理` : '自动清理已关闭' }}</small>
+              </span>
+            </div>
+            <label class="cleanup-switch-card" :aria-label="`${characterLabel(character)} 小剧场自动清理`">
+              <input type="checkbox" :checked="theaterCleanupSetting.enabled" @change="updateTheaterCleanupEnabled" />
+              <span class="cleanup-switch-track"></span>
+            </label>
+          </div>
+          <div class="cleanup-compact-row character-row">
+            <label class="cleanup-select-field">
+              <span>早于</span>
+              <select :value="theaterCleanupSetting.preset" @change="selectTheaterCleanupPresetFromEvent">
+                <option v-for="option in cleanupPresetOptions" :key="`theater-${option.preset}`" :value="option.preset">{{ option.label }}</option>
+              </select>
+            </label>
+            <label v-if="theaterCleanupSetting.preset === 'custom'" class="cleanup-days-field">
+              <input :value="theaterCleanupSetting.days" inputmode="numeric" min="1" max="3650" type="number" @change="updateTheaterCleanupCustomDays" />
+              <span>天</span>
+            </label>
+            <button class="cleanup-text-action" type="button" :disabled="theaterCleanupRunning || !theaterCleanupCountForDays(theaterCleanupSetting.days)" @click="cleanupTheaterBySetting">
+              清理
+            </button>
+          </div>
+        </section>
+
+        <section class="cleanup-manual-card">
+          <div class="cleanup-section-head">
+            <span>手动清理</span>
+            <small>{{ manualTheaterCleanupCount }} 张可清理</small>
+          </div>
+          <div class="cleanup-compact-row">
+            <label class="cleanup-select-field">
+              <span>早于</span>
+              <select :value="manualTheaterCleanupPreset" @change="setManualTheaterCleanupPresetFromEvent">
+                <option v-for="option in cleanupPresetOptions" :key="`manual-theater-${option.preset}`" :value="option.preset">{{ option.label }}</option>
+              </select>
+            </label>
+            <label v-if="manualTheaterCleanupPreset === 'custom'" class="cleanup-days-field">
+              <input v-model.number="manualTheaterCleanupCustomDays" inputmode="numeric" min="1" max="3650" type="number" />
+              <span>天</span>
+            </label>
+            <button class="cleanup-text-action danger" type="button" :disabled="theaterCleanupRunning || !manualTheaterCleanupCount" @click="runManualTheaterCleanup">
+              {{ theaterCleanupRunning ? '清理中' : '清理' }}
+            </button>
+          </div>
+        </section>
+
+        <p v-if="theaterCleanupNotice" class="cleanup-notice">{{ theaterCleanupNotice }}</p>
+      </section>
+    </AppModal>
   </section>
 
   <section v-else class="screen no-tabs small-theater-page missing-theater">
@@ -199,10 +261,10 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { Clapperboard, ListChecks, LoaderCircle, PanelsTopLeft, Plus, RefreshCw, Send, Sparkles, X } from 'lucide-vue-next';
+import { Clapperboard, ListChecks, LoaderCircle, PanelsTopLeft, Plus, RefreshCw, Send, SlidersHorizontal, Sparkles, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import { useAppStore } from '@/stores/appStore';
-import type { CharacterProfile, SmallTheater, SmallTheaterTopic } from '@/types/domain';
+import type { CharacterProfile, CharacterSmallTheaterAutoCleanupSettings, SmallTheater, SmallTheaterAutoCleanupPreset, SmallTheaterTopic } from '@/types/domain';
 import { getCharacterDisplayName } from '@/utils/character';
 
 const props = defineProps<{ id: string }>();
@@ -223,9 +285,21 @@ const showForwardModal = ref(false);
 const forwardingTheaterId = ref('');
 const forwardingCharacterId = ref('');
 const showUpdateModal = ref(false);
+const showTheaterCleanupSettings = ref(false);
+const theaterCleanupRunning = ref(false);
+const theaterCleanupNotice = ref('');
 const updateTheaterId = ref('');
 const updateGuidanceDraft = ref('');
+const manualTheaterCleanupPreset = ref<SmallTheaterAutoCleanupPreset>('7');
+const manualTheaterCleanupCustomDays = ref(14);
 const topicDraft = reactive({ title: '', prompt: '', enabled: true });
+
+const cleanupPresetOptions: Array<{ preset: SmallTheaterAutoCleanupPreset; label: string; days: number }> = [
+  { preset: '3', label: '3天', days: 3 },
+  { preset: '7', label: '7天', days: 7 },
+  { preset: '30', label: '一个月', days: 30 },
+  { preset: 'custom', label: '自定义', days: 14 }
+];
 
 const conversation = computed(() => store.conversationById(props.id));
 const character = computed(() => conversation.value ? store.characterById(conversation.value.charId) : null);
@@ -236,6 +310,12 @@ const theaterGroups = computed(() => groupTheatersByTopic(theaters.value));
 const forwardTheaterTarget = computed(() => forwardingTheaterId.value ? store.smallTheaterById(forwardingTheaterId.value) : null);
 const forwardTargets = computed(() => store.charactersForActiveUser.filter((target) => store.conversationsForActiveUser.some((conversationItem) => conversationItem.charId === target.id)));
 const updateTheaterTarget = computed(() => updateTheaterId.value ? store.smallTheaterById(updateTheaterId.value) : null);
+const manualTheaterCleanupDays = computed(() => manualTheaterCleanupPreset.value === 'custom'
+  ? normalizeTheaterCleanupDays(manualTheaterCleanupCustomDays.value)
+  : Number(manualTheaterCleanupPreset.value)
+);
+const manualTheaterCleanupCount = computed(() => theaterCleanupCountForDays(manualTheaterCleanupDays.value));
+const theaterCleanupSetting = computed(() => character.value ? theaterCleanupSettingForCharacter(character.value.id) : defaultTheaterCleanupSetting());
 
 function normalizeTheaterTab(tab: unknown): SmallTheaterTab {
   return tab === 'topics' ? 'topics' : 'cards';
@@ -252,11 +332,16 @@ function groupTheatersByTopic(items: SmallTheater[]) {
 
 onMounted(async () => {
   await store.hydrate();
-  if (character.value) await store.ensureSmallTheaterTopicsForCharacter(character.value.id);
+  if (character.value) {
+    await store.ensureSmallTheaterTopicsForCharacter(character.value.id);
+    await runAutoTheaterCleanupForCurrentCharacter();
+  }
 });
 
 watch(() => character.value?.id, async (characterId) => {
-  if (characterId) await store.ensureSmallTheaterTopicsForCharacter(characterId);
+  if (!characterId) return;
+  await store.ensureSmallTheaterTopicsForCharacter(characterId);
+  await runAutoTheaterCleanupForCurrentCharacter();
 }, { immediate: true });
 
 watch(() => route.query.tab, (tab) => {
@@ -349,6 +434,109 @@ function openTheater(theaterId: string) {
 
 function characterLabel(target: CharacterProfile) {
   return getCharacterDisplayName(target);
+}
+
+function normalizeTheaterCleanupDays(value: unknown) {
+  const days = Math.round(Number(value) || 0);
+  return Math.min(3650, Math.max(1, days || 7));
+}
+
+function defaultTheaterCleanupSetting(): CharacterSmallTheaterAutoCleanupSettings {
+  return { enabled: false, days: 7, preset: '7', lastCleanupAt: 0 };
+}
+
+function theaterCleanupSettingForCharacter(characterId: string): CharacterSmallTheaterAutoCleanupSettings {
+  return store.settings?.smallTheaterAutoCleanup?.[characterId] ?? defaultTheaterCleanupSetting();
+}
+
+function theaterCleanupCountForDays(olderThanDays: number) {
+  const cutoff = Date.now() - normalizeTheaterCleanupDays(olderThanDays) * 24 * 60 * 60 * 1000;
+  return theaters.value.filter((theater) => (theater.updatedAt ?? theater.createdAt) < cutoff).length;
+}
+
+async function saveTheaterCleanupSetting(patch: Partial<CharacterSmallTheaterAutoCleanupSettings>) {
+  const currentCharacter = character.value;
+  if (!currentCharacter || !store.settings) return;
+  const current = theaterCleanupSettingForCharacter(currentCharacter.id);
+  const nextDays = normalizeTheaterCleanupDays(patch.days ?? current.days);
+  const nextSetting: CharacterSmallTheaterAutoCleanupSettings = {
+    ...current,
+    ...patch,
+    days: nextDays,
+    preset: patch.preset ?? current.preset,
+    lastCleanupAt: Math.max(0, Number(patch.lastCleanupAt ?? current.lastCleanupAt) || 0)
+  };
+  await store.saveSettings({
+    ...store.settings,
+    smallTheaterAutoCleanup: {
+      ...store.settings.smallTheaterAutoCleanup,
+      [currentCharacter.id]: nextSetting
+    }
+  });
+}
+
+function openTheaterCleanupSettings() {
+  theaterCleanupNotice.value = '';
+  showTheaterCleanupSettings.value = true;
+}
+
+async function updateTheaterCleanupEnabled(event: Event) {
+  await saveTheaterCleanupSetting({ enabled: (event.target as HTMLInputElement).checked });
+}
+
+async function selectTheaterCleanupPreset(preset: SmallTheaterAutoCleanupPreset, days: number) {
+  await saveTheaterCleanupSetting({ preset, days: preset === 'custom' ? theaterCleanupSetting.value.days : days });
+}
+
+async function selectTheaterCleanupPresetFromEvent(event: Event) {
+  const preset = (event.target as HTMLSelectElement).value as SmallTheaterAutoCleanupPreset;
+  const option = cleanupPresetOptions.find((entry) => entry.preset === preset) ?? cleanupPresetOptions[1];
+  await selectTheaterCleanupPreset(option.preset, option.days);
+}
+
+async function updateTheaterCleanupCustomDays(event: Event) {
+  await saveTheaterCleanupSetting({ preset: 'custom', days: normalizeTheaterCleanupDays((event.target as HTMLInputElement).value) });
+}
+
+function setManualTheaterCleanupPresetFromEvent(event: Event) {
+  manualTheaterCleanupPreset.value = (event.target as HTMLSelectElement).value as SmallTheaterAutoCleanupPreset;
+}
+
+async function runManualTheaterCleanup() {
+  const currentCharacter = character.value;
+  if (theaterCleanupRunning.value || !currentCharacter) return;
+  theaterCleanupRunning.value = true;
+  theaterCleanupNotice.value = '';
+  try {
+    const count = await store.cleanupSmallTheatersForCharacters([currentCharacter.id], manualTheaterCleanupDays.value);
+    theaterCleanupNotice.value = count ? `已清理 ${count} 张小剧场。` : '没有需要清理的小剧场。';
+  } finally {
+    theaterCleanupRunning.value = false;
+  }
+}
+
+async function cleanupTheaterBySetting() {
+  const currentCharacter = character.value;
+  if (theaterCleanupRunning.value || !currentCharacter) return;
+  theaterCleanupRunning.value = true;
+  theaterCleanupNotice.value = '';
+  try {
+    const count = await store.cleanupSmallTheatersForCharacters([currentCharacter.id], theaterCleanupSetting.value.days);
+    theaterCleanupNotice.value = count ? `已清理 ${count} 张小剧场。` : '没有需要清理的小剧场。';
+  } finally {
+    theaterCleanupRunning.value = false;
+  }
+}
+
+async function runAutoTheaterCleanupForCurrentCharacter() {
+  const currentCharacter = character.value;
+  if (theaterCleanupRunning.value || !currentCharacter) return;
+  theaterCleanupRunning.value = true;
+  try {
+    await store.runSmallTheaterAutoCleanupForCharacters([currentCharacter.id]);
+  } finally {
+    theaterCleanupRunning.value = false;
+  }
 }
 
 function openForwardTheater(theaterId: string) {
@@ -1015,6 +1203,217 @@ async function deleteTheater(theaterId: string) {
 
 .theater-update-actions button:disabled {
   opacity: 0.58;
+}
+
+.theater-cleanup-panel {
+  display: grid;
+  gap: 12px;
+  color: #151719;
+}
+
+.cleanup-manual-card,
+.cleanup-character-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 13px 0;
+  border-top: 1px solid rgba(17, 17, 17, 0.06);
+  background: transparent;
+}
+
+.cleanup-character-card.single-character {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.cleanup-section-head,
+.cleanup-character-top,
+.cleanup-character-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cleanup-section-head span {
+  color: #202329;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.cleanup-section-head small,
+.cleanup-notice {
+  color: #767b82;
+  font-size: 12px;
+}
+
+.cleanup-character-head {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.cleanup-character-head img {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #f1f3f2;
+}
+
+.cleanup-character-head span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cleanup-character-head strong,
+.cleanup-character-head small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cleanup-character-head strong {
+  color: #171717;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.cleanup-character-head small {
+  color: #858a91;
+  font-size: 11px;
+}
+
+.cleanup-compact-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cleanup-compact-row:has(.cleanup-days-field) {
+  grid-template-columns: minmax(0, 1fr) 72px auto;
+}
+
+.cleanup-select-field,
+.cleanup-days-field {
+  display: grid;
+  align-items: center;
+  min-width: 0;
+}
+
+.cleanup-select-field {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+}
+
+.cleanup-select-field span,
+.cleanup-days-field span {
+  color: #8b929a;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.cleanup-select-field select,
+.cleanup-days-field input {
+  width: 100%;
+  height: 34px;
+  min-width: 0;
+  border: 0;
+  border-radius: 9px;
+  background: #f5f6f7;
+  color: #222222;
+  font: inherit;
+  font-weight: 800;
+}
+
+.cleanup-select-field select {
+  padding: 0 28px 0 10px;
+}
+
+.cleanup-days-field {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px;
+}
+
+.cleanup-days-field input {
+  padding: 0 8px;
+  text-align: center;
+}
+
+.cleanup-text-action {
+  min-width: 44px;
+  height: 34px;
+  padding: 0 8px;
+  border-radius: 9px;
+  background: transparent;
+  color: #12853f;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.cleanup-text-action.danger:not(:disabled) {
+  color: #b42318;
+}
+
+.cleanup-text-action:disabled {
+  color: #b8bec5;
+}
+
+.cleanup-switch-card {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 28px;
+}
+
+.cleanup-switch-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cleanup-switch-track {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: #dfe4ea;
+  transition: background 0.2s ease;
+}
+
+.cleanup-switch-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+  transition: transform 0.2s ease;
+}
+
+.cleanup-switch-card input:checked + .cleanup-switch-track {
+  background: #06c755;
+}
+
+.cleanup-switch-card input:checked + .cleanup-switch-track::after {
+  transform: translateX(16px);
+}
+
+.cleanup-notice {
+  margin: 0;
+  text-align: center;
 }
 
 .theater-empty {

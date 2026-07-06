@@ -6,6 +6,9 @@
         <button class="icon-button" type="button" aria-label="切换用户账号" @click="showAccountSwitcher = true">
           <UserCog :size="20" />
         </button>
+        <button class="icon-button" type="button" aria-label="VOOM 清理设置" @click="openVoomCleanupSettings">
+          <SlidersHorizontal :size="20" />
+        </button>
         <button class="icon-button" type="button" aria-label="角色发布 VOOM" @click="openVoomPublisher">
           <Plus :size="20" />
         </button>
@@ -102,6 +105,77 @@
           </span>
         </button>
       </div>
+    </AppModal>
+
+    <AppModal v-model="showVoomCleanupSettings" title="VOOM 清理" variant="ins">
+      <section class="voom-cleanup-panel">
+        <section class="cleanup-manual-card">
+          <div class="cleanup-section-head">
+            <span>手动清理</span>
+            <small>{{ manualCleanupTargetPostCount }} 条可清理</small>
+          </div>
+          <div class="cleanup-compact-row">
+            <label class="cleanup-select-field">
+              <span>早于</span>
+              <select :value="manualVoomCleanupPreset" @change="setManualVoomCleanupPresetFromEvent">
+                <option v-for="option in cleanupPresetOptions" :key="`manual-${option.preset}`" :value="option.preset">{{ option.label }}</option>
+              </select>
+            </label>
+            <label v-if="manualVoomCleanupPreset === 'custom'" class="cleanup-days-field">
+              <input v-model.number="manualVoomCleanupCustomDays" inputmode="numeric" min="1" max="3650" type="number" />
+              <span>天</span>
+            </label>
+            <button class="cleanup-text-action danger" type="button" :disabled="voomCleanupRunning || !manualCleanupTargetPostCount" @click="runManualVoomCleanup">
+              {{ voomCleanupRunning ? '清理中' : '清理' }}
+            </button>
+          </div>
+        </section>
+
+        <section v-if="activeCleanupCharacters.length" class="cleanup-character-list">
+          <article v-for="character in activeCleanupCharacters" :key="character.id" class="cleanup-character-card">
+            <div class="cleanup-character-top">
+              <div class="cleanup-character-head">
+                <img :src="voomCharacterAvatar(character)" :alt="getCharacterDisplayName(character)" />
+                <span>
+                  <strong>{{ getCharacterDisplayName(character) }}</strong>
+                  <small>{{ character.name }}</small>
+                </span>
+              </div>
+              <label class="cleanup-switch-card" :aria-label="`${getCharacterDisplayName(character)} 自动清理`">
+                <input type="checkbox" :checked="voomCleanupSettingForCharacter(character.id).enabled" @change="updateVoomCleanupEnabled(character.id, $event)" />
+                <span class="cleanup-switch-track"></span>
+              </label>
+            </div>
+
+            <div class="cleanup-character-meta">
+              <span>{{ voomCleanupSettingForCharacter(character.id).enabled ? `自动清理 ${voomCleanupSettingForCharacter(character.id).days} 天前` : '自动清理已关闭' }}</span>
+              <small>{{ voomCleanupPostCountForCharacter(character.id, voomCleanupSettingForCharacter(character.id).days) }} 条可清理</small>
+            </div>
+            <div class="cleanup-compact-row character-row">
+              <label class="cleanup-select-field">
+                <span>早于</span>
+                <select :value="voomCleanupSettingForCharacter(character.id).preset" @change="selectVoomCleanupPresetFromEvent(character.id, $event)">
+                  <option v-for="option in cleanupPresetOptions" :key="`${character.id}-${option.preset}`" :value="option.preset">{{ option.label }}</option>
+                </select>
+              </label>
+              <label v-if="voomCleanupSettingForCharacter(character.id).preset === 'custom'" class="cleanup-days-field">
+                <input :value="voomCleanupSettingForCharacter(character.id).days" inputmode="numeric" min="1" max="3650" type="number" @change="updateVoomCleanupCustomDays(character.id, $event)" />
+                <span>天</span>
+              </label>
+              <button class="cleanup-text-action" type="button" :disabled="voomCleanupRunning || !voomCleanupPostCountForCharacter(character.id, voomCleanupSettingForCharacter(character.id).days)" @click="cleanupCharacterBySetting(character.id)">
+                清理
+              </button>
+            </div>
+          </article>
+        </section>
+
+        <section v-else class="picker-empty">
+          <strong>暂无角色</strong>
+          <p>当前账号还没有绑定角色。</p>
+        </section>
+
+        <p v-if="voomCleanupNotice" class="cleanup-notice">{{ voomCleanupNotice }}</p>
+      </section>
     </AppModal>
 
     <AppModal v-model="showVoomPublisher" title="发布 VOOM" variant="ins">
@@ -251,11 +325,11 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { FileText, Globe2, Image as ImageIcon, LoaderCircle, Plus, Shuffle, SquarePen, Upload, UserCog, UserRound, X } from 'lucide-vue-next';
+import { FileText, Globe2, Image as ImageIcon, LoaderCircle, Plus, Shuffle, SlidersHorizontal, SquarePen, Upload, UserCog, UserRound, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import VoomPostCard from '@/components/voom/VoomPostCard.vue';
 import { useAppStore } from '@/stores/appStore';
-import type { CharacterProfile, VoomPost, VoomPostVisibility } from '@/types/domain';
+import type { CharacterProfile, CharacterVoomAutoCleanupSettings, VoomAutoCleanupPreset, VoomPost, VoomPostVisibility } from '@/types/domain';
 import { getCharacterDisplayName, getCharacterVoomAuthorName, getCharacterVoomDisplayName } from '@/utils/character';
 import { getUserDisplayName, getUserVoomAuthorName } from '@/utils/profile';
 import { readChatImageFile } from '@/utils/imageFile';
@@ -263,11 +337,14 @@ import { getSelectedImageModelOption } from '@/utils/settings';
 
 const store = useAppStore();
 const showAccountSwitcher = ref(false);
+const showVoomCleanupSettings = ref(false);
 const showVoomPublisher = ref(false);
 const showUserVoomPublisher = ref(false);
 const showDeletePostConfirm = ref(false);
 const creatingVoomPost = ref(false);
 const creatingUserVoomPost = ref(false);
+const voomCleanupRunning = ref(false);
+const voomCleanupNotice = ref('');
 const regeneratingImagePostIds = ref<string[]>([]);
 const voomPageRef = ref<HTMLElement | null>(null);
 const voomLoaderRef = ref<HTMLElement | null>(null);
@@ -284,8 +361,19 @@ const userVoomVisibility = ref<VoomPostVisibility>('public');
 const selectedUserVoomCharacterIds = ref<string[]>([]);
 const selectedVoomCharacterId = ref('');
 const pendingDeletePostId = ref('');
+const manualVoomCleanupPreset = ref<VoomAutoCleanupPreset>('7');
+const manualVoomCleanupCustomDays = ref(14);
+
+const cleanupPresetOptions: Array<{ preset: VoomAutoCleanupPreset; label: string; days: number }> = [
+  { preset: '3', label: '3天', days: 3 },
+  { preset: '7', label: '7天', days: 7 },
+  { preset: '30', label: '一个月', days: 30 },
+  { preset: 'custom', label: '自定义', days: 14 }
+];
 
 const publisherCharacters = computed(() => store.charactersForActiveUser);
+const activeCleanupCharacters = computed(() => store.charactersForActiveUser);
+const activeCleanupCharacterIds = computed(() => activeCleanupCharacters.value.map((character) => character.id));
 const canRegenerateVoomImage = computed(() => Boolean(getSelectedImageModelOption(store.settings, 'voom')));
 const activeUserDisplayName = computed(() => store.user ? getUserDisplayName(store.user) : '账号');
 const activeUserVoomAuthorName = computed(() => getUserVoomAuthorName(store.user));
@@ -339,6 +427,11 @@ const characterVoomAuthorAliases = computed(() => {
   });
   return aliases;
 });
+const manualVoomCleanupDays = computed(() => manualVoomCleanupPreset.value === 'custom'
+  ? normalizeVoomCleanupDays(manualVoomCleanupCustomDays.value)
+  : Number(manualVoomCleanupPreset.value)
+);
+const manualCleanupTargetPostCount = computed(() => voomCleanupPostCountForCharacters(activeCleanupCharacterIds.value, manualVoomCleanupDays.value));
 
 const voomPostLoadStep = 8;
 const voomLoadThreshold = 320;
@@ -396,6 +489,117 @@ function voomReadAtForCharacter(characterId: string) {
 function hasUnreadVoomForCharacter(characterId: string) {
   const latestPostAt = voomLatestPostAtByCharacter.value.get(characterId) ?? 0;
   return latestPostAt > voomReadAtForCharacter(characterId);
+}
+
+function normalizeVoomCleanupDays(value: unknown) {
+  const days = Math.round(Number(value) || 0);
+  return Math.min(3650, Math.max(1, days || 7));
+}
+
+function defaultVoomCleanupSetting(): CharacterVoomAutoCleanupSettings {
+  return { enabled: false, days: 7, preset: '7', lastCleanupAt: 0 };
+}
+
+function voomCleanupSettingForCharacter(characterId: string): CharacterVoomAutoCleanupSettings {
+  return store.settings?.voomAutoCleanup?.[characterId] ?? defaultVoomCleanupSetting();
+}
+
+function voomCleanupPostCountForCharacters(characterIds: string[], olderThanDays: number) {
+  const characterIdSet = new Set(characterIds);
+  const cutoff = Date.now() - normalizeVoomCleanupDays(olderThanDays) * 24 * 60 * 60 * 1000;
+  return store.sortedVoomPosts.filter((post) => post.authorType !== 'user' && characterIdSet.has(post.charId) && post.createdAt < cutoff).length;
+}
+
+function voomCleanupPostCountForCharacter(characterId: string, olderThanDays: number) {
+  return voomCleanupPostCountForCharacters([characterId], olderThanDays);
+}
+
+async function saveVoomCleanupSetting(characterId: string, patch: Partial<CharacterVoomAutoCleanupSettings>) {
+  if (!store.settings) return;
+  const current = voomCleanupSettingForCharacter(characterId);
+  const nextDays = normalizeVoomCleanupDays(patch.days ?? current.days);
+  const nextSetting: CharacterVoomAutoCleanupSettings = {
+    ...current,
+    ...patch,
+    days: nextDays,
+    preset: patch.preset ?? current.preset,
+    lastCleanupAt: Math.max(0, Number(patch.lastCleanupAt ?? current.lastCleanupAt) || 0)
+  };
+  await store.saveSettings({
+    ...store.settings,
+    voomAutoCleanup: {
+      ...store.settings.voomAutoCleanup,
+      [characterId]: nextSetting
+    }
+  });
+}
+
+function openVoomCleanupSettings() {
+  voomCleanupNotice.value = '';
+  showVoomCleanupSettings.value = true;
+}
+
+async function updateVoomCleanupEnabled(characterId: string, event: Event) {
+  await saveVoomCleanupSetting(characterId, { enabled: (event.target as HTMLInputElement).checked });
+}
+
+async function selectVoomCleanupPreset(characterId: string, preset: VoomAutoCleanupPreset, days: number) {
+  await saveVoomCleanupSetting(characterId, { preset, days: preset === 'custom' ? voomCleanupSettingForCharacter(characterId).days : days });
+}
+
+async function updateVoomCleanupCustomDays(characterId: string, event: Event) {
+  await saveVoomCleanupSetting(characterId, { preset: 'custom', days: normalizeVoomCleanupDays((event.target as HTMLInputElement).value) });
+}
+
+function setManualVoomCleanupPreset(preset: VoomAutoCleanupPreset) {
+  manualVoomCleanupPreset.value = preset;
+}
+
+function setManualVoomCleanupPresetFromEvent(event: Event) {
+  setManualVoomCleanupPreset((event.target as HTMLSelectElement).value as VoomAutoCleanupPreset);
+}
+
+async function selectVoomCleanupPresetFromEvent(characterId: string, event: Event) {
+  const preset = (event.target as HTMLSelectElement).value as VoomAutoCleanupPreset;
+  const option = cleanupPresetOptions.find((entry) => entry.preset === preset) ?? cleanupPresetOptions[1];
+  await selectVoomCleanupPreset(characterId, option.preset, option.days);
+}
+
+async function runManualVoomCleanup() {
+  if (voomCleanupRunning.value || !activeCleanupCharacterIds.value.length) return;
+  voomCleanupRunning.value = true;
+  voomCleanupNotice.value = '';
+  try {
+    const count = await store.cleanupVoomPostsForCharacters(activeCleanupCharacterIds.value, manualVoomCleanupDays.value);
+    voomCleanupNotice.value = count ? `已清理 ${count} 条 VOOM。` : '没有需要清理的 VOOM。';
+  } finally {
+    voomCleanupRunning.value = false;
+    void refreshVoomLazyLoader();
+  }
+}
+
+async function cleanupCharacterBySetting(characterId: string) {
+  if (voomCleanupRunning.value) return;
+  voomCleanupRunning.value = true;
+  voomCleanupNotice.value = '';
+  try {
+    const count = await store.cleanupVoomPostsForCharacters([characterId], voomCleanupSettingForCharacter(characterId).days);
+    voomCleanupNotice.value = count ? `已清理 ${count} 条 VOOM。` : '没有需要清理的 VOOM。';
+  } finally {
+    voomCleanupRunning.value = false;
+    void refreshVoomLazyLoader();
+  }
+}
+
+async function runAutoVoomCleanupForActiveUser() {
+  if (voomCleanupRunning.value || !activeCleanupCharacterIds.value.length) return;
+  voomCleanupRunning.value = true;
+  try {
+    await store.runVoomAutoCleanupForCharacters(activeCleanupCharacterIds.value);
+  } finally {
+    voomCleanupRunning.value = false;
+    void refreshVoomLazyLoader();
+  }
 }
 
 function handleManualReplyThread(postId: string) {
@@ -472,6 +676,7 @@ async function refreshVoomLazyLoader() {
 
 onMounted(() => {
   void refreshVoomLazyLoader();
+  void runAutoVoomCleanupForActiveUser();
 });
 
 onBeforeUnmount(() => {
@@ -489,6 +694,10 @@ watch(hasMoreVoomPosts, () => {
 watch([() => selectedVoomCharacterId.value, () => store.user?.id], () => {
   visibleVoomPostLimit.value = initialVoomPostLimit;
   void refreshVoomLazyLoader();
+});
+
+watch([() => store.user?.id, () => activeCleanupCharacterIds.value.join('|')], () => {
+  void runAutoVoomCleanupForActiveUser();
 });
 
 async function handleComment(postId: string, content: string, parentId?: string) {
@@ -802,6 +1011,249 @@ async function confirmCreateUserVoomPost() {
   background: #fff1f2;
   color: #b42318;
   font-weight: 900;
+}
+
+.voom-danger-button:disabled {
+  opacity: 0.52;
+}
+
+.voom-cleanup-panel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cleanup-manual-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(17, 17, 17, 0.08);
+}
+
+.cleanup-section-head,
+.cleanup-character-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cleanup-section-head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #202329;
+  font-weight: 900;
+}
+
+.cleanup-section-head small,
+.cleanup-notice {
+  color: #767b82;
+  font-size: 12px;
+}
+
+.cleanup-character-list {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  border-radius: 0;
+  background: transparent;
+}
+
+.cleanup-character-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 13px 0;
+  background: transparent;
+}
+
+.cleanup-character-card + .cleanup-character-card {
+  border-top: 1px solid rgba(17, 17, 17, 0.06);
+}
+
+.cleanup-character-head {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.cleanup-character-head img {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--soft);
+}
+
+.cleanup-character-head span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cleanup-character-head strong,
+.cleanup-character-head small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cleanup-character-head strong {
+  color: #171717;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.cleanup-character-head small {
+  color: #858a91;
+  font-size: 11px;
+}
+
+.cleanup-character-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #68707a;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.cleanup-character-meta small {
+  color: #9aa0a7;
+  font-size: 11px;
+}
+
+.cleanup-compact-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cleanup-compact-row:has(.cleanup-days-field) {
+  grid-template-columns: minmax(0, 1fr) 72px auto;
+}
+
+.cleanup-select-field,
+.cleanup-days-field {
+  display: grid;
+  align-items: center;
+  min-width: 0;
+}
+
+.cleanup-select-field {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+}
+
+.cleanup-select-field span,
+.cleanup-days-field span {
+  color: #8b929a;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.cleanup-select-field select,
+.cleanup-days-field input {
+  width: 100%;
+  height: 34px;
+  min-width: 0;
+  border: 0;
+  border-radius: 9px;
+  background: #f5f6f7;
+  color: #222222;
+  font: inherit;
+  font-weight: 800;
+}
+
+.cleanup-select-field select {
+  padding: 0 28px 0 10px;
+}
+
+.cleanup-days-field {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px;
+}
+
+.cleanup-days-field input {
+  padding: 0 8px;
+  text-align: center;
+}
+
+.cleanup-text-action {
+  min-width: 44px;
+  height: 34px;
+  padding: 0 8px;
+  border-radius: 9px;
+  background: transparent;
+  color: #12853f;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.cleanup-text-action.danger:not(:disabled) {
+  color: #b42318;
+}
+
+.cleanup-text-action:disabled {
+  color: #b8bec5;
+}
+
+.cleanup-switch-card {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 28px;
+  color: #202329;
+  font-weight: 850;
+}
+
+.cleanup-switch-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cleanup-switch-track {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: #dfe4ea;
+  transition: background 0.2s ease;
+}
+
+.cleanup-switch-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+  transition: transform 0.2s ease;
+}
+
+.cleanup-switch-card input:checked + .cleanup-switch-track {
+  background: var(--link-green);
+}
+
+.cleanup-switch-card input:checked + .cleanup-switch-track::after {
+  transform: translateX(16px);
+}
+
+.cleanup-notice {
+  margin: 0;
+  text-align: center;
 }
 
 .model-picker {

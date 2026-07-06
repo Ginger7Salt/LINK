@@ -170,6 +170,8 @@ export const defaultSettings: AppSettings = {
   voomImageModel: '',
   voomImageRequirePortrait: true,
   voomReadAtByUser: {},
+  voomAutoCleanup: {},
+  smallTheaterAutoCleanup: {},
   smallTheaterTopicDefaultsInitialized: {},
   keepAlive: createDefaultKeepAliveSettings(),
   ringtoneSettings: createDefaultRingtoneSettings(),

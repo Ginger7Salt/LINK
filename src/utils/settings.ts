@@ -1,4 +1,4 @@
-import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterRingtoneSettings, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, RingtoneAsset, RingtoneEventType, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType } from '@/types/domain';
+import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterRingtoneSettings, CharacterSmallTheaterAutoCleanupSettings, CharacterVoomAutoCleanupSettings, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, RingtoneAsset, RingtoneEventType, SmallTheaterAutoCleanupPreset, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType, VoomAutoCleanupPreset } from '@/types/domain';
 import { createId } from './id';
 
 export const novelAiOfficialApiUrl = 'https://image.novelai.net';
@@ -277,6 +277,8 @@ export const defaultAppSettings: AppSettings = {
   voomImageModel: '',
   voomImageRequirePortrait: true,
   voomReadAtByUser: {},
+  voomAutoCleanup: {},
+  smallTheaterAutoCleanup: {},
   smallTheaterTopicDefaultsInitialized: {},
   keepAlive: createDefaultKeepAliveSettings(),
   ringtoneSettings: createDefaultRingtoneSettings(),
@@ -378,6 +380,61 @@ function normalizeVoomReadAtByUser(input: unknown): Record<string, Record<string
       if (normalizedCharacterId && timestamp > 0) normalizedCharacterMap[normalizedCharacterId] = timestamp;
     }
     if (Object.keys(normalizedCharacterMap).length) normalized[normalizedUserId] = normalizedCharacterMap;
+  }
+
+  return normalized;
+}
+
+function normalizeVoomCleanupDays(input: unknown) {
+  const days = Math.round(Number(input) || 0);
+  return Math.min(3650, Math.max(1, days || 7));
+}
+
+function normalizeVoomCleanupPreset(input: unknown, days: number): VoomAutoCleanupPreset {
+  if (input === '3' || input === '7' || input === '30' || input === 'custom') return input;
+  if (days === 3 || days === 7 || days === 30) return String(days) as VoomAutoCleanupPreset;
+  return 'custom';
+}
+
+function normalizeSmallTheaterCleanupPreset(input: unknown, days: number): SmallTheaterAutoCleanupPreset {
+  return normalizeVoomCleanupPreset(input, days);
+}
+
+function normalizeVoomAutoCleanup(input: unknown): Record<string, CharacterVoomAutoCleanupSettings> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+
+  const normalized: Record<string, CharacterVoomAutoCleanupSettings> = {};
+  for (const [characterId, rawEntry] of Object.entries(input)) {
+    const normalizedCharacterId = characterId.trim();
+    if (!normalizedCharacterId || !rawEntry || typeof rawEntry !== 'object' || Array.isArray(rawEntry)) continue;
+    const entry = rawEntry as Partial<CharacterVoomAutoCleanupSettings>;
+    const days = normalizeVoomCleanupDays(entry.days);
+    normalized[normalizedCharacterId] = {
+      enabled: Boolean(entry.enabled),
+      days,
+      preset: normalizeVoomCleanupPreset(entry.preset, days),
+      lastCleanupAt: Math.max(0, Number(entry.lastCleanupAt) || 0)
+    };
+  }
+
+  return normalized;
+}
+
+function normalizeSmallTheaterAutoCleanup(input: unknown): Record<string, CharacterSmallTheaterAutoCleanupSettings> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+
+  const normalized: Record<string, CharacterSmallTheaterAutoCleanupSettings> = {};
+  for (const [characterId, rawEntry] of Object.entries(input)) {
+    const normalizedCharacterId = characterId.trim();
+    if (!normalizedCharacterId || !rawEntry || typeof rawEntry !== 'object' || Array.isArray(rawEntry)) continue;
+    const entry = rawEntry as Partial<CharacterSmallTheaterAutoCleanupSettings>;
+    const days = normalizeVoomCleanupDays(entry.days);
+    normalized[normalizedCharacterId] = {
+      enabled: Boolean(entry.enabled),
+      days,
+      preset: normalizeSmallTheaterCleanupPreset(entry.preset, days),
+      lastCleanupAt: Math.max(0, Number(entry.lastCleanupAt) || 0)
+    };
   }
 
   return normalized;
@@ -1363,6 +1420,8 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
         : ''
     }),
     voomReadAtByUser: normalizeVoomReadAtByUser(settings?.voomReadAtByUser),
+    voomAutoCleanup: normalizeVoomAutoCleanup(settings?.voomAutoCleanup),
+    smallTheaterAutoCleanup: normalizeSmallTheaterAutoCleanup(settings?.smallTheaterAutoCleanup),
     smallTheaterTopicDefaultsInitialized: normalizeTimestampRecord(settings?.smallTheaterTopicDefaultsInitialized),
     keepAlive: normalizeKeepAliveSettings(settings?.keepAlive),
     ringtoneSettings: normalizeRingtoneSettings(settings?.ringtoneSettings),
