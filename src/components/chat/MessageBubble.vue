@@ -23,7 +23,7 @@
         @pointermove="handlePointerMove"
         @pointerup="handlePointerUp"
       >
-        <div class="bubble" :class="{ narration: message.displayStyle === 'narration', sticker: message.sticker, image: message.image, voice: message.voice, location: message.location, transfer: message.transfer, transferReceipt: message.transfer && linePayIsReceipt, theaterLink: message.theaterLink, offlineInvitation: message.offlineInvitation }" :style="bubbleStyle">
+        <div class="bubble" :class="{ narration: message.displayStyle === 'narration', sticker: message.sticker, image: message.image, voice: message.voice, location: message.location, transfer: message.transfer, theaterLink: message.theaterLink, offlineInvitation: message.offlineInvitation }" :style="bubbleStyle">
           <template v-if="message.sticker">
             <img class="sticker-image" :src="getStickerDisplayImageUrl(message.sticker)" :alt="message.sticker.description" />
           </template>
@@ -65,7 +65,7 @@
               <span class="line-location-body">
                 <span class="line-location-kicker">Location</span>
                 <strong>{{ lineLocationName }}</strong>
-                <span class="line-location-detail-address">{{ lineLocationAddress }}</span>
+                <span v-if="lineLocationAddress" class="line-location-detail-address">{{ lineLocationAddress }}</span>
               </span>
               <span class="line-location-footer">
                 <span class="line-location-footer-mark" aria-hidden="true"></span>
@@ -75,34 +75,18 @@
             </section>
           </template>
           <template v-else-if="message.transfer">
-            <section v-if="linePayIsReceipt" class="transfer-receipt-card" :class="`transfer-receipt-card--${linePayStatus}`" aria-label="转账回执">
-              <span class="transfer-receipt-icon" aria-hidden="true">{{ linePayReceiptIcon }}</span>
-              <span class="transfer-receipt-copy">
-                <strong>{{ linePayReceiptTitle }}</strong>
-                <small>{{ linePayReceiptMeta }}</small>
-              </span>
-            </section>
-            <section v-else-if="linePayStatus !== 'pending'" class="transfer-settled-card" :class="`transfer-settled-card--${linePayStatus}`" aria-label="转账状态">
-              <span class="transfer-settled-icon" aria-hidden="true">{{ linePaySettledIcon }}</span>
-              <span class="transfer-settled-copy">
-                <small>{{ linePayDirectionLabel }}</small>
-                <strong>{{ linePaySettledTitle }}</strong>
-                <span>¥{{ linePayAmount }}</span>
-              </span>
-              <span class="transfer-settled-chip">{{ linePayStatusText }}</span>
-            </section>
-            <section v-else class="transfer-request-card" :class="{ 'transfer-request-card--actionable': canRespondTransferCard }" aria-label="转账消息">
+            <section class="transfer-request-card" :class="[`transfer-request-card--${linePayStatus}`, { 'transfer-request-card--actionable': canRespondTransferCard, 'transfer-request-card--receipt': linePayIsReceipt }]" :aria-label="linePayIsReceipt ? '转账回执' : '转账消息'">
               <span class="transfer-request-head">
                 <span class="transfer-request-brand">
                   <span class="transfer-request-mark" aria-hidden="true">¥</span>
                   <span>LINK Pay</span>
                 </span>
-                <span class="transfer-request-chip">{{ linePayPendingChip }}</span>
+                <span class="transfer-request-chip">{{ linePayCardChip }}</span>
               </span>
               <span class="transfer-request-main">
                 <small>{{ linePayDirectionLabel }}</small>
                 <strong>¥{{ linePayAmount }}</strong>
-                <span>{{ linePayRequestSubtext }}</span>
+                <span>{{ linePayCardSubtext }}</span>
               </span>
               <span v-if="showTransferRequestNoteRow" class="transfer-request-note">{{ linePayRequestNoteText }}</span>
               <span v-if="canRespondTransferCard" class="transfer-request-actions" @pointerdown.stop @pointerup.stop>
@@ -478,7 +462,7 @@ const imageViewerAspectRatio = computed(() => {
 });
 const imageViewerStyle = computed(() => ({ '--chat-viewer-ratio': imageViewerAspectRatio.value }));
 const lineLocationName = computed(() => props.message.location?.name.trim() || '地点名称');
-const lineLocationAddress = computed(() => props.message.location?.address?.trim() || '未填写详细地址');
+const lineLocationAddress = computed(() => props.message.location?.address?.trim() || '');
 const lineLocationDistanceLabel = computed(() => {
   const distance = props.message.location?.distance.trim() || '未知';
   return props.message.sender === 'user' ? `距离对方 ${distance}` : `距离你 ${distance}`;
@@ -500,35 +484,26 @@ const linePayOriginalSender = computed(() => {
   if (!linePayIsReceipt.value) return props.message.sender;
   return linePayOriginalTransferMessage.value?.sender ?? (props.message.sender === 'user' ? 'char' : 'user');
 });
+const linePayTransferSender = computed(() => (linePayIsReceipt.value ? linePayOriginalSender.value : props.message.sender));
 const linePayStatusText = computed(() => ({
   pending: '待确认',
   accepted: '已接收',
   rejected: '已拒绝'
 }[linePayStatus.value]));
-const linePayDirectionLabel = computed(() => (props.message.sender === 'user' ? '转账给对方' : '对方向你转账'));
-const linePayCounterpartyText = computed(() => (props.message.sender === 'user' ? characterDisplayName.value : `来自 ${characterDisplayName.value}`));
-const linePayPendingChip = computed(() => (props.message.sender === 'user' ? '等待确认' : '待处理'));
-const linePaySettledIcon = computed(() => (linePayStatus.value === 'accepted' ? '✓' : '×'));
+const linePayDirectionLabel = computed(() => (linePayTransferSender.value === 'user' ? '转账给对方' : '对方向你转账'));
+const linePayCounterpartyText = computed(() => (linePayTransferSender.value === 'user' ? characterDisplayName.value : `来自 ${characterDisplayName.value}`));
+const linePayPendingChip = computed(() => (linePayTransferSender.value === 'user' ? '等待确认' : '待处理'));
+const linePayCardChip = computed(() => (linePayStatus.value === 'pending' ? linePayPendingChip.value : linePayStatusText.value));
 const linePaySettledTitle = computed(() => {
-  if (linePayStatus.value === 'accepted') return props.message.sender === 'user' ? '对方已收款' : '你已收款';
-  return props.message.sender === 'user' ? '对方已拒收' : '你已拒收';
-});
-const linePayReceiptIcon = computed(() => (linePayStatus.value === 'accepted' ? '✓' : '×'));
-const linePayReceiptTitle = computed(() => {
-  if (linePayStatus.value === 'accepted') return `${linePayOriginalSender.value === 'char' ? '你已收款' : '对方已收款'} ¥${linePayAmount.value}`;
-  if (linePayStatus.value === 'rejected') return `${linePayOriginalSender.value === 'char' ? '你已拒收' : '对方已拒收'} ¥${linePayAmount.value}`;
-  return `${linePayStatusText.value} ¥${linePayAmount.value}`;
-});
-const linePayReceiptMeta = computed(() => {
-  return linePayOriginalSender.value === 'char'
-    ? `${characterDisplayName.value} 发来的转账`
-    : '你发出的转账';
+  if (linePayStatus.value === 'accepted') return linePayTransferSender.value === 'user' ? '对方已收款' : '你已收款';
+  return linePayTransferSender.value === 'user' ? '对方已拒收' : '你已拒收';
 });
 const linePayNote = computed(() => props.message.transfer?.note?.trim() || '');
 const blankTransferRequestLine = '\u00a0';
-const linePayRequestSubtext = computed(() => (props.message.sender === 'user' ? linePayNote.value || blankTransferRequestLine : linePayCounterpartyText.value));
-const showTransferRequestNoteRow = computed(() => props.message.sender === 'user' || Boolean(linePayNote.value));
-const linePayRequestNoteText = computed(() => (props.message.sender === 'user' ? blankTransferRequestLine : linePayNote.value));
+const linePayRequestSubtext = computed(() => (linePayTransferSender.value === 'user' ? linePayNote.value || blankTransferRequestLine : linePayCounterpartyText.value));
+const linePayCardSubtext = computed(() => (linePayStatus.value === 'pending' ? linePayRequestSubtext.value : linePaySettledTitle.value));
+const showTransferRequestNoteRow = computed(() => (linePayStatus.value === 'pending' && linePayTransferSender.value === 'user') || Boolean(linePayNote.value));
+const linePayRequestNoteText = computed(() => (linePayStatus.value !== 'pending' || linePayTransferSender.value !== 'user' ? linePayNote.value : blankTransferRequestLine));
 const canRespondTransferCard = computed(() => props.message.sender === 'char' && !linePayIsReceipt.value && linePayStatus.value === 'pending');
 const offlineInvitationStatusLabel = computed(() => ({
   pending: '要进入线下模式继续这一幕吗？',
@@ -717,7 +692,7 @@ function handleBubbleClick(event: MouseEvent) {
     return;
   }
   if (props.selectionMode) emit('toggle-select');
-  else if (props.message.location || props.message.transfer || props.message.theaterLink) emit('open-card-detail', props.message);
+  else if (props.message.theaterLink) emit('open-card-detail', props.message);
 }
 
 function stopVoicePlayback() {
@@ -1108,15 +1083,37 @@ onBeforeUnmount(stopVoicePlayback);
 }
 
 .bubble.location {
-  width: min(202px, 59vw);
-  min-width: min(182px, 53vw);
-  background: transparent;
+  width: min(188px, 55vw);
+  min-width: min(168px, 49vw);
+  background: #ffffff;
   border: 0;
+  box-shadow: 0 9px 22px rgba(22, 27, 33, 0.08);
+}
+
+.bubble.location .line-location-card {
+  grid-template-rows: 70px auto 23px;
+  width: 100%;
+  box-shadow: none;
+}
+
+.bubble.location .line-location-map {
+  height: 70px;
+  min-height: 70px;
+}
+
+.bubble.location .line-location-body {
+  gap: 2px;
+  padding: 5px 7px 6px;
+}
+
+.bubble.location .line-location-footer {
+  min-height: 23px;
+  padding: 0 6px;
 }
 
 .bubble.transfer {
-  width: min(212px, 62vw);
-  min-width: min(187px, 53vw);
+  width: min(196px, 57vw);
+  min-width: min(173px, 50vw);
   background: #ffffff;
   border: 0;
   box-shadow: 0 9px 22px rgba(22, 27, 33, 0.08);
@@ -1128,11 +1125,6 @@ onBeforeUnmount(stopVoicePlayback);
   background: #ffffff;
   border: 0;
   box-shadow: 0 9px 22px rgba(22, 27, 33, 0.08);
-}
-
-.bubble.transferReceipt {
-  width: min(176px, 52vw);
-  min-width: min(149px, 45vw);
 }
 
 .bubble.offlineInvitation {
@@ -1157,17 +1149,16 @@ onBeforeUnmount(stopVoicePlayback);
   color: #111111;
 }
 
+.message-row.user .bubble.location,
+.message-row.char .bubble.location {
+  background: #ffffff;
+}
+
 .message-row.user .bubble.transfer,
 .message-row.char .bubble.transfer,
 .message-row.user .bubble.theaterLink,
 .message-row.char .bubble.theaterLink {
   background: #ffffff;
-}
-
-.message-row.user .bubble.transferReceipt,
-.message-row.char .bubble.transferReceipt {
-  background: transparent;
-  box-shadow: none;
 }
 
 .offline-invitation-message {
@@ -1230,7 +1221,7 @@ onBeforeUnmount(stopVoicePlayback);
 
 .line-location-card {
   display: grid;
-  grid-template-rows: 76px auto 25px;
+  grid-template-rows: 70px auto 23px;
   min-width: 0;
   overflow: hidden;
   border: 1px solid rgba(17, 17, 17, 0.08);
@@ -1242,7 +1233,7 @@ onBeforeUnmount(stopVoicePlayback);
 .line-location-map {
   position: relative;
   min-width: 0;
-  min-height: 76px;
+  min-height: 70px;
   overflow: hidden;
   background:
     linear-gradient(112deg, transparent 0 54%, rgba(216, 219, 222, 0.7) 55% 100%),
@@ -1270,33 +1261,33 @@ onBeforeUnmount(stopVoicePlayback);
 
 .line-map-road-1 {
   left: -15px;
-  top: 17px;
-  width: 128px;
-  height: 8px;
+  top: 15px;
+  width: 119px;
+  height: 7px;
   transform: rotate(-27deg);
 }
 
 .line-map-road-2 {
   right: -12px;
-  top: 22px;
-  width: 111px;
-  height: 8px;
+  top: 20px;
+  width: 103px;
+  height: 7px;
   transform: rotate(12deg);
 }
 
 .line-map-road-3 {
   left: 40px;
-  top: 42px;
-  width: 114px;
-  height: 8px;
+  top: 39px;
+  width: 106px;
+  height: 7px;
   transform: rotate(-38deg);
 }
 
 .line-map-road-4 {
-  left: 104px;
-  top: 31px;
-  width: 97px;
-  height: 8px;
+  left: 97px;
+  top: 29px;
+  width: 90px;
+  height: 7px;
   transform: rotate(82deg);
 }
 
@@ -1311,34 +1302,34 @@ onBeforeUnmount(stopVoicePlayback);
 .line-map-block-1 {
   left: 10px;
   top: 4px;
-  width: 45px;
-  height: 25px;
+  width: 42px;
+  height: 23px;
   transform: rotate(14deg);
 }
 
 .line-map-block-2 {
   right: 13px;
   top: 3px;
-  width: 55px;
-  height: 27px;
+  width: 51px;
+  height: 25px;
   transform: rotate(-6deg);
 }
 
 .line-map-block-3 {
   right: 5px;
   bottom: 6px;
-  width: 55px;
-  height: 26px;
+  width: 51px;
+  height: 24px;
   transform: rotate(-18deg);
 }
 
 .line-map-label {
   position: absolute;
   z-index: 2;
-  max-width: 81px;
+  max-width: 75px;
   overflow: hidden;
   color: rgba(70, 74, 82, 0.76);
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 580;
   line-height: 1;
   text-overflow: ellipsis;
@@ -1347,14 +1338,14 @@ onBeforeUnmount(stopVoicePlayback);
 }
 
 .line-map-label-top {
-  right: 23px;
-  top: 9px;
+  right: 21px;
+  top: 8px;
 }
 
 .line-map-label-mid {
   left: 50%;
-  top: 53px;
-  max-width: 140px;
+  top: 49px;
+  max-width: 130px;
   padding: 1px 4px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.76);
@@ -1368,8 +1359,8 @@ onBeforeUnmount(stopVoicePlayback);
   position: absolute;
   z-index: 3;
   display: block;
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
   border-radius: 50% 50% 50% 0;
   background: #ef4c43;
   transform: rotate(-45deg);
@@ -1380,8 +1371,8 @@ onBeforeUnmount(stopVoicePlayback);
   position: absolute;
   left: 5px;
   top: 5px;
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: #ffffff;
   content: '';
@@ -1389,34 +1380,34 @@ onBeforeUnmount(stopVoicePlayback);
 
 .line-map-pin-main {
   left: 50%;
-  top: 38px;
+  top: 35px;
   transform: translate(-50%, -50%) rotate(-45deg);
 }
 
 .line-map-pin-secondary {
   right: 15px;
   bottom: 10px;
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
   background: #5f7180;
 }
 
 .line-map-pin-secondary::after {
   left: 4px;
   top: 4px;
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
 }
 
 .line-map-google {
   position: absolute;
   left: 7px;
-  bottom: 6px;
+  bottom: 5px;
   z-index: 4;
   display: inline-flex;
   align-items: baseline;
   font-family: Arial, sans-serif;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: -1px;
   line-height: 1;
@@ -1444,14 +1435,14 @@ onBeforeUnmount(stopVoicePlayback);
   display: grid;
   gap: 2px;
   min-width: 0;
-  padding: 6px 7px 7px;
+  padding: 5px 7px 6px;
   border-bottom: 1px solid #eeeeee;
   background: #ffffff;
 }
 
 .line-location-kicker {
   color: #04a64b;
-  font-size: 8px;
+  font-size: 7px;
   font-weight: 900;
   letter-spacing: 0.08em;
   line-height: 1.05;
@@ -1459,35 +1450,44 @@ onBeforeUnmount(stopVoicePlayback);
 }
 
 .line-location-body strong {
+  display: -webkit-box;
   min-width: 0;
   color: #101010;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 930;
   line-height: 1.2;
+  overflow: hidden;
   overflow-wrap: anywhere;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .line-location-detail-address {
+  display: -webkit-box;
   min-width: 0;
   color: #6b7078;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 560;
   line-height: 1.35;
+  overflow: hidden;
   overflow-wrap: anywhere;
   word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
 }
 
 .line-location-footer {
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) 5px;
+  grid-template-columns: 13px minmax(0, 1fr) 5px;
   align-items: center;
   gap: 4px;
   min-width: 0;
-  min-height: 24px;
+  min-height: 22px;
   padding: 0 6px;
   background: #ffffff;
   color: #5f6670;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 820;
 }
 
@@ -1501,8 +1501,8 @@ onBeforeUnmount(stopVoicePlayback);
 .line-location-footer-mark {
   position: relative;
   display: block;
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
   border-radius: 50% 50% 50% 0;
   background: #04c755;
   transform: rotate(-45deg);
@@ -1605,18 +1605,13 @@ onBeforeUnmount(stopVoicePlayback);
   white-space: nowrap;
 }
 
-.transfer-request-card,
-.transfer-settled-card,
-.transfer-receipt-card {
+.transfer-request-card {
+  display: grid;
   min-width: 0;
   overflow: hidden;
   border-radius: inherit;
   background: #ffffff;
   color: #111111;
-}
-
-.transfer-request-card {
-  display: grid;
   border: 1px solid rgba(12, 20, 28, 0.08);
 }
 
@@ -1626,16 +1621,16 @@ onBeforeUnmount(stopVoicePlayback);
   justify-content: space-between;
   gap: 7px;
   min-width: 0;
-  padding: 8px 9px 6px;
+  padding: 7px 8px 6px;
 }
 
 .transfer-request-brand {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
   color: #22272d;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 920;
   line-height: 1;
 }
@@ -1643,31 +1638,36 @@ onBeforeUnmount(stopVoicePlayback);
 .transfer-request-mark {
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   border-radius: 5px;
   background: #04c755;
   color: #ffffff;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 950;
 }
 
 .transfer-request-chip {
   flex: 0 0 auto;
-  padding: 3px 6px;
+  padding: 3px 5px;
   border-radius: 999px;
   background: #effaf3;
   color: #05883f;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 900;
   line-height: 1;
+}
+
+.transfer-request-card--rejected .transfer-request-chip {
+  background: #f2f3f5;
+  color: #6a737d;
 }
 
 .transfer-request-main {
   display: grid;
   gap: 4px;
   min-width: 0;
-  padding: 10px 9px 11px;
+  padding: 9px 8px 10px;
   background:
     linear-gradient(135deg, rgba(4, 199, 85, 0.16), rgba(4, 199, 85, 0.04) 72%),
     #f8fffa;
@@ -1675,7 +1675,7 @@ onBeforeUnmount(stopVoicePlayback);
 
 .transfer-request-main small {
   color: #168447;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 920;
   line-height: 1;
 }
@@ -1683,7 +1683,7 @@ onBeforeUnmount(stopVoicePlayback);
 .transfer-request-main strong {
   min-width: 0;
   color: #101713;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 950;
   letter-spacing: 0;
   line-height: 1;
@@ -1693,7 +1693,7 @@ onBeforeUnmount(stopVoicePlayback);
 .transfer-request-main span {
   min-width: 0;
   color: #44504a;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 760;
   line-height: 1.2;
   overflow-wrap: anywhere;
@@ -1701,9 +1701,9 @@ onBeforeUnmount(stopVoicePlayback);
 
 .transfer-request-note {
   min-width: 0;
-  padding: 7px 9px 0;
+  padding: 6px 8px 0;
   color: #737983;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 680;
   line-height: 1.35;
   overflow-wrap: anywhere;
@@ -1715,17 +1715,17 @@ onBeforeUnmount(stopVoicePlayback);
   grid-template-columns: 1fr 1fr;
   gap: 7px;
   min-width: 0;
-  padding: 8px 9px 9px;
+  padding: 7px 8px 8px;
 }
 
 .transfer-request-action {
   display: grid;
   place-items: center;
   min-width: 0;
-  min-height: 28px;
+  min-height: 26px;
   border: 0;
   border-radius: 9px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 930;
   line-height: 1;
 }
@@ -1739,132 +1739,6 @@ onBeforeUnmount(stopVoicePlayback);
   background: #04c755;
   color: #ffffff;
   box-shadow: 0 8px 16px rgba(4, 199, 85, 0.2);
-}
-
-.transfer-settled-card {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 7px;
-  min-height: 63px;
-  padding: 8px;
-  border: 1px solid rgba(12, 20, 28, 0.08);
-}
-
-.transfer-settled-icon,
-.transfer-receipt-icon {
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  font-weight: 950;
-  line-height: 1;
-}
-
-.transfer-settled-icon {
-  width: 28px;
-  height: 28px;
-  background: #effaf3;
-  color: #04a64b;
-  font-size: 14px;
-}
-
-.transfer-settled-card--rejected .transfer-settled-icon {
-  background: #f2f3f5;
-  color: #7b828c;
-}
-
-.transfer-settled-copy {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.transfer-settled-copy small,
-.transfer-receipt-copy small {
-  min-width: 0;
-  color: #7a818a;
-  font-size: 9px;
-  font-weight: 720;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.transfer-settled-copy strong,
-.transfer-receipt-copy strong {
-  min-width: 0;
-  color: #161a1f;
-  font-size: 12px;
-  font-weight: 920;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.transfer-settled-copy span {
-  color: #2d3339;
-  font-size: 11px;
-  font-weight: 840;
-  line-height: 1;
-}
-
-.transfer-settled-chip {
-  align-self: start;
-  padding: 3px 6px;
-  border-radius: 999px;
-  background: #effaf3;
-  color: #05883f;
-  font-size: 9px;
-  font-weight: 900;
-  line-height: 1;
-}
-
-.transfer-settled-card--rejected .transfer-settled-chip {
-  background: #f2f3f5;
-  color: #6a737d;
-}
-
-.transfer-receipt-card {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  align-items: center;
-  gap: 7px;
-  min-height: 43px;
-  padding: 7px;
-  border: 1px solid rgba(12, 20, 28, 0.07);
-  background: #ffffff;
-  box-shadow: none;
-}
-
-.transfer-receipt-card--accepted {
-  border-color: rgba(4, 199, 85, 0.18);
-  background: #f1fff5;
-}
-
-.transfer-receipt-card--rejected {
-  border-color: rgba(129, 139, 151, 0.18);
-  background: #f5f6f8;
-}
-
-.transfer-receipt-icon {
-  width: 22px;
-  height: 22px;
-  background: #effaf3;
-  color: #04a64b;
-  font-size: 12px;
-}
-
-.transfer-receipt-card--rejected .transfer-receipt-icon {
-  background: #f2f3f5;
-  color: #7b828c;
-}
-
-.transfer-receipt-copy {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
 }
 
 .voice-message {

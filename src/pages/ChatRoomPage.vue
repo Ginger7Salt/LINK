@@ -260,12 +260,21 @@
             <span class="link-map-block link-map-block-2"></span>
             <span class="link-map-block link-map-block-3"></span>
             <span class="link-map-label link-map-label-top">{{ locationPreviewMapLabel }}</span>
-            <span class="link-map-label link-map-label-mid">{{ locationNameDraft.trim() || '地点名称' }}</span>
+            <span class="link-map-label link-map-label-mid">{{ locationPreviewName }}</span>
             <span class="link-map-pin link-map-pin-main"></span>
             <span class="link-map-pin link-map-pin-secondary"></span>
             <span class="link-map-google"><span>G</span><span>o</span><span>o</span><span>g</span><span>l</span><span>e</span></span>
           </span>
-          <span class="link-location-address">{{ locationPreviewAddress }}</span>
+          <span class="link-location-body">
+            <span class="link-location-kicker">Location</span>
+            <strong>{{ locationPreviewName }}</strong>
+            <span v-if="locationPreviewAddress" class="link-location-detail-address">{{ locationPreviewAddress }}</span>
+          </span>
+          <span class="link-location-footer">
+            <span class="link-location-footer-mark" aria-hidden="true"></span>
+            <span>{{ locationPreviewDistanceLabel }}</span>
+            <span class="link-location-chevron" aria-hidden="true"></span>
+          </span>
         </section>
 
         <label class="location-field">
@@ -424,75 +433,6 @@
           <button class="secondary-action" type="button" @click="showEditModal = false">取消</button>
           <button class="primary-action" type="button" :disabled="!canSaveEditedMessage" @click="saveEditedMessage">保存</button>
         </div>
-      </section>
-    </AppModal>
-
-    <AppModal v-model="showCardDetailModal" title="卡片详情" :show-header="false" variant="ins">
-      <section v-if="activeCardDetailMessage?.location" class="card-detail-sheet card-detail-sheet-location">
-        <section class="link-location-card card-detail-preview-card card-detail-location-card" aria-label="定位详情">
-          <span class="link-location-map" aria-hidden="true">
-            <span class="link-map-road link-map-road-1"></span>
-            <span class="link-map-road link-map-road-2"></span>
-            <span class="link-map-road link-map-road-3"></span>
-            <span class="link-map-road link-map-road-4"></span>
-            <span class="link-map-block link-map-block-1"></span>
-            <span class="link-map-block link-map-block-2"></span>
-            <span class="link-map-block link-map-block-3"></span>
-            <span class="link-map-label link-map-label-top">{{ detailLocationMapLabel(activeCardDetailMessage) }}</span>
-            <span class="link-map-label link-map-label-mid">{{ activeCardDetailMessage.location.name }}</span>
-            <span class="link-map-pin link-map-pin-main"></span>
-            <span class="link-map-pin link-map-pin-secondary"></span>
-            <span class="link-map-google"><span>G</span><span>o</span><span>o</span><span>g</span><span>l</span><span>e</span></span>
-          </span>
-          <span class="link-location-body">
-            <span class="link-location-kicker">Location</span>
-            <strong>{{ detailLocationName(activeCardDetailMessage) }}</strong>
-            <span class="link-location-detail-address">{{ detailLocationAddress(activeCardDetailMessage) }}</span>
-          </span>
-          <span class="link-location-footer">
-            <span class="link-location-footer-mark" aria-hidden="true"></span>
-            <span>{{ detailLocationDistanceLabel(activeCardDetailMessage) }}</span>
-            <span class="link-location-chevron" aria-hidden="true"></span>
-          </span>
-        </section>
-      </section>
-      <section v-else-if="activeCardDetailMessage?.transfer" class="card-detail-sheet card-detail-sheet-transfer">
-        <section v-if="detailLinkPayIsReceipt(activeCardDetailMessage)" class="transfer-detail-receipt" :class="`transfer-detail-receipt--${activeCardDetailMessage.transfer.status}`" aria-label="转账回执详情">
-          <span class="transfer-detail-receipt-icon" aria-hidden="true">{{ detailReceiptIcon(activeCardDetailMessage) }}</span>
-          <span class="transfer-detail-receipt-copy">
-            <small>转账回执</small>
-            <strong>{{ detailReceiptTitle(activeCardDetailMessage) }}</strong>
-            <span>{{ detailReceiptMeta(activeCardDetailMessage) }}</span>
-          </span>
-        </section>
-        <section v-else class="transfer-detail-card" :class="`transfer-detail-card--${activeCardDetailMessage.transfer.status}`" aria-label="转账详情">
-          <span class="transfer-detail-head">
-            <span class="transfer-detail-brand">
-              <span aria-hidden="true">¥</span>
-              <span>LINK Pay</span>
-            </span>
-            <span>{{ detailTransferStatusLabel(activeCardDetailMessage) }}</span>
-          </span>
-          <span class="transfer-detail-hero">
-            <small>{{ detailTransferDirectionLabel(activeCardDetailMessage) }}</small>
-            <strong>¥{{ detailLinkPayAmount(activeCardDetailMessage) }}</strong>
-            <span>{{ detailLinkPayTitle(activeCardDetailMessage) }}</span>
-          </span>
-          <dl class="transfer-detail-meta">
-            <div>
-              <dt>{{ detailTransferCounterpartyTerm(activeCardDetailMessage) }}</dt>
-              <dd>{{ characterDisplayName }}</dd>
-            </div>
-            <div v-if="detailTransferNoteRaw(activeCardDetailMessage)">
-              <dt>备注</dt>
-              <dd>{{ detailTransferNoteRaw(activeCardDetailMessage) }}</dd>
-            </div>
-          </dl>
-          <div v-if="canRespondDetailTransfer" class="transfer-detail-actions">
-            <button class="transfer-detail-action transfer-detail-action--reject" type="button" @click="respondToTransferFromDetail('rejected')">拒绝</button>
-            <button class="transfer-detail-action transfer-detail-action--accept" type="button" @click="respondToTransferFromDetail('accepted')">接收</button>
-          </div>
-        </section>
       </section>
     </AppModal>
 
@@ -667,7 +607,6 @@ const showTransferPanel = ref(false);
 const showNarrationPanel = ref(false);
 const showMessageMenu = ref(false);
 const showEditModal = ref(false);
-const showCardDetailModal = ref(false);
 const showDeleteConfirm = ref(false);
 const showDeleteFriendConfirm = ref(false);
 const showClearHistoryConfirm = ref(false);
@@ -680,7 +619,6 @@ const messageListRef = ref<HTMLElement | null>(null);
 const composerRef = ref<MessageComposerExpose | null>(null);
 const localImageInputRef = ref<HTMLInputElement | null>(null);
 const activeMessage = ref<ChatMessage | null>(null);
-const activeCardDetailMessageId = ref('');
 const selectionMode = ref(false);
 const selectedMessageIds = ref<string[]>([]);
 const quoteTarget = ref<ChatMessageQuote | null>(null);
@@ -769,9 +707,6 @@ const allOnlineMessages = computed(() => {
 });
 const onlineMessages = computed(() => allOnlineMessages.value.slice(Math.max(0, allOnlineMessages.value.length - visibleMessageLimit.value)));
 const hasEarlierMessages = computed(() => visibleMessageLimit.value < allOnlineMessages.value.length);
-const activeCardDetailMessage = computed(() => allOnlineMessages.value.find((message) => message.id === activeCardDetailMessageId.value));
-const canRespondDetailTransfer = computed(() => Boolean(activeCardDetailMessage.value?.sender === 'char'
-  && activeCardDetailMessage.value.transfer?.status === 'pending'));
 
 function shouldHideAvatar(index: number) {
   if (!chatSettings.value.appearance.showOnlyFirstAvatarInReply) return false;
@@ -827,8 +762,11 @@ const canSendLocation = computed(() => Boolean(locationNameDraft.value.trim() &&
 const normalizedTransferAmount = computed(() => transferAmountDraft.value.replace(/[￥¥,\s]/g, '').trim());
 const transferAmountPreview = computed(() => normalizedTransferAmount.value || '0.00');
 const canSendTransfer = computed(() => /^\d+(?:\.\d{1,2})?$/.test(normalizedTransferAmount.value) && Number(normalizedTransferAmount.value) > 0);
-const locationPreviewAddress = computed(() => locationAddressDraft.value.trim() || locationNameDraft.value.trim() || '详细地址可留空');
-const locationPreviewMapLabel = computed(() => createLinkMapLabel(locationPreviewAddress.value, locationNameDraft.value.trim() || '地点名称'));
+const locationPreviewName = computed(() => locationNameDraft.value.trim() || '地点名称');
+const locationPreviewAddress = computed(() => locationAddressDraft.value.trim());
+const locationPreviewDistance = computed(() => locationDistanceDraft.value.trim() || '未知');
+const locationPreviewDistanceLabel = computed(() => `距离对方 ${locationPreviewDistance.value}`);
+const locationPreviewMapLabel = computed(() => createLinkMapLabel(locationPreviewAddress.value || locationPreviewName.value, locationPreviewName.value));
 const transferPreviewSummary = computed(() => transferNoteDraft.value.trim() || '添加备注后会随转账一起显示');
 const chatActionLocked = computed(() => currentConversationReplying.value);
 const stickerRecommendationBase = computed(() => {
@@ -1199,15 +1137,6 @@ async function sendTransferMessage() {
 
 async function respondToTransfer(messageId: string, status: Exclude<ChatTransferStatus, 'pending'>) {
   return store.updateTransferStatus(messageId, status, 'user');
-}
-
-async function respondToTransferFromDetail(status: Exclude<ChatTransferStatus, 'pending'>) {
-  const message = activeCardDetailMessage.value;
-  if (!message?.transfer) return;
-  const updatedMessage = await respondToTransfer(message.id, status);
-  if (!updatedMessage) return;
-  showCardDetailModal.value = false;
-  await scrollMessagesToBottom();
 }
 
 async function rejectOfflineInvitation(message: ChatMessage) {
@@ -1585,98 +1514,15 @@ function quoteMessage(message: ChatMessage) {
   focusComposerInput();
 }
 
-function detailLocationDistanceLabel(message: ChatMessage) {
-  const distance = message.location?.distance.trim() || '未知';
-  return message.sender === 'user'
-    ? `距离对方 ${distance}`
-    : `距离你 ${distance}`;
-}
-
 function createLinkMapLabel(address: string, fallback: string) {
   const match = address.match(/([^市区县]+(?:街|路|巷|道)\d*[^\s,，。]*)/);
   return match?.[1] || fallback || '目前位置';
 }
 
-function detailLocationAddress(message: ChatMessage) {
-  return message.location?.address?.trim() || '未填写详细地址';
-}
-
-function detailLocationName(message: ChatMessage) {
-  return message.location?.name.trim() || '地点名称';
-}
-
-function detailLocationMapLabel(message: ChatMessage) {
-  return createLinkMapLabel(message.location?.address?.trim() || detailLocationName(message), detailLocationName(message));
-}
-
-function detailTransferStatusLabel(message: ChatMessage) {
-  if (message.transfer?.status === 'accepted') return '已接收';
-  if (message.transfer?.status === 'rejected') return '已拒绝';
-  return '待确认';
-}
-
-function detailLinkPayIsReceipt(message: ChatMessage) {
-  return Boolean(message.transfer?.responseToMessageId);
-}
-
-function originalTransferMessageForReceipt(message: ChatMessage) {
-  const sourceMessageId = message.transfer?.responseToMessageId;
-  if (!sourceMessageId) return null;
-  return store.messages.find((item) => item.id === sourceMessageId && item.transfer && !item.transfer.responseToMessageId) ?? null;
-}
-
-function transferOriginalSender(message: ChatMessage) {
-  if (!detailLinkPayIsReceipt(message)) return message.sender;
-  return originalTransferMessageForReceipt(message)?.sender ?? (message.sender === 'user' ? 'char' : 'user');
-}
-
-function detailLinkPayAmount(message: ChatMessage) {
-  return message.transfer?.amount || '0.00';
-}
-
-function detailLinkPayTitle(message: ChatMessage) {
-  if (message.transfer?.status === 'accepted') return message.sender === 'user' ? '对方已收款' : '你已收款';
-  if (message.transfer?.status === 'rejected') return message.sender === 'user' ? '对方已拒收' : '你已拒收';
-  return message.sender === 'user' ? '等待对方确认' : '请确认是否接收';
-}
-
-function detailTransferDirectionLabel(message: ChatMessage) {
-  return message.sender === 'user' ? '发出转账' : '收到转账';
-}
-
-function detailTransferCounterpartyTerm(message: ChatMessage) {
-  return message.sender === 'user' ? '收款方' : '付款方';
-}
-
-function detailTransferNoteRaw(message: ChatMessage) {
-  return message.transfer?.note?.trim() || '';
-}
-
-function detailReceiptIcon(message: ChatMessage) {
-  return message.transfer?.status === 'accepted' ? '✓' : '×';
-}
-
-function detailReceiptTitle(message: ChatMessage) {
-  const originalSender = transferOriginalSender(message);
-  if (message.transfer?.status === 'accepted') return `${originalSender === 'char' ? '你已收款' : '对方已收款'} ¥${detailLinkPayAmount(message)}`;
-  if (message.transfer?.status === 'rejected') return `${originalSender === 'char' ? '你已拒收' : '对方已拒收'} ¥${detailLinkPayAmount(message)}`;
-  return `${detailTransferStatusLabel(message)} ¥${detailLinkPayAmount(message)}`;
-}
-
-function detailReceiptMeta(message: ChatMessage) {
-  return transferOriginalSender(message) === 'char'
-    ? `${characterDisplayName.value} 发来的转账`
-    : '你发出的转账';
-}
-
 function openCardDetail(message: ChatMessage) {
   if (message.theaterLink?.theaterId) {
     void router.push({ name: 'small-theater-detail', params: { theaterId: message.theaterLink.theaterId } });
-    return;
   }
-  if (!message.location && !message.transfer) return;
-  activeCardDetailMessageId.value = message.id;
-  showCardDetailModal.value = true;
 }
 
 function editableMessageText(message: ChatMessage) {
@@ -2313,23 +2159,34 @@ onBeforeUnmount(() => {
 
 .link-location-card {
   display: grid;
-  grid-template-rows: 82px minmax(34px, auto);
+  grid-template-rows: 70px auto 23px;
   min-width: 0;
   overflow: hidden;
+  border: 1px solid rgba(17, 17, 17, 0.08);
   border-radius: 10px;
-  background: #76e776;
+  background: #ffffff;
   color: #111111;
 }
 
 .link-location-map {
   position: relative;
   min-width: 0;
-  min-height: 82px;
+  min-height: 70px;
   overflow: hidden;
   background:
-    linear-gradient(112deg, transparent 0 58%, rgba(216, 219, 222, 0.62) 59% 100%),
+    linear-gradient(112deg, transparent 0 54%, rgba(216, 219, 222, 0.7) 55% 100%),
+    linear-gradient(22deg, rgba(205, 231, 215, 0.72) 0 26%, transparent 27% 100%),
     linear-gradient(164deg, rgba(255, 255, 255, 0.94) 0 7%, transparent 8% 100%),
     #f0f1f3;
+}
+
+.link-location-map::after {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, transparent 54%, rgba(255, 255, 255, 0.1));
+  content: '';
+  pointer-events: none;
 }
 
 .link-map-road {
@@ -2342,33 +2199,33 @@ onBeforeUnmount(() => {
 
 .link-map-road-1 {
   left: -15px;
-  top: 17px;
-  width: 124px;
-  height: 9px;
+  top: 15px;
+  width: 119px;
+  height: 7px;
   transform: rotate(-27deg);
 }
 
 .link-map-road-2 {
-  right: -14px;
-  top: 24px;
-  width: 112px;
-  height: 9px;
+  right: -12px;
+  top: 20px;
+  width: 103px;
+  height: 7px;
   transform: rotate(12deg);
 }
 
 .link-map-road-3 {
-  left: 44px;
-  top: 45px;
-  width: 108px;
-  height: 9px;
+  left: 40px;
+  top: 39px;
+  width: 106px;
+  height: 7px;
   transform: rotate(-38deg);
 }
 
 .link-map-road-4 {
-  left: 112px;
-  top: 35px;
-  width: 116px;
-  height: 9px;
+  left: 97px;
+  top: 29px;
+  width: 90px;
+  height: 7px;
   transform: rotate(82deg);
 }
 
@@ -2381,36 +2238,36 @@ onBeforeUnmount(() => {
 }
 
 .link-map-block-1 {
-  left: 12px;
-  top: 2px;
-  width: 49px;
-  height: 30px;
+  left: 10px;
+  top: 4px;
+  width: 42px;
+  height: 23px;
   transform: rotate(14deg);
 }
 
 .link-map-block-2 {
-  right: 15px;
-  top: 0;
-  width: 64px;
-  height: 35px;
+  right: 13px;
+  top: 3px;
+  width: 51px;
+  height: 25px;
   transform: rotate(-6deg);
 }
 
 .link-map-block-3 {
-  right: -5px;
-  bottom: 5px;
-  width: 64px;
-  height: 35px;
+  right: 5px;
+  bottom: 6px;
+  width: 51px;
+  height: 24px;
   transform: rotate(-18deg);
 }
 
 .link-map-label {
   position: absolute;
   z-index: 2;
-  max-width: 98px;
+  max-width: 75px;
   overflow: hidden;
   color: rgba(70, 74, 82, 0.76);
-  font-size: 10px;
+  font-size: 8px;
   font-weight: 580;
   line-height: 1;
   text-overflow: ellipsis;
@@ -2419,22 +2276,29 @@ onBeforeUnmount(() => {
 }
 
 .link-map-label-top {
-  right: 27px;
-  top: 11px;
+  right: 21px;
+  top: 8px;
 }
 
 .link-map-label-mid {
-  left: 78px;
-  top: 42px;
-  max-width: 74px;
+  left: 50%;
+  top: 49px;
+  max-width: 130px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.76);
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+  transform: translateX(-50%);
 }
 
 .link-map-pin {
   position: absolute;
   z-index: 3;
   display: block;
-  width: 21px;
-  height: 21px;
+  width: 16px;
+  height: 16px;
   border-radius: 50% 50% 50% 0;
   background: #ef4c43;
   transform: rotate(-45deg);
@@ -2443,44 +2307,45 @@ onBeforeUnmount(() => {
 
 .link-map-pin::after {
   position: absolute;
-  left: 6px;
-  top: 6px;
-  width: 9px;
-  height: 9px;
+  left: 5px;
+  top: 5px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: #ffffff;
   content: '';
 }
 
 .link-map-pin-main {
-  left: 93px;
-  top: 37px;
+  left: 50%;
+  top: 35px;
+  transform: translate(-50%, -50%) rotate(-45deg);
 }
 
 .link-map-pin-secondary {
-  right: 8px;
-  bottom: 12px;
-  width: 18px;
-  height: 18px;
+  right: 15px;
+  bottom: 10px;
+  width: 14px;
+  height: 14px;
   background: #5f7180;
 }
 
 .link-map-pin-secondary::after {
-  left: 5px;
-  top: 5px;
-  width: 8px;
-  height: 8px;
+  left: 4px;
+  top: 4px;
+  width: 6px;
+  height: 6px;
 }
 
 .link-map-google {
   position: absolute;
-  left: 8px;
-  bottom: 7px;
+  left: 7px;
+  bottom: 5px;
   z-index: 4;
   display: inline-flex;
   align-items: baseline;
   font-family: Arial, sans-serif;
-  font-size: 14px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: -1px;
   line-height: 1;
@@ -2504,208 +2369,78 @@ onBeforeUnmount(() => {
   color: #0f9d58;
 }
 
-.link-location-address {
-  display: block;
-  min-width: 0;
-  min-height: 34px;
-  padding: 7px 10px 8px;
-  background: #76e776;
-  color: rgba(35, 58, 42, 0.72);
-  font-size: 10px;
-  font-weight: 430;
-  line-height: 1.35;
-  white-space: normal;
-  word-break: break-word;
-}
-
-.card-detail-location-card.card-detail-preview-card {
-  grid-template-rows: 128px auto 36px;
-  width: min(336px, 100%);
-  border: 1px solid rgba(17, 17, 17, 0.08);
-  background: #ffffff;
-  box-shadow: 0 12px 28px rgba(26, 32, 38, 0.1);
-}
-
-.card-detail-location-card .link-location-map {
-  min-height: 128px;
-  background:
-    linear-gradient(112deg, transparent 0 54%, rgba(216, 219, 222, 0.7) 55% 100%),
-    linear-gradient(22deg, rgba(205, 231, 215, 0.76) 0 26%, transparent 27% 100%),
-    linear-gradient(164deg, rgba(255, 255, 255, 0.94) 0 7%, transparent 8% 100%),
-    #f0f1f3;
-}
-
-.card-detail-location-card .link-location-map::after {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  background: linear-gradient(180deg, transparent 52%, rgba(255, 255, 255, 0.12));
-  content: '';
-  pointer-events: none;
-}
-
-.card-detail-location-card .link-map-road-1 {
-  left: -22px;
-  top: 28px;
-  width: 214px;
-  height: 11px;
-}
-
-.card-detail-location-card .link-map-road-2 {
-  right: -18px;
-  top: 35px;
-  width: 186px;
-  height: 11px;
-}
-
-.card-detail-location-card .link-map-road-3 {
-  left: 66px;
-  top: 72px;
-  width: 190px;
-  height: 11px;
-}
-
-.card-detail-location-card .link-map-road-4 {
-  left: 175px;
-  top: 53px;
-  width: 162px;
-  height: 11px;
-}
-
-.card-detail-location-card .link-map-block-1 {
-  left: 18px;
-  top: 6px;
-  width: 74px;
-  height: 42px;
-}
-
-.card-detail-location-card .link-map-block-2 {
-  right: 22px;
-  top: 5px;
-  width: 92px;
-  height: 46px;
-}
-
-.card-detail-location-card .link-map-block-3 {
-  right: 8px;
-  bottom: 12px;
-  width: 92px;
-  height: 44px;
-}
-
-.card-detail-location-card .link-map-label {
-  z-index: 2;
-  max-width: 168px;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.card-detail-location-card .link-map-label-top {
-  right: 22px;
-  top: 18px;
-}
-
-.card-detail-location-card .link-map-label-mid {
-  left: 50%;
-  top: 87px;
-  max-width: 198px;
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.76);
-  line-height: 1.15;
-  text-align: center;
-  transform: translateX(-50%);
-}
-
-.card-detail-location-card .link-map-pin-main {
-  left: 50%;
-  top: 66px;
-  width: 28px;
-  height: 28px;
-  transform: translate(-50%, -50%) rotate(-45deg);
-  box-shadow: 0 4px 12px rgba(239, 76, 67, 0.32);
-}
-
-.card-detail-location-card .link-map-pin-main::after {
-  left: 8px;
-  top: 8px;
-  width: 12px;
-  height: 12px;
-}
-
-.card-detail-location-card .link-map-pin-secondary {
-  right: 48px;
-  bottom: 24px;
-}
-
-.card-detail-location-card .link-map-google {
-  left: 10px;
-  bottom: 9px;
-  z-index: 4;
-  font-size: 15px;
-}
-
 .link-location-body {
   display: grid;
-  gap: 5px;
+  gap: 2px;
   min-width: 0;
-  padding: 12px 12px 13px;
+  padding: 5px 7px 6px;
   border-bottom: 1px solid #eeeeee;
   background: #ffffff;
 }
 
 .link-location-kicker {
   color: #04a64b;
-  font-size: 10px;
+  font-size: 7px;
   font-weight: 900;
   letter-spacing: 0.08em;
-  line-height: 1.1;
+  line-height: 1.05;
   text-transform: uppercase;
 }
 
 .link-location-body strong {
+  display: -webkit-box;
   min-width: 0;
   color: #101010;
-  font-size: 16px;
+  font-size: 10px;
   font-weight: 930;
-  line-height: 1.22;
+  line-height: 1.2;
+  overflow: hidden;
   overflow-wrap: anywhere;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .link-location-detail-address {
+  display: -webkit-box;
   min-width: 0;
   color: #6b7078;
-  font-size: 12px;
+  font-size: 8px;
   font-weight: 560;
-  line-height: 1.45;
+  line-height: 1.35;
+  overflow: hidden;
   overflow-wrap: anywhere;
   word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
 }
 
 .link-location-footer {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 7px;
+  grid-template-columns: 13px minmax(0, 1fr) 5px;
   align-items: center;
-  gap: 7px;
+  gap: 4px;
   min-width: 0;
-  min-height: 36px;
-  padding: 0 10px;
+  min-height: 22px;
+  padding: 0 6px;
   background: #ffffff;
   color: #5f6670;
-  font-size: 12px;
+  font-size: 8px;
   font-weight: 820;
 }
 
 .link-location-footer > span:nth-child(2) {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .link-location-footer-mark {
   position: relative;
   display: block;
-  width: 16px;
-  height: 16px;
+  width: 11px;
+  height: 11px;
   border-radius: 50% 50% 50% 0;
   background: #04c755;
   transform: rotate(-45deg);
@@ -2713,26 +2448,24 @@ onBeforeUnmount(() => {
 
 .link-location-footer-mark::after {
   position: absolute;
-  left: 5px;
-  top: 5px;
-  width: 6px;
-  height: 6px;
+  left: 3px;
+  top: 3px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: #ffffff;
   content: '';
 }
 
 .link-location-chevron {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-top: 2px solid #c6c6c6;
   border-right: 2px solid #c6c6c6;
   transform: rotate(45deg);
 }
 
-.transfer-compose-preview,
-.transfer-detail-card,
-.transfer-detail-receipt {
+.transfer-compose-preview {
   min-width: 0;
   overflow: hidden;
   border: 1px solid rgba(12, 20, 28, 0.08);
@@ -2748,8 +2481,7 @@ onBeforeUnmount(() => {
   width: min(286px, 100%);
 }
 
-.transfer-compose-head,
-.transfer-detail-head {
+.transfer-compose-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2759,8 +2491,7 @@ onBeforeUnmount(() => {
   background: #ffffff;
 }
 
-.transfer-compose-brand,
-.transfer-detail-brand {
+.transfer-compose-brand {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -2771,8 +2502,7 @@ onBeforeUnmount(() => {
   line-height: 1;
 }
 
-.transfer-compose-brand > span:first-child,
-.transfer-detail-brand > span:first-child {
+.transfer-compose-brand > span:first-child {
   display: grid;
   place-items: center;
   width: 22px;
@@ -2784,8 +2514,7 @@ onBeforeUnmount(() => {
   font-weight: 950;
 }
 
-.transfer-compose-head > span:last-child,
-.transfer-detail-head > span:last-child {
+.transfer-compose-head > span:last-child {
   flex: 0 0 auto;
   padding: 5px 10px;
   border-radius: 999px;
@@ -2796,13 +2525,7 @@ onBeforeUnmount(() => {
   line-height: 1;
 }
 
-.transfer-detail-card--rejected .transfer-detail-head > span:last-child {
-  background: #f2f3f5;
-  color: #626b75;
-}
-
-.transfer-compose-main,
-.transfer-detail-hero {
+.transfer-compose-main {
   display: grid;
   gap: 6px;
   min-width: 0;
@@ -2812,22 +2535,14 @@ onBeforeUnmount(() => {
     #f8fffa;
 }
 
-.transfer-detail-card--rejected .transfer-detail-hero {
-  background:
-    linear-gradient(135deg, rgba(129, 139, 151, 0.14), rgba(129, 139, 151, 0.04) 72%),
-    #fafbfc;
-}
-
-.transfer-compose-main small,
-.transfer-detail-hero small {
+.transfer-compose-main small {
   color: #168447;
   font-size: 11px;
   font-weight: 920;
   line-height: 1;
 }
 
-.transfer-compose-main strong,
-.transfer-detail-hero strong {
+.transfer-compose-main strong {
   min-width: 0;
   color: #101713;
   font-size: 40px;
@@ -2837,8 +2552,7 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 
-.transfer-compose-main span,
-.transfer-detail-hero span {
+.transfer-compose-main span {
   min-width: 0;
   color: #2f373f;
   font-size: 17px;
@@ -2857,149 +2571,6 @@ onBeforeUnmount(() => {
   line-height: 1.35;
   overflow-wrap: anywhere;
   word-break: break-word;
-}
-
-.transfer-detail-card,
-.transfer-detail-receipt {
-  justify-self: center;
-  width: min(316px, 100%);
-}
-
-.transfer-detail-meta {
-  display: grid;
-  gap: 0;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  background: #ffffff;
-}
-
-.transfer-detail-meta > div {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 10px;
-  min-width: 0;
-  padding: 12px 14px;
-  border-top: 1px solid rgba(17, 17, 17, 0.06);
-}
-
-.transfer-detail-meta dt,
-.transfer-detail-meta dd {
-  min-width: 0;
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.transfer-detail-meta dt {
-  color: #8a9098;
-  font-weight: 820;
-}
-
-.transfer-detail-meta dd {
-  color: #252a31;
-  font-weight: 760;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.transfer-detail-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  min-width: 0;
-  padding: 12px 14px 14px;
-  border-top: 1px solid rgba(17, 17, 17, 0.06);
-}
-
-.transfer-detail-action {
-  display: grid;
-  place-items: center;
-  min-width: 0;
-  min-height: 42px;
-  border: 0;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 930;
-  line-height: 1;
-}
-
-.transfer-detail-action--reject {
-  background: #f0f1f3;
-  color: #24272d;
-}
-
-.transfer-detail-action--accept {
-  background: #04c755;
-  color: #ffffff;
-  box-shadow: 0 9px 18px rgba(4, 199, 85, 0.22);
-}
-
-.transfer-detail-receipt {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
-  padding: 14px;
-  box-shadow: 0 10px 26px rgba(26, 32, 38, 0.08);
-}
-
-.transfer-detail-receipt-icon {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  background: #effaf3;
-  color: #04a64b;
-  font-size: 20px;
-  font-weight: 950;
-  line-height: 1;
-}
-
-.transfer-detail-receipt--rejected .transfer-detail-receipt-icon {
-  background: #f2f3f5;
-  color: #7b828c;
-}
-
-.transfer-detail-receipt-copy {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.transfer-detail-receipt-copy small {
-  color: #7a818a;
-  font-size: 11px;
-  font-weight: 820;
-  line-height: 1;
-}
-
-.transfer-detail-receipt-copy strong {
-  min-width: 0;
-  color: #161a1f;
-  font-size: 18px;
-  font-weight: 930;
-  line-height: 1.15;
-  overflow-wrap: anywhere;
-}
-
-.transfer-detail-receipt-copy span {
-  color: #737983;
-  font-size: 12px;
-  font-weight: 720;
-  line-height: 1.25;
-}
-
-.transfer-preview-card,
-.card-detail-preview-card {
-  justify-self: center;
-  width: min(176px, 100%);
-}
-
-.transfer-preview-card,
-.card-detail-sheet-transfer .card-detail-preview-card {
-  width: min(286px, 100%);
 }
 
 .transfer-field,
@@ -3092,7 +2663,7 @@ onBeforeUnmount(() => {
 
 .location-preview-card {
   justify-self: center;
-  width: min(176px, 100%);
+  width: min(188px, 100%);
 }
 
 .location-field {
@@ -3540,49 +3111,6 @@ onBeforeUnmount(() => {
 .edit-actions .primary-action:disabled {
   background: #e6e8eb;
   color: #9a9fa6;
-}
-
-.card-detail-sheet {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  min-width: 0;
-  background: transparent;
-  color: #202329;
-}
-
-.card-detail-footnote {
-  justify-self: center;
-  width: min(176px, 100%);
-  margin: 0;
-  padding: 7px 9px;
-  border-radius: 9px;
-  background: #eef0f2;
-  color: #5f6670;
-  font-size: 11px;
-  font-weight: 860;
-  line-height: 1.3;
-  text-align: center;
-}
-
-.card-detail-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  width: min(176px, 100%);
-  padding: 0;
-}
-
-.card-detail-actions button {
-  min-width: 0;
-  min-height: 34px;
-  border-radius: 9px;
-  font-size: 12px;
-}
-
-.card-detail-actions .primary-action {
-  background: #d7dbe0;
-  color: #22262c;
 }
 
 .delete-confirm-sheet {

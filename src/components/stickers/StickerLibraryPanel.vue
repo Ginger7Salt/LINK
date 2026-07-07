@@ -1202,10 +1202,10 @@ async function deleteSelectedSticker() {
 
 .sticker-sheet-modal .sticker-grid {
   --modal-grid-width: min(calc(100vw - var(--safe-left) - var(--safe-right) - 44px), 424px);
-  --modal-grid-column: calc((var(--modal-grid-width) - 18px) / 4);
+  --modal-grid-column: calc((var(--modal-grid-width) - 24px) / 5);
   flex: 1 1 auto;
   min-height: 0;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
   max-height: none;
   overflow-y: auto;

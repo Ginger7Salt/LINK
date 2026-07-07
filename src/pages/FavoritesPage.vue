@@ -45,9 +45,7 @@
             type="button"
             @click="activeFilter = filter.id"
           >
-            <component :is="filter.icon" :size="15" stroke-width="2.3" />
             <span>{{ filter.label }}</span>
-            <b>{{ filter.count }}</b>
           </button>
         </nav>
 
@@ -107,7 +105,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { Bookmark, FileText, Images, LoaderCircle, Mic2, Sparkles, X } from 'lucide-vue-next';
+import { Bookmark, LoaderCircle, Sparkles, X } from 'lucide-vue-next';
 import { useAppStore } from '@/stores/appStore';
 import type { FavoriteMessageRecord } from '@/types/domain';
 
@@ -125,10 +123,10 @@ const imageCount = computed(() => favoriteItems.value.filter(isImageFavorite).le
 const textCount = computed(() => favoriteItems.value.filter((item) => item.kind === 'text' || item.kind === 'narration').length);
 const voiceCount = computed(() => favoriteItems.value.filter((item) => item.kind === 'voice').length);
 const favoriteFilters = computed(() => [
-  { id: 'all' as FavoriteFilter, label: '全部', icon: Bookmark, count: favoriteItems.value.length },
-  { id: 'image' as FavoriteFilter, label: '图片', icon: Images, count: imageCount.value },
-  { id: 'text' as FavoriteFilter, label: '文字', icon: FileText, count: textCount.value },
-  { id: 'voice' as FavoriteFilter, label: '语音', icon: Mic2, count: voiceCount.value }
+  { id: 'all' as FavoriteFilter, label: '全部' },
+  { id: 'image' as FavoriteFilter, label: '图片' },
+  { id: 'text' as FavoriteFilter, label: '文字' },
+  { id: 'voice' as FavoriteFilter, label: '语音' }
 ]);
 const filteredFavorites = computed(() => favoriteItems.value.filter((item) => matchesFilter(item, activeFilter.value)));
 
@@ -429,43 +427,51 @@ onBeforeUnmount(stopFavoriteVoice);
 }
 
 .favorite-filters {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
   min-width: 0;
-  margin: 14px -2px 0;
-  padding: 0 2px 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.favorite-filters::-webkit-scrollbar {
-  display: none;
+  margin: 14px 0 0;
+  padding: 0 0 6px;
 }
 
 .favorite-filter {
   display: inline-flex;
   align-items: center;
-  flex: 0 0 auto;
-  gap: 6px;
-  min-height: 36px;
-  padding: 0 12px;
-  border: 1px solid rgba(23, 23, 23, 0.06);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.74);
+  justify-content: center;
+  position: relative;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0 7px 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: #666a64;
   font-size: 12px;
   font-weight: 850;
 }
 
-.favorite-filter.active {
-  border-color: rgba(23, 23, 23, 0.12);
-  background: #171717;
-  color: #ffffff;
+.favorite-filter span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.favorite-filter b {
-  font-size: 11px;
-  font-weight: 930;
+.favorite-filter.active {
+  background: transparent;
+  color: #171717;
+}
+
+.favorite-filter.active::after {
+  content: '';
+  position: absolute;
+  right: 7px;
+  bottom: 2px;
+  left: 7px;
+  height: 2px;
+  border-radius: 999px;
+  background: #171717;
 }
 
 .favorite-feed {

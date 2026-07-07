@@ -165,10 +165,18 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
   color: #59616a;
 }
 
-.chat-room .line-location-card,
-.chat-room .link-location-card {
+.chat-room .line-location-card {
   overflow: hidden;
-  width: min(202px, 59vw);
+  width: 100%;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #111111;
+  box-shadow: 0 9px 22px rgba(22, 27, 33, 0.08);
+}
+
+.chat-room .location-preview-card {
+  overflow: hidden;
+  width: min(188px, 55vw);
   border-radius: 10px;
   background: #ffffff;
   color: #111111;
@@ -176,44 +184,56 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 }
 
 .chat-room .line-location-map,
-.chat-room .link-location-map {
+.chat-room .location-preview-card .link-location-map {
   display: block;
   position: relative;
-  height: 112px;
+  height: 70px;
   overflow: hidden;
   background: #dce8d8;
 }
 
 .chat-room .line-location-body,
-.chat-room .line-location-footer,
-.chat-room .link-location-address {
+.chat-room .location-preview-card .link-location-body {
   display: grid;
-  gap: 3px;
-  padding: 9px 10px;
+  gap: 2px;
+  padding: 5px 7px 6px;
+}
+
+.chat-room .line-location-footer,
+.chat-room .location-preview-card .link-location-footer {
+  display: grid;
+  gap: 4px;
+  padding: 0 6px;
 }
 
 .chat-room .line-location-kicker,
 .chat-room .line-website-kicker,
-.chat-room .transfer-request-chip,
-.chat-room .transfer-settled-chip {
+.chat-room .transfer-request-chip {
   color: #7a828b;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 800;
   text-transform: uppercase;
 }
 
 .chat-room .transfer-request-card,
-.chat-room .transfer-settled-card,
-.chat-room .transfer-receipt-card,
 .chat-room .transfer-compose-preview {
   display: grid;
-  gap: 10px;
-  width: min(212px, 62vw);
-  padding: 12px;
+  width: min(196px, 57vw);
   border-radius: 10px;
   background: #ffffff;
   color: #111111;
   box-shadow: 0 9px 22px rgba(22, 27, 33, 0.08);
+}
+
+.chat-room .transfer-request-card {
+  gap: 0;
+  width: 100%;
+  padding: 0;
+}
+
+.chat-room .transfer-compose-preview {
+  gap: 10px;
+  padding: 12px;
 }
 
 .chat-room .transfer-request-brand,
@@ -224,13 +244,11 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
   font-weight: 900;
 }
 
-.chat-room .transfer-request-mark,
-.chat-room .transfer-settled-icon,
-.chat-room .transfer-receipt-icon {
+.chat-room .transfer-request-mark {
   display: inline-grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
   background: #06c755;
   color: #ffffff;
@@ -238,7 +256,7 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 
 .chat-room .transfer-request-main strong,
 .chat-room .transfer-compose-main strong {
-  font-size: 28px;
+  font-size: 24px;
   line-height: 1;
 }
 
