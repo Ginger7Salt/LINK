@@ -1,12 +1,12 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { toRaw } from 'vue';
-import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, ChatMessage, Conversation, ConversationMemoryAtom, ConversationMemoryRecord, ConversationSettings, FavoriteMessageRecord, GeneratedImageRecord, MusicCommentThread, MusicTrack, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomPost, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, ChatMessage, Conversation, ConversationMemoryAtom, ConversationMemoryRecord, ConversationSettings, FavoriteMessageRecord, GeneratedImageRecord, MusicCommentThread, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomPost, WorldBookEntry } from '@/types/domain';
 import { compressInlineImageDataUrl } from '@/utils/imageFile';
 import { normalizeUserProfile, removeVisualProfileAvatar } from '@/utils/profile';
 import { normalizeAppSettings } from '@/utils/settings';
 import { isLegacyGanadiSticker, isLegacyGanadiStickerGroup, isRecentStickerGroupId } from '@/utils/stickers';
 import { normalizeWorldBooks } from '@/utils/worldBook';
-import { defaultCharacters, defaultConversations, defaultMessages, defaultSettings, defaultSmallTheaterTopics, defaultSmallTheaters, defaultStickerGroups, defaultStickers, defaultUsers, defaultVoomPosts, defaultWorldBooks } from './seed';
+import { defaultCharacters, defaultConversations, defaultMessages, defaultProfileHomepages, defaultProfileThemes, defaultSettings, defaultSmallTheaterTopics, defaultSmallTheaters, defaultStickerGroups, defaultStickers, defaultUsers, defaultVoomPosts, defaultWorldBooks } from './seed';
 
 interface LinkDb extends DBSchema {
   user: { key: string; value: UserProfile };
@@ -14,6 +14,8 @@ interface LinkDb extends DBSchema {
   conversations: { key: string; value: Conversation; indexes: { byChar: string } };
   messages: { key: string; value: ChatMessage; indexes: { byConversation: string } };
   voomPosts: { key: string; value: VoomPost; indexes: { byChar: string; byConversation: string } };
+  profileThemes: { key: string; value: ProfileTheme; indexes: { byChar: string } };
+  profileHomepages: { key: string; value: ProfileHomepageRecord; indexes: { byChar: string; byConversation: string } };
   smallTheaterTopics: { key: string; value: SmallTheaterTopic; indexes: { byChar: string } };
   smallTheaters: { key: string; value: SmallTheater; indexes: { byChar: string; byConversation: string } };
   musicFavoriteTracks: { key: string; value: MusicTrack };
@@ -34,7 +36,7 @@ let backupReadLockDepth = 0;
 let backupReadLockReleased: Promise<void> | null = null;
 let releaseBackupReadLock: (() => void) | null = null;
 
-const storeNames = ['user', 'characters', 'conversations', 'messages', 'voomPosts', 'smallTheaterTopics', 'smallTheaters', 'musicFavoriteTracks', 'musicCommentThreads', 'worldBooks', 'stickerGroups', 'stickers', 'conversationSettings', 'conversationMemories', 'conversationMemoryAtoms', 'generatedImages', 'favorites', 'settings'] as const;
+const storeNames = ['user', 'characters', 'conversations', 'messages', 'voomPosts', 'profileThemes', 'profileHomepages', 'smallTheaterTopics', 'smallTheaters', 'musicFavoriteTracks', 'musicCommentThreads', 'worldBooks', 'stickerGroups', 'stickers', 'conversationSettings', 'conversationMemories', 'conversationMemoryAtoms', 'generatedImages', 'favorites', 'settings'] as const;
 const legacyDefaultUserIds = new Set(['1008600002']);
 const legacyDefaultCharacterIds = new Set(['2000100001', '2000100002', '2000100003']);
 const legacyDefaultConversationIds = new Set(['conv_2000100001', 'conv_2000100002', 'conv_2000100003']);
@@ -318,8 +320,10 @@ async function compactSnapshotInlineImages(snapshot: AppSnapshot): Promise<AppSn
   const voomPosts: VoomPost[] = [];
   for (const post of snapshot.voomPosts) voomPosts.push(await compactVoomPostInlineImages(post));
 
+  const profileHomepages = snapshot.profileHomepages ?? [];
   const smallTheaterTopics = snapshot.smallTheaterTopics ?? [];
   const smallTheaters = snapshot.smallTheaters ?? [];
+  const profileThemes = snapshot.profileThemes ?? [];
 
   const generatedImages: GeneratedImageRecord[] = [];
   for (const record of snapshot.generatedImages ?? []) generatedImages.push(await compactGeneratedImageRecord(record));
@@ -339,6 +343,8 @@ async function compactSnapshotInlineImages(snapshot: AppSnapshot): Promise<AppSn
     characters,
     messages,
     voomPosts,
+    profileThemes,
+    profileHomepages,
     smallTheaterTopics,
     smallTheaters,
     stickers,
@@ -417,7 +423,7 @@ export function scheduleStartupStorageMaintenance() {
 }
 
 export function getDb() {
-  dbPromise ??= openDB<LinkDb>('link-local-db', 9, {
+  dbPromise ??= openDB<LinkDb>('link-local-db', 11, {
     upgrade(db, oldVersion, _newVersion, transaction) {
       if (!db.objectStoreNames.contains('user')) db.createObjectStore('user', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('characters')) db.createObjectStore('characters', { keyPath: 'id' });
@@ -433,6 +439,15 @@ export function getDb() {
         const voomStore = db.createObjectStore('voomPosts', { keyPath: 'id' });
         voomStore.createIndex('byChar', 'charId');
         voomStore.createIndex('byConversation', 'conversationId');
+      }
+      if (!db.objectStoreNames.contains('profileThemes')) {
+        const profileThemeStore = db.createObjectStore('profileThemes', { keyPath: 'id' });
+        profileThemeStore.createIndex('byChar', 'charId');
+      }
+      if (!db.objectStoreNames.contains('profileHomepages')) {
+        const profileHomepageStore = db.createObjectStore('profileHomepages', { keyPath: 'id' });
+        profileHomepageStore.createIndex('byChar', 'charId');
+        profileHomepageStore.createIndex('byConversation', 'conversationId');
       }
       if (!db.objectStoreNames.contains('smallTheaterTopics')) {
         const topicStore = db.createObjectStore('smallTheaterTopics', { keyPath: 'id' });
@@ -494,12 +509,14 @@ export async function seedDatabase() {
   const existingUser = await db.get('user', defaultUsers[0].id);
   if (existingUser) return;
 
-  const tx = db.transaction(['user', 'characters', 'conversations', 'messages', 'voomPosts', 'smallTheaterTopics', 'smallTheaters', 'musicFavoriteTracks', 'musicCommentThreads', 'worldBooks', 'stickerGroups', 'stickers', 'conversationSettings', 'conversationMemories', 'conversationMemoryAtoms', 'generatedImages', 'favorites', 'settings'], 'readwrite');
+  const tx = db.transaction(['user', 'characters', 'conversations', 'messages', 'voomPosts', 'profileThemes', 'profileHomepages', 'smallTheaterTopics', 'smallTheaters', 'musicFavoriteTracks', 'musicCommentThreads', 'worldBooks', 'stickerGroups', 'stickers', 'conversationSettings', 'conversationMemories', 'conversationMemoryAtoms', 'generatedImages', 'favorites', 'settings'], 'readwrite');
   await Promise.all(defaultUsers.map((user) => tx.objectStore('user').put(user)));
   await Promise.all(defaultCharacters.map((character) => tx.objectStore('characters').put(character)));
   await Promise.all(defaultConversations.map((conversation) => tx.objectStore('conversations').put(conversation)));
   await Promise.all(defaultMessages.map((message) => tx.objectStore('messages').put(message)));
   await Promise.all(defaultVoomPosts.map((post) => tx.objectStore('voomPosts').put(post)));
+  await Promise.all(defaultProfileThemes.map((theme) => tx.objectStore('profileThemes').put(theme)));
+  await Promise.all(defaultProfileHomepages.map((homepage) => tx.objectStore('profileHomepages').put(homepage)));
   await Promise.all(defaultSmallTheaterTopics.map((topic) => tx.objectStore('smallTheaterTopics').put(topic)));
   await Promise.all(defaultSmallTheaters.map((theater) => tx.objectStore('smallTheaters').put(theater)));
   await Promise.all(defaultWorldBooks.map((entry) => tx.objectStore('worldBooks').put(entry)));
@@ -587,12 +604,14 @@ export async function loadSnapshot() {
   await seedDatabase();
   await pruneLegacyDefaultData();
   const db = await getDb();
-  const [users, characters, conversations, messages, voomPosts, smallTheaterTopics, smallTheaters, musicFavoriteTracks, musicCommentThreads, worldBooks, stickerGroups, stickers, conversationSettings, conversationMemories, conversationMemoryAtoms, generatedImages, favorites, settings] = await Promise.all([
+  const [users, characters, conversations, messages, voomPosts, profileThemes, profileHomepages, smallTheaterTopics, smallTheaters, musicFavoriteTracks, musicCommentThreads, worldBooks, stickerGroups, stickers, conversationSettings, conversationMemories, conversationMemoryAtoms, generatedImages, favorites, settings] = await Promise.all([
     db.getAll('user'),
     db.getAll('characters'),
     db.getAll('conversations'),
     db.getAll('messages'),
     db.getAll('voomPosts'),
+    db.getAll('profileThemes'),
+    db.getAll('profileHomepages'),
     db.getAll('smallTheaterTopics'),
     db.getAll('smallTheaters'),
     db.getAll('musicFavoriteTracks'),
@@ -614,6 +633,8 @@ export async function loadSnapshot() {
     conversations,
     messages,
     voomPosts,
+    profileThemes,
+    profileHomepages,
     smallTheaterTopics,
     smallTheaters,
     musicFavoriteTracks,
@@ -654,6 +675,14 @@ export async function replaceSnapshot(snapshot: AppSnapshot) {
   const voomStore = tx.objectStore('voomPosts');
   void voomStore.clear();
   snapshot.voomPosts.forEach((entry) => void voomStore.put(toPersistableValue(entry)));
+
+  const profileThemeStore = tx.objectStore('profileThemes');
+  void profileThemeStore.clear();
+  (snapshot.profileThemes ?? []).forEach((entry) => void profileThemeStore.put(toPersistableValue(entry)));
+
+  const profileHomepageStore = tx.objectStore('profileHomepages');
+  void profileHomepageStore.clear();
+  (snapshot.profileHomepages ?? []).forEach((entry) => void profileHomepageStore.put(toPersistableValue(entry)));
 
   const smallTheaterTopicStore = tx.objectStore('smallTheaterTopics');
   void smallTheaterTopicStore.clear();

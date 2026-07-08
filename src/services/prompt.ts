@@ -184,7 +184,9 @@ export const profileMutationPrompt = `补充输出规则：
     "nickname": "",
     "signature": "",
     "narration": "",
-    "innerMonologue": ["内心独白第一句", "内心独白第二句", "内心独白第三句"]
+    "profileThemeId": "本轮主页主题 id，没有主页主题时留空",
+    "innerMonologue": ["仅当本轮主页主题是 Mood 时填写", "否则省略或留空"],
+    "profileThemeContent": "仅当本轮主页主题不是 Mood 时填写；按本轮主页主题提示词生成用于整张角色主页的数据"
   }
 }
 
@@ -210,7 +212,9 @@ export const profileMutationPrompt = `补充输出规则：
     "nickname": "新的网名，可留空表示不改",
     "signature": "新的个性签名，可留空表示不改",
     "narration": "",
-    "innerMonologue": ["内心独白第一句", "内心独白第二句", "内心独白第三句"]
+    "profileThemeId": "本轮主页主题 id，没有主页主题时留空",
+    "innerMonologue": ["仅当本轮主页主题是 Mood 时填写", "否则省略或留空"],
+    "profileThemeContent": "仅当本轮主页主题不是 Mood 时填写；按本轮主页主题提示词生成用于整张角色主页的数据"
   }
 }
 
@@ -226,7 +230,8 @@ export const profileMutationPrompt = `补充输出规则：
 9. 当最近对话里出现用户发来的待处理转账，你可以按上下文选择接收或拒绝：在 messageActions.transferDecisions 里写 {"messageId":"用户转账消息id","status":"accepted"} 或 {"messageId":"用户转账消息id","status":"rejected"}。只能处理 pending 的用户转账，不要处理角色自己发出的转账。
 10. sticker 项显示成 Sticker：{ "type":"sticker", "stickers":["Sticker id或文字描述"] }。
 11. narration 项显示成旁白：{ "type":"narration", "content":"旁白句" }。修改网名或个性签名时，资料变动旁白必须写成 messages 里的 narration 项，并放在你希望显示的位置；不要写进 text。
-12. 线上模式每次都要在 profileUpdate.innerMonologue 输出 3-5 句当前内心独白；一句一项，像角色当下不会说出口的心声，不要重复聊天气泡原文。
+12. 线上模式每轮只生成一个“角色主页主题”。如果本轮主页主题是 Mood，才在 profileUpdate.innerMonologue 输出 3-5 句当前内心独白，并让 profileThemeContent 留空或省略。
+12.1 如果本轮主页主题不是 Mood，不要生成 innerMonologue；只填写 profileUpdate.profileThemeId 和 profileUpdate.profileThemeContent。profileThemeContent 是用于替换整张角色主页弹窗的数据，不是主页里的一小块，不要重复塞进聊天消息。
 13. 线下模式可以把 profileUpdate 设为 null；线上模式即使不修改资料，也保留 profileUpdate，并让 nickname、signature、narration 为空字符串。修改资料时 profileUpdate.narration 也保持空字符串，资料变动旁白只放 messages 的 narration 项。
 14. 最近对话每条消息前的 [msg_xxx] 是 messageId。你可以像真实社交软件一样撤回自己之前发出的某条消息，但只能把你自己发过的角色消息 id 放进 messageActions.recallMessageIds；不要撤回用户或系统消息。撤回是独立动作，不要求前后固定搭配文字解释；是否解释由角色和语境决定。
 15. 你可以引用用户之前发过的某条消息进行回复。若第 n 个 text 气泡要引用用户消息，在 messageActions.quotes 里写 {"replyIndex": n, "messageId": "用户消息id"}；replyIndex 从 0 开始，只按 text 气泡计数，不把 voice、image、location、transfer、sticker、narration 算进去。
@@ -725,6 +730,23 @@ function renderAvailableStickers(context: PromptContext) {
   ].join('\n');
 }
 
+function renderProfileThemePrompt(context: PromptContext) {
+  const theme = context.activeProfileTheme;
+  if (!theme || context.mode !== 'online') return '';
+  const isMoodTheme = Boolean(theme.builtIn || theme.source === 'built-in');
+  return [
+    '本轮只生成下面这个角色主页主题，不要额外生成其他主页主题。',
+    `主页主题 id：${theme.id}`,
+    `主页主题名称：${theme.name}`,
+    '主题提示词：',
+    theme.prompt,
+    isMoodTheme
+      ? '输出要求：profileUpdate.profileThemeId 必须等于上面的主页主题 id；只填写 profileUpdate.innerMonologue，输出 3-5 句当前心声；profileUpdate.profileThemeContent 必须留空或省略。'
+      : '输出要求：profileUpdate.profileThemeId 必须等于上面的主页主题 id；只填写 profileUpdate.profileThemeContent；不要生成 profileUpdate.innerMonologue。profileThemeContent 是整张角色主页弹窗的数据源，不是 Mood 小块；不要把这段内容发成聊天气泡，不要放进 messages。',
+    theme.regex ? `主题正则只由 App 本地解析使用，你只需保证原始文本能匹配这个正则：${theme.regex}` : '如果主题没有正则，profileThemeContent 可以直接写成整张主页代码要使用的多行数据。'
+  ].filter(Boolean).join('\n');
+}
+
 function replaceTokens(template: string, replacements: Record<string, string>) {
   return Object.entries(replacements).reduce((result, [token, value]) => result.split(token).join(value), template);
 }
@@ -811,6 +833,7 @@ export function buildPrompt(context: PromptContext, options: { includeOnlineChat
       ? 'Sticker / 图片 / 语音 / 定位 / 转账 / 网站链接规则：用户发送 Sticker 时，文字描述是用户提供的贴纸含义。用户发送真实图片时，若本次请求附带图片，你可以观察图片内容；用户发送文字描述卡片时，必须理解为“用户发送了一张图片，图片内容为描述文本”，虽然没有真实图片文件，也要按图片内容参与对话。用户或角色发送语音时，必须理解为对方用语音消息说出了对应文字内容，不要把它当成普通打字消息；角色也可以在合适时用 voice 项主动发送语音条。用户发送定位时，必须理解为用户把自己的当前位置发给了你，并告知了用户与角色之间的距离；角色也可以在合适时用 location 项主动发送自己的定位。用户发送转账时，必须理解为用户确实向你发起了对应金额的转账；你可以在后续按角色意愿接收或拒绝。角色也可以在合适时用 transfer 项主动向用户转账，等待用户接收或拒绝。用户发送网站链接卡片时，必须理解为用户转发了一个真实可读的网页链接给你，链接卡片附带的“网站内容”为你已经能看到的页面正文，可直接按其中内容参与对话。若未附带真实图片，不要臆造描述之外的图片细节。'
       : '',
     context.mode === 'online' && options.includeAvailableStickers !== false ? `角色可用 Stickers：\n${renderAvailableStickers(context)}` : '',
+    renderProfileThemePrompt(context),
     context.mode === 'online' && context.replyInstruction ? `本次生成任务：\n${context.replyInstruction}` : '',
     `最近对话：\n${history || '暂无。'}`
   ].filter(Boolean).join('\n\n');

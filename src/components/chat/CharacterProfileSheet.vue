@@ -1,5 +1,7 @@
 <template>
-  <section class="character-sheet">
+  <section v-if="hasCustomProfileTheme" class="custom-profile-theme-root" :data-profile-theme-scope="profileThemeScopeId" v-html="customProfileThemeHtml"></section>
+
+  <section v-else class="character-sheet">
     <header class="profile-topbar">
       <div class="account-title">
         <strong>{{ characterRealName }}</strong>
@@ -54,8 +56,8 @@
       </section>
 
       <section class="profile-menu" aria-label="主页信息">
-        <article class="mood-row">
-          <p v-for="line in moodLines" :key="line">{{ line }}</p>
+        <article class="mood-row profile-theme-card" :data-profile-theme-scope="profileThemeScopeId">
+          <p v-for="line in profileThemeLines" :key="line" class="profile-theme-line">{{ line }}</p>
         </article>
 
       </section>
@@ -178,7 +180,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
+import { computed, onUnmounted, reactive, ref, watch } from 'vue';
 import { CheckCircle2, ChevronDown, MoreHorizontal, Pencil, UserPlus, X } from 'lucide-vue-next';
 import AvatarCropperModal from '@/components/image/AvatarCropperModal.vue';
 import type { CharacterProfile, CharacterProfileHistoryEntry, VisualProfileHighlight, VoomPost } from '@/types/domain';
@@ -186,6 +188,7 @@ import { normalizeCharacterMindStateLines } from '@/utils/character';
 import { readImageFileFromInput } from '@/utils/imageFile';
 import { createProfileHighlightItems, createProfileHighlightSlots } from '@/utils/profileHighlights';
 import { createVisualProfile, getCharacterVisualProfile, normalizeVisualProfile, toCharacterVisualProfile } from '@/utils/profile';
+import { renderProfileThemeHtml, scopeProfileThemeCss } from '@/utils/profileThemes';
 
 const profileHistoryTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
   month: '2-digit',
@@ -243,6 +246,37 @@ const characterPosts = computed(() => props.posts
 const moodLines = computed(() => {
   const lines = normalizeCharacterMindStateLines(props.character.mindState?.lines);
   return lines.length ? lines : [signatureText.value];
+});
+
+const profileThemeScopeId = computed(() => `profile-theme-${props.character.id}`);
+const profileThemeLines = computed(() => moodLines.value);
+const hasCustomProfileTheme = computed(() => Boolean(
+  props.character.mindState?.profileThemeId
+  && props.character.mindState?.profileThemeName !== 'Mood'
+  && String(props.character.mindState?.profileThemeContent ?? '').trim()
+));
+const customProfileThemeHtml = computed(() => props.character.mindState?.profileThemeHtml
+  || renderProfileThemeHtml(props.character.mindState?.profileThemeContent ?? '', ''));
+const profileThemeScopedCss = computed(() => scopeProfileThemeCss(props.character.mindState?.profileThemeCss ?? '', profileThemeScopeId.value));
+let profileThemeStyleElement: HTMLStyleElement | null = null;
+
+watch(profileThemeScopedCss, (css) => {
+  if (typeof document === 'undefined') return;
+  if (!css) {
+    profileThemeStyleElement?.remove();
+    profileThemeStyleElement = null;
+    return;
+  }
+  if (!profileThemeStyleElement) {
+    profileThemeStyleElement = document.createElement('style');
+    profileThemeStyleElement.dataset.linkProfileThemeScope = profileThemeScopeId.value;
+    document.head.appendChild(profileThemeStyleElement);
+  }
+  profileThemeStyleElement.textContent = css;
+}, { immediate: true });
+
+onUnmounted(() => {
+  profileThemeStyleElement?.remove();
 });
 
 const socialStats = computed(() => {
@@ -449,6 +483,39 @@ function saveEditor() {
   display: grid;
   gap: 15px;
   padding: 4px 12px 16px;
+}
+
+.custom-profile-theme-root {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: auto;
+  background: transparent;
+  color: #111111;
+  container-type: inline-size;
+}
+
+.custom-profile-theme-root :deep(*) {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.custom-profile-theme-root :deep(img),
+.custom-profile-theme-root :deep(video) {
+  max-width: 100%;
+  height: auto;
+}
+
+.custom-profile-theme-root :deep(.profile-theme-line) {
+  margin: 0;
+  color: #333333;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+:global(.modal-panel-profile-ins .modal-body:has(.custom-profile-theme-root)) {
+  padding: 0 !important;
 }
 
 .profile-overview {

@@ -65,7 +65,9 @@ export interface RoleplayReplyResult {
     nickname: string;
     signature: string;
     narration: string;
-    innerMonologue: string[];
+    innerMonologue?: string[];
+    profileThemeId?: string;
+    profileThemeContent?: string;
   };
 }
 
@@ -2019,7 +2021,14 @@ export async function generateRoleplayReply(input: GenerateReplyInput): Promise<
                 ?? profileUpdateRecord.innerThoughts
                 ?? profileUpdateRecord.thoughts
                 ?? profileUpdateRecord.statusLines
-              ).slice(0, 5)
+              ).slice(0, 5),
+              profileThemeId: String(profileUpdateRecord.profileThemeId ?? '').trim(),
+              profileThemeContent: String(
+                profileUpdateRecord.profileThemeContent
+                ?? profileUpdateRecord.profileTheme
+                ?? profileUpdateRecord.profileStatus
+                ?? ''
+              ).trim()
             }
           : null
       } satisfies RoleplayReplyResult);

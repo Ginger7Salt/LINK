@@ -70,10 +70,46 @@ export interface UserProfile {
 
 export interface CharacterMindState {
   lines: string[];
+  profileThemeId?: string;
+  profileThemeName?: string;
+  profileThemeContent?: string;
+  profileThemeHtml?: string;
+  profileThemeCss?: string;
   updatedAt: number;
   readAt: number;
   sourceConversationId?: string;
   sourceReplyBatchId?: string;
+}
+
+export type ProfileThemeSource = 'built-in' | 'custom' | 'imported';
+
+export interface ProfileTheme {
+  id: string;
+  charId: string;
+  name: string;
+  prompt: string;
+  regex: string;
+  template: string;
+  css: string;
+  enabled: boolean;
+  source: ProfileThemeSource;
+  builtIn?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ProfileHomepageRecord {
+  id: string;
+  charId: string;
+  conversationId: string;
+  replyBatchId?: string;
+  themeId: string;
+  themeName: string;
+  content: string;
+  html: string;
+  css: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface CharacterInitialProfile {
@@ -121,6 +157,8 @@ export type VoomAutoCleanupPreset = '3' | '7' | '30' | 'custom';
 
 export type SmallTheaterAutoCleanupPreset = VoomAutoCleanupPreset;
 
+export type ProfileHomepageAutoCleanupPreset = VoomAutoCleanupPreset;
+
 export interface CharacterVoomAutoCleanupSettings {
   enabled: boolean;
   days: number;
@@ -132,6 +170,13 @@ export interface CharacterSmallTheaterAutoCleanupSettings {
   enabled: boolean;
   days: number;
   preset: SmallTheaterAutoCleanupPreset;
+  lastCleanupAt: number;
+}
+
+export interface CharacterProfileHomepageAutoCleanupSettings {
+  enabled: boolean;
+  days: number;
+  preset: ProfileHomepageAutoCleanupPreset;
   lastCleanupAt: number;
 }
 
@@ -969,6 +1014,7 @@ export interface AppSettings {
   voomReadAtByUser: Record<string, Record<string, number>>;
   voomAutoCleanup: Record<string, CharacterVoomAutoCleanupSettings>;
   smallTheaterAutoCleanup: Record<string, CharacterSmallTheaterAutoCleanupSettings>;
+  profileHomepageAutoCleanup: Record<string, CharacterProfileHomepageAutoCleanupSettings>;
   smallTheaterTopicDefaultsInitialized: Record<string, number>;
   keepAlive: AppKeepAliveSettings;
   ringtoneSettings: AppRingtoneSettings;
@@ -984,6 +1030,8 @@ export interface AppSnapshot {
   conversations: Conversation[];
   messages: ChatMessage[];
   voomPosts: VoomPost[];
+  profileThemes: ProfileTheme[];
+  profileHomepages: ProfileHomepageRecord[];
   smallTheaterTopics: SmallTheaterTopic[];
   smallTheaters: SmallTheater[];
   musicFavoriteTracks: MusicTrack[];
@@ -1018,6 +1066,7 @@ export interface PromptContext {
   timeAwarenessNow?: number;
   offlineSettings?: ConversationOfflineSettings;
   replyInstruction?: string;
+  activeProfileTheme?: Pick<ProfileTheme, 'id' | 'name' | 'prompt' | 'regex' | 'css' | 'template' | 'source' | 'builtIn'>;
 }
 
 export interface GenerateReplyInput extends PromptContext {

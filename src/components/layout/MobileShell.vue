@@ -14,7 +14,7 @@ import BottomTabs from './BottomTabs.vue';
 
 const route = useRoute();
 
-const showTabs = computed(() => !['chat-room', 'chat-search', 'small-theater', 'small-theater-detail', 'offline-room', 'chat-settings', 'offline-chat-settings', 'account', 'add-friend', 'services', 'settings', 'image-module-settings', 'stickers', 'stickers-manage', 'favorites', 'ringtones', 'themes', 'world-book', 'world-book-new', 'world-book-edit'].includes(String(route.name)));
+const showTabs = computed(() => !['chat-room', 'chat-search', 'profile-themes', 'small-theater', 'small-theater-detail', 'offline-room', 'chat-settings', 'offline-chat-settings', 'account', 'add-friend', 'services', 'settings', 'image-module-settings', 'stickers', 'stickers-manage', 'favorites', 'ringtones', 'themes', 'world-book', 'world-book-new', 'world-book-edit'].includes(String(route.name)));
 </script>
 
 <style scoped>

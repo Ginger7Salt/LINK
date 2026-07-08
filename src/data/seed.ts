@@ -1,4 +1,4 @@
-import type { AppSettings, CharacterProfile, ChatMessage, Conversation, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VoomPost, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, CharacterProfile, ChatMessage, Conversation, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VoomPost, WorldBookEntry } from '@/types/domain';
 import { createUserVisualProfile, defaultProfileAvatar } from '@/utils/profile';
 import { createDefaultKeepAliveSettings, createDefaultRingtoneSettings, createDefaultThemeSettings } from '@/utils/settings';
 
@@ -33,6 +33,10 @@ export const defaultMessages: ChatMessage[] = [];
 export const defaultWorldBooks: WorldBookEntry[] = [];
 
 export const defaultVoomPosts: VoomPost[] = [];
+
+export const defaultProfileThemes: ProfileTheme[] = [];
+
+export const defaultProfileHomepages: ProfileHomepageRecord[] = [];
 
 export const defaultSmallTheaterTopics: SmallTheaterTopic[] = [];
 
@@ -172,6 +176,7 @@ export const defaultSettings: AppSettings = {
   voomReadAtByUser: {},
   voomAutoCleanup: {},
   smallTheaterAutoCleanup: {},
+  profileHomepageAutoCleanup: {},
   smallTheaterTopicDefaultsInitialized: {},
   keepAlive: createDefaultKeepAliveSettings(),
   ringtoneSettings: createDefaultRingtoneSettings(),

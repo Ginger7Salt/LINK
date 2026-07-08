@@ -29,6 +29,8 @@ export const linkBackupSnapshotArrayKeys: Array<keyof Omit<AppSnapshot, 'setting
   'conversations',
   'messages',
   'voomPosts',
+  'profileThemes',
+  'profileHomepages',
   'smallTheaterTopics',
   'smallTheaters',
   'musicFavoriteTracks',

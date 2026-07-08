@@ -1,4 +1,4 @@
-import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterRingtoneSettings, CharacterSmallTheaterAutoCleanupSettings, CharacterVoomAutoCleanupSettings, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, RingtoneAsset, RingtoneEventType, SmallTheaterAutoCleanupPreset, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType, VoomAutoCleanupPreset } from '@/types/domain';
+import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterProfileHomepageAutoCleanupSettings, CharacterRingtoneSettings, CharacterSmallTheaterAutoCleanupSettings, CharacterVoomAutoCleanupSettings, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, ProfileHomepageAutoCleanupPreset, RingtoneAsset, RingtoneEventType, SmallTheaterAutoCleanupPreset, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType, VoomAutoCleanupPreset } from '@/types/domain';
 import { createId } from './id';
 
 export const novelAiOfficialApiUrl = 'https://image.novelai.net';
@@ -279,6 +279,7 @@ export const defaultAppSettings: AppSettings = {
   voomReadAtByUser: {},
   voomAutoCleanup: {},
   smallTheaterAutoCleanup: {},
+  profileHomepageAutoCleanup: {},
   smallTheaterTopicDefaultsInitialized: {},
   keepAlive: createDefaultKeepAliveSettings(),
   ringtoneSettings: createDefaultRingtoneSettings(),
@@ -400,6 +401,10 @@ function normalizeSmallTheaterCleanupPreset(input: unknown, days: number): Small
   return normalizeVoomCleanupPreset(input, days);
 }
 
+function normalizeProfileHomepageCleanupPreset(input: unknown, days: number): ProfileHomepageAutoCleanupPreset {
+  return normalizeVoomCleanupPreset(input, days);
+}
+
 function normalizeVoomAutoCleanup(input: unknown): Record<string, CharacterVoomAutoCleanupSettings> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
 
@@ -433,6 +438,26 @@ function normalizeSmallTheaterAutoCleanup(input: unknown): Record<string, Charac
       enabled: Boolean(entry.enabled),
       days,
       preset: normalizeSmallTheaterCleanupPreset(entry.preset, days),
+      lastCleanupAt: Math.max(0, Number(entry.lastCleanupAt) || 0)
+    };
+  }
+
+  return normalized;
+}
+
+function normalizeProfileHomepageAutoCleanup(input: unknown): Record<string, CharacterProfileHomepageAutoCleanupSettings> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+
+  const normalized: Record<string, CharacterProfileHomepageAutoCleanupSettings> = {};
+  for (const [characterId, rawEntry] of Object.entries(input)) {
+    const normalizedCharacterId = characterId.trim();
+    if (!normalizedCharacterId || !rawEntry || typeof rawEntry !== 'object' || Array.isArray(rawEntry)) continue;
+    const entry = rawEntry as Partial<CharacterProfileHomepageAutoCleanupSettings>;
+    const days = normalizeVoomCleanupDays(entry.days);
+    normalized[normalizedCharacterId] = {
+      enabled: Boolean(entry.enabled),
+      days,
+      preset: normalizeProfileHomepageCleanupPreset(entry.preset, days),
       lastCleanupAt: Math.max(0, Number(entry.lastCleanupAt) || 0)
     };
   }
@@ -1422,6 +1447,7 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
     voomReadAtByUser: normalizeVoomReadAtByUser(settings?.voomReadAtByUser),
     voomAutoCleanup: normalizeVoomAutoCleanup(settings?.voomAutoCleanup),
     smallTheaterAutoCleanup: normalizeSmallTheaterAutoCleanup(settings?.smallTheaterAutoCleanup),
+    profileHomepageAutoCleanup: normalizeProfileHomepageAutoCleanup(settings?.profileHomepageAutoCleanup),
     smallTheaterTopicDefaultsInitialized: normalizeTimestampRecord(settings?.smallTheaterTopicDefaultsInitialized),
     keepAlive: normalizeKeepAliveSettings(settings?.keepAlive),
     ringtoneSettings: normalizeRingtoneSettings(settings?.ringtoneSettings),

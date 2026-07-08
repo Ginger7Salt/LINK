@@ -2,13 +2,14 @@ import { computed, ref, toRaw } from 'vue';
 import { defineStore } from 'pinia';
 import { deleteEntity, loadSnapshot, putEntity, replaceSnapshot, scheduleStartupStorageMaintenance } from '@/data/db';
 import { defaultSettings } from '@/data/seed';
-import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatSmallTheaterLinkAttachment, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationMemoryAtom, ConversationMemoryRecord, ConversationSettings, FavoriteMessageKind, FavoriteMessageRecord, GenerateReplyInput, GeneratedImageRecord, ImageModuleId, MusicCommentThread, MusicTrack, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatSmallTheaterLinkAttachment, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationMemoryAtom, ConversationMemoryRecord, ConversationSettings, FavoriteMessageKind, FavoriteMessageRecord, GenerateReplyInput, GeneratedImageRecord, ImageModuleId, MusicCommentThread, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
 import { createAccountId, createId } from '@/utils/id';
 import { getCharacterAiName, getCharacterInitialProfile, getCharacterVoomAuthorName, getCharacterVoomDisplayName, normalizeCharacterMindStateLines, normalizeCharacterProfile } from '@/utils/character';
 import { getUserAiName, getUserDisplayName, getUserVoomAuthorName, normalizeUserProfile, normalizeVisualProfile } from '@/utils/profile';
 import { getImageGenerationSize, getImagePromptPresetForProvider, getSelectedImageModelOption, isImageModelSelectionDisabled, mergeVendorModels, normalizeAppSettings, normalizeChatModelOverrides } from '@/utils/settings';
 import { normalizeWorldBookEntry, normalizeWorldBooks } from '@/utils/worldBook';
 import { createDefaultSmallTheaterTopics, defaultSmallTheaterTopicDrafts, normalizeSmallTheaterTopic } from '@/utils/smallTheater';
+import { createDefaultProfileTheme, extractProfileThemeContent, isDefaultProfileTheme, normalizeProfileTheme, normalizeProfileThemesForCharacter, normalizeProfileThemeContentLines, renderProfileThemeHtml, selectRandomEnabledProfileTheme } from '@/utils/profileThemes';
 import { getSmallTheaterVisibleText } from '@/utils/smallTheaterHtml';
 import { RECENT_STICKER_GROUP_NAME, cacheStickerImageUrl, createStickerFromDraft, createStickerGroup, getStickerDisplayImageUrl, isLegacyGanadiSticker, isLegacyGanadiStickerGroup, isRecentStickerGroupId, normalizeSticker, normalizeStickerGroup, shouldLocalizeStickerImageUrl, sortRecentStickers, type StickerImportDraft } from '@/utils/stickers';
 import { ageMemoryKind, collectIncrementalGrandSummaries, createMemoryRecord, estimateTokenCount, filterHighestMemoryLayers, getConversationActiveMessages, getConversationFloorCount, getGrandSummaryHiddenRange, getHiddenMessageIds, getMemoryContext, getMemoryMergeDepth, getMessageFloorMap, getMessagesInFloorRange, getNextSummaryRange, getNextSummaryStartFloor, getVisibleMessages, isIncrementalGrandSummary, normalizeConversationSettings, normalizeMemoryRecordEntries, renderCharacterMemoryPrompt, shouldCompressMemory } from '@/utils/memory';
@@ -39,6 +40,7 @@ interface RoleplayReplyInputBundle {
   chatSettings: ConversationSettings;
   modelOverride: string;
   input: GenerateReplyInput;
+  activeProfileTheme: ProfileTheme | null;
 }
 
 interface BuildRoleplayReplyInputOptions {
@@ -295,6 +297,8 @@ export const useAppStore = defineStore('app', () => {
   const activeConversationId = ref<string | null>(null);
   const messages = ref<ChatMessage[]>([]);
   const voomPosts = ref<VoomPost[]>([]);
+  const profileThemes = ref<ProfileTheme[]>([]);
+  const profileHomepages = ref<ProfileHomepageRecord[]>([]);
   const smallTheaterTopics = ref<SmallTheaterTopic[]>([]);
   const smallTheaters = ref<SmallTheater[]>([]);
   const musicFavoriteTracks = ref<MusicTrack[]>([]);
@@ -327,6 +331,7 @@ export const useAppStore = defineStore('app', () => {
   const conversationsForFriendsDisplay = computed(() => displayAllFriends.value ? conversations.value : conversationsForActiveUser.value);
   const sortedConversations = computed(() => [...conversationsForActiveUser.value].sort((a, b) => b.updatedAt - a.updatedAt));
   const sortedVoomPosts = computed(() => [...voomPosts.value].sort((a, b) => b.createdAt - a.createdAt));
+  const sortedProfileHomepages = computed(() => [...profileHomepages.value].sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt)));
   const sortedSmallTheaters = computed(() => [...smallTheaters.value].sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt)));
   const sortedStickerGroups = computed(() => [...stickerGroups.value].sort((a, b) => {
     const orderDiff = (a.sortOrder ?? a.createdAt) - (b.sortOrder ?? b.createdAt);
@@ -491,6 +496,8 @@ export const useAppStore = defineStore('app', () => {
       conversations: snapshot.conversations,
       messages: snapshot.messages,
       voomPosts: snapshot.voomPosts,
+      profileThemes: normalizeStoredProfileThemes(snapshot.profileThemes ?? []),
+      profileHomepages: normalizeStoredProfileHomepages(snapshot.profileHomepages ?? []),
       smallTheaterTopics: snapshot.smallTheaterTopics ?? [],
       smallTheaters: snapshot.smallTheaters ?? [],
       musicFavoriteTracks: snapshot.musicFavoriteTracks ?? [],
@@ -590,6 +597,8 @@ export const useAppStore = defineStore('app', () => {
     conversations.value = snapshot.conversations;
     messages.value = snapshot.messages.map((message) => normalizeStoredMessageIdentityReferences(message));
     voomPosts.value = snapshot.voomPosts.map((post) => normalizeStoredVoomPostIdentityReferences(post));
+    profileThemes.value = normalizeStoredProfileThemes(snapshot.profileThemes ?? []);
+    profileHomepages.value = normalizeStoredProfileHomepages(snapshot.profileHomepages ?? []);
     smallTheaterTopics.value = snapshot.smallTheaterTopics ?? [];
     smallTheaters.value = normalizeStoredSmallTheaters(snapshot.smallTheaters ?? []);
     musicFavoriteTracks.value = snapshot.musicFavoriteTracks ?? [];
@@ -613,6 +622,7 @@ export const useAppStore = defineStore('app', () => {
       ...snapshot,
       messages: snapshot.messages.map((message) => normalizeStoredMessageIdentityReferences(message)),
       voomPosts: snapshot.voomPosts.map((post) => normalizeStoredVoomPostIdentityReferences(post)),
+      profileHomepages: normalizeStoredProfileHomepages(snapshot.profileHomepages ?? []),
       smallTheaters: normalizeStoredSmallTheaters(snapshot.smallTheaters ?? []),
       musicCommentThreads: normalizeStoredMusicCommentThreads(snapshot.musicCommentThreads ?? []),
       conversationMemories: normalizedMemories,
@@ -742,6 +752,8 @@ export const useAppStore = defineStore('app', () => {
     conversations.value = snapshot.conversations;
     messages.value = snapshot.messages.map((message) => normalizeStoredMessageIdentityReferences(message));
     voomPosts.value = snapshot.voomPosts.map((post) => normalizeStoredVoomPostIdentityReferences(post));
+    profileThemes.value = normalizeStoredProfileThemes(snapshot.profileThemes ?? []);
+    profileHomepages.value = normalizeStoredProfileHomepages(snapshot.profileHomepages ?? []);
     smallTheaterTopics.value = snapshot.smallTheaterTopics ?? [];
     smallTheaters.value = normalizeStoredSmallTheaters(snapshot.smallTheaters ?? []);
     musicFavoriteTracks.value = snapshot.musicFavoriteTracks ?? [];
@@ -995,6 +1007,9 @@ export const useAppStore = defineStore('app', () => {
     const chatSettings = settingsForConversation(conversationId);
     const modelOverride = getConversationTextModelOverride(chatSettings, conversation.activeMode);
     const availableCharacterStickers = stickersForGroups(chatSettings.characterStickerGroupIds);
+    const activeProfileTheme = conversation.activeMode === 'online'
+      ? selectRandomEnabledProfileTheme(await ensureProfileThemesForCharacter(character.id))
+      : null;
     const memorySummary = await memoryContextForConversationAsync(conversationId, userMessageText, {
       storeDebug: false,
       modelOverride: getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode),
@@ -1007,6 +1022,7 @@ export const useAppStore = defineStore('app', () => {
       boundUser,
       chatSettings,
       modelOverride,
+      activeProfileTheme,
       input: {
         user: boundUser,
         character,
@@ -1026,6 +1042,18 @@ export const useAppStore = defineStore('app', () => {
           ? options.replyInstruction
           : options.proactive
           ? `这不是用户刚发来的新消息，而是${getCharacterAiName(character)}在自己的生活节奏里主动联系${getUserAiName(boundUser)}。请基于最近对话、关系状态、时间流逝和角色当前生活，生成一组自然的主动消息；不要假装用户刚说了什么，也不要替用户发言。`
+          : undefined,
+        activeProfileTheme: activeProfileTheme
+          ? {
+              id: activeProfileTheme.id,
+              name: activeProfileTheme.name,
+              prompt: activeProfileTheme.prompt,
+              regex: activeProfileTheme.regex,
+              css: activeProfileTheme.css,
+              template: activeProfileTheme.template,
+              source: activeProfileTheme.source,
+              builtIn: activeProfileTheme.builtIn
+            }
           : undefined,
         availableStickers: availableCharacterStickers.map((sticker) => ({
           stickerId: sticker.id,
@@ -1370,6 +1398,44 @@ export const useAppStore = defineStore('app', () => {
       const updatedAt = theater.updatedAt ?? theater.createdAt;
       return authorName !== theater.authorName || updatedAt !== theater.updatedAt ? { ...theater, authorName, updatedAt } : theater;
     });
+  }
+
+  function normalizeStoredProfileThemes(themes: ProfileTheme[]) {
+    return themes
+      .map((theme) => normalizeProfileTheme(theme, theme.charId))
+      .filter((theme): theme is ProfileTheme => Boolean(theme));
+  }
+
+  function normalizeStoredProfileHomepages(homepages: ProfileHomepageRecord[]) {
+    const normalizedHomepages: ProfileHomepageRecord[] = [];
+    for (const entry of homepages ?? []) {
+      const id = String(entry?.id ?? '').trim() || createId('profile-homepage');
+      const charId = String(entry?.charId ?? '').trim();
+      const conversationId = String(entry?.conversationId ?? '').trim();
+      const themeId = String(entry?.themeId ?? '').trim();
+      const themeName = String(entry?.themeName ?? '').trim() || '主页主题';
+      const content = String(entry?.content ?? '').trim();
+      const html = String(entry?.html ?? '').trim();
+      const css = String(entry?.css ?? '').trim();
+      const createdAt = Math.max(0, Number(entry?.createdAt) || Date.now());
+      const updatedAt = Math.max(0, Number(entry?.updatedAt) || createdAt);
+      const replyBatchId = String(entry?.replyBatchId ?? '').trim();
+      if (!charId || !conversationId || !themeId || (!content && !html)) continue;
+      normalizedHomepages.push({
+        id,
+        charId,
+        conversationId,
+        ...(replyBatchId ? { replyBatchId } : {}),
+        themeId,
+        themeName,
+        content,
+        html,
+        css,
+        createdAt,
+        updatedAt
+      });
+    }
+    return normalizedHomepages;
   }
 
   function voomCommentAiAuthorName(comment: VoomComment) {
@@ -1901,7 +1967,6 @@ export const useAppStore = defineStore('app', () => {
           userName: boundUser ? getUserAiName(boundUser) : entry.userName ? voomAiNameForIdentity(entry.userName, entry.userId) : undefined,
           message,
           kind: favoriteKindForMessage(message),
-          summary: entry.summary?.trim() || messageReadableContent(message),
           messageCreatedAt: Number.isFinite(entry.messageCreatedAt) ? entry.messageCreatedAt : message.createdAt,
           favoritedAt: Number.isFinite(entry.favoritedAt) ? entry.favoritedAt : Date.now()
         };
@@ -2446,16 +2511,30 @@ export const useAppStore = defineStore('app', () => {
     });
   }
 
-  async function updateCharacterMindState(characterId: string, lines: unknown, conversationId: string, options: { replyBatchId?: string } = {}) {
+  async function updateCharacterMindState(characterId: string, lines: unknown, conversationId: string, options: { replyBatchId?: string; profileTheme?: ProfileTheme | null; profileThemeContent?: string } = {}) {
     const character = characterById(characterId);
     const mindStateLines = normalizeCharacterMindStateLines(lines);
-    if (!character || !mindStateLines.length) return;
+    if (!character) return;
     const sourceReplyBatchId = String(options.replyBatchId ?? '').trim();
+    const profileTheme = options.profileTheme ?? null;
+    const isDefaultTheme = isDefaultProfileTheme(profileTheme);
+    const profileThemeContent = extractProfileThemeContent(options.profileThemeContent ?? '', profileTheme?.regex ?? '');
+    const profileThemeLines = normalizeProfileThemeContentLines(profileThemeContent);
+    const profileThemeHtml = profileTheme && !isDefaultTheme ? renderProfileThemeHtml(profileThemeContent, profileTheme.template) : '';
+    const nextMindStateLines = isDefaultTheme
+      ? (mindStateLines.length ? mindStateLines : profileThemeLines).slice(0, 5)
+      : normalizeCharacterMindStateLines(character.mindState?.lines);
+    if (!nextMindStateLines.length && !profileThemeLines.length) return;
 
     await saveCharacter({
       ...character,
       mindState: {
-        lines: mindStateLines,
+        lines: nextMindStateLines,
+        profileThemeId: profileTheme?.id,
+        profileThemeName: profileTheme?.name,
+        profileThemeContent: profileThemeLines.join('\n') || (isDefaultTheme ? nextMindStateLines.join('\n') : undefined),
+        profileThemeHtml: profileThemeHtml || undefined,
+        profileThemeCss: profileTheme?.css || undefined,
         updatedAt: Date.now(),
         readAt: character.mindState?.readAt ?? 0,
         sourceConversationId: conversationId,
@@ -2467,6 +2546,19 @@ export const useAppStore = defineStore('app', () => {
         sourceReplyBatchId: sourceReplyBatchId || undefined
       }
     });
+
+    if (profileTheme && !isDefaultTheme && (profileThemeHtml || profileThemeContent)) {
+      await createProfileHomepageRecord({
+        charId: character.id,
+        conversationId,
+        replyBatchId: sourceReplyBatchId || undefined,
+        themeId: profileTheme.id,
+        themeName: profileTheme.name,
+        content: profileThemeContent,
+        html: profileThemeHtml,
+        css: profileTheme.css || ''
+      });
+    }
   }
 
   function findRegeneratedReplyMoodHistoryEntry(character: CharacterProfile, conversationId: string, messagesToRemove: ChatMessage[]) {
@@ -4945,8 +5037,17 @@ export const useAppStore = defineStore('app', () => {
         }, character.boundUserId);
         await saveCharacter(nextCharacter);
       }
-      if (conversation.activeMode === 'online' && profileUpdate?.innerMonologue?.length) {
-        await updateCharacterMindState(character.id, profileUpdate.innerMonologue, conversationId, { replyBatchId });
+      if (conversation.activeMode === 'online' && profileUpdate) {
+        const activeProfileTheme = replyInputBundle.activeProfileTheme;
+        const returnedThemeId = String(profileUpdate.profileThemeId ?? '').trim();
+        const profileTheme = activeProfileTheme && (!returnedThemeId || returnedThemeId === activeProfileTheme.id)
+          ? activeProfileTheme
+          : null;
+        if (profileTheme) await updateCharacterMindState(character.id, profileUpdate.innerMonologue ?? [], conversationId, {
+          replyBatchId,
+          profileTheme,
+          profileThemeContent: profileUpdate.profileThemeContent
+        });
       }
       for (const messageId of validRecallMessageIds) {
         await recallMessage(messageId, { actor: 'char', replyBatchId });
@@ -5565,6 +5666,21 @@ export const useAppStore = defineStore('app', () => {
       .sort((first, second) => first.createdAt - second.createdAt);
   }
 
+  function profileThemesForCharacter(characterId: string) {
+    return profileThemes.value
+      .filter((theme) => theme.charId === characterId)
+      .sort((first, second) => first.createdAt - second.createdAt);
+  }
+
+  function enabledProfileThemesForCharacter(characterId: string) {
+    return profileThemesForCharacter(characterId).filter((theme) => theme.enabled);
+  }
+  function profileHomepagesForCharacter(characterId: string) {
+    return profileHomepages.value
+      .filter((homepage) => homepage.charId === characterId)
+      .sort((first, second) => (second.updatedAt ?? second.createdAt) - (first.updatedAt ?? first.createdAt));
+  }
+
   function smallTheatersForCharacter(characterId: string) {
     return smallTheaters.value
       .filter((theater) => theater.charId === characterId)
@@ -5635,6 +5751,156 @@ export const useAppStore = defineStore('app', () => {
     await Promise.all(defaultTopics.map((topic) => putEntity('smallTheaterTopics', topic)));
     await markSmallTheaterDefaultsInitialized(normalizedCharacterId, timestamp);
     return smallTheaterTopicsForCharacter(normalizedCharacterId);
+  }
+
+  async function ensureProfileThemesForCharacter(characterId: string) {
+    const normalizedCharacterId = characterId.trim();
+    if (!normalizedCharacterId) return [];
+    const existingThemes = profileThemesForCharacter(normalizedCharacterId);
+    if (existingThemes.length) return existingThemes;
+
+    const defaultTheme = createDefaultProfileTheme(normalizedCharacterId, Date.now());
+    profileThemes.value.push(defaultTheme);
+    await putEntity('profileThemes', defaultTheme);
+    return profileThemesForCharacter(normalizedCharacterId);
+  }
+
+  async function createProfileTheme(payload: Pick<ProfileTheme, 'charId' | 'name' | 'prompt'> & Partial<Pick<ProfileTheme, 'regex' | 'template' | 'css' | 'enabled'>>) {
+    const now = Date.now();
+    const theme = normalizeProfileTheme({
+      ...payload,
+      enabled: payload.enabled !== false,
+      source: 'custom',
+      createdAt: now,
+      updatedAt: now
+    }, payload.charId);
+    if (!theme) {
+      showConfigAlert('请填写主页主题名称和提示词。', '无法保存主页主题');
+      return null;
+    }
+
+    profileThemes.value.push(theme);
+    await putEntity('profileThemes', theme);
+    return theme;
+  }
+
+  async function refreshActiveProfileThemeSnapshot(theme: ProfileTheme) {
+    if (isDefaultProfileTheme(theme)) return;
+    const character = characterById(theme.charId);
+    if (!character?.mindState || character.mindState.profileThemeId !== theme.id) return;
+    const profileThemeContent = character.mindState.profileThemeContent ?? '';
+    await saveCharacter({
+      ...character,
+      mindState: {
+        ...character.mindState,
+        profileThemeName: theme.name,
+        profileThemeHtml: renderProfileThemeHtml(profileThemeContent, theme.template) || undefined,
+        profileThemeCss: theme.css || undefined
+      }
+    });
+  }
+
+  async function createProfileHomepageRecord(payload: Omit<ProfileHomepageRecord, 'id' | 'createdAt' | 'updatedAt'>) {
+    const now = Date.now();
+    const record = normalizeStoredProfileHomepages([{
+      ...payload,
+      id: createId('profile-homepage'),
+      createdAt: now,
+      updatedAt: now
+    }])[0] ?? null;
+    if (!record) return null;
+    profileHomepages.value.unshift(record);
+    await putEntity('profileHomepages', record);
+    return record;
+  }
+
+  async function deleteProfileHomepage(recordId: string) {
+    const record = profileHomepages.value.find((entry) => entry.id === recordId);
+    if (!record) return false;
+    profileHomepages.value = profileHomepages.value.filter((entry) => entry.id !== recordId);
+    await deleteEntity('profileHomepages', recordId);
+    return true;
+  }
+
+  function profileHomepagesForCleanup(characterIds: string[], olderThanDays: number) {
+    const characterIdSet = new Set(characterIds.map((id) => id.trim()).filter(Boolean));
+    const days = Math.max(1, Math.round(Number(olderThanDays) || 0));
+    if (!characterIdSet.size || !days) return [];
+    const cutoff = Date.now() - days * oneDayMs;
+    return profileHomepages.value.filter((homepage) => characterIdSet.has(homepage.charId) && (homepage.updatedAt ?? homepage.createdAt) < cutoff);
+  }
+
+  async function cleanupProfileHomepagesForCharacters(characterIds: string[], olderThanDays: number) {
+    const recordsToDelete = profileHomepagesForCleanup(characterIds, olderThanDays);
+    for (const record of recordsToDelete) {
+      await deleteProfileHomepage(record.id);
+    }
+    return recordsToDelete.length;
+  }
+
+  async function runProfileHomepageAutoCleanupForCharacters(characterIds: string[]) {
+    if (!settings.value) return 0;
+    const now = Date.now();
+    const cleanupSettings = { ...settings.value.profileHomepageAutoCleanup };
+    let removedCount = 0;
+    let settingsChanged = false;
+
+    for (const characterId of characterIds.map((id) => id.trim()).filter(Boolean)) {
+      const entry = cleanupSettings[characterId];
+      if (!entry?.enabled) continue;
+      const days = Math.max(1, Math.round(Number(entry.days) || 0));
+      if (entry.lastCleanupAt && now - entry.lastCleanupAt < days * oneDayMs) continue;
+      removedCount += await cleanupProfileHomepagesForCharacters([characterId], days);
+      cleanupSettings[characterId] = { ...entry, days, lastCleanupAt: now };
+      settingsChanged = true;
+    }
+
+    if (settingsChanged) {
+      await saveSettings({ ...settings.value, profileHomepageAutoCleanup: cleanupSettings });
+    }
+    return removedCount;
+  }
+
+  async function saveProfileTheme(theme: ProfileTheme) {
+    const normalizedTheme = normalizeProfileTheme({
+      ...theme,
+      updatedAt: Date.now()
+    }, theme.charId);
+    if (!normalizedTheme) {
+      showConfigAlert('请填写主页主题名称和提示词。', '无法保存主页主题');
+      return null;
+    }
+
+    const index = profileThemes.value.findIndex((entry) => entry.id === normalizedTheme.id);
+    if (index >= 0) profileThemes.value[index] = normalizedTheme;
+    else profileThemes.value.push(normalizedTheme);
+    await putEntity('profileThemes', normalizedTheme);
+    await refreshActiveProfileThemeSnapshot(normalizedTheme);
+    return normalizedTheme;
+  }
+
+  async function importProfileThemes(characterId: string, themes: ProfileTheme[]) {
+    const normalizedThemes = normalizeProfileThemesForCharacter(themes, characterId).map((theme) => ({
+      ...theme,
+      id: createId('profile-theme'),
+      charId: characterId,
+      source: 'imported' as const,
+      builtIn: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    }));
+    if (!normalizedThemes.length) return [];
+    profileThemes.value.push(...normalizedThemes);
+    await Promise.all(normalizedThemes.map((theme) => putEntity('profileThemes', theme)));
+    return normalizedThemes;
+  }
+
+  async function deleteProfileTheme(themeId: string) {
+    const theme = profileThemes.value.find((entry) => entry.id === themeId);
+    if (!theme || theme.builtIn) return false;
+    profileThemes.value = profileThemes.value.filter((entry) => entry.id !== themeId);
+    await deleteEntity('profileThemes', themeId);
+    return true;
   }
 
   async function createSmallTheaterTopic(payload: Pick<SmallTheaterTopic, 'charId' | 'title' | 'prompt'> & Partial<Pick<SmallTheaterTopic, 'enabled'>>) {
@@ -6555,11 +6821,13 @@ export const useAppStore = defineStore('app', () => {
     unreadConversationCount,
     messages,
     voomPosts,
+    profileHomepages,
     smallTheaterTopics,
     smallTheaters,
     musicFavoriteTracks,
     musicCommentThreads,
     sortedVoomPosts,
+    sortedProfileHomepages,
     sortedSmallTheaters,
     favorites,
     sortedFavorites,
@@ -6580,6 +6848,9 @@ export const useAppStore = defineStore('app', () => {
     conversationById,
     setActiveConversation,
     messagesForConversation,
+    profileThemesForCharacter,
+    enabledProfileThemesForCharacter,
+    profileHomepagesForCharacter,
     smallTheaterTopicsForCharacter,
     smallTheatersForCharacter,
     smallTheaterById,
@@ -6686,6 +6957,14 @@ export const useAppStore = defineStore('app', () => {
     applyChatMessageImageCandidate,
     createUserVoomPost,
     createMomentFromConversation,
+    ensureProfileThemesForCharacter,
+    createProfileTheme,
+    saveProfileTheme,
+    importProfileThemes,
+    deleteProfileTheme,
+    deleteProfileHomepage,
+    cleanupProfileHomepagesForCharacters,
+    runProfileHomepageAutoCleanupForCharacters,
     ensureSmallTheaterTopicsForCharacter,
     createSmallTheaterTopic,
     saveSmallTheaterTopic,

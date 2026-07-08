@@ -103,6 +103,8 @@ export function normalizeCharacterProfile(character: CharacterProfile, fallbackU
     : [];
   const voomFrequency = normalizeVoomFrequency(character.voomFrequency);
   const mindStateLines = normalizeCharacterMindStateLines(character.mindState?.lines);
+  const profileThemeContent = String(character.mindState?.profileThemeContent ?? '').trim();
+  const hasProfileThemeSnapshot = Boolean(String(character.mindState?.profileThemeId ?? '').trim() || profileThemeContent);
   const profile = toCharacterVisualProfile(normalizeVisualProfile(removeVisualProfileAvatar(character.profile), {
     id: character.id,
     nickname,
@@ -134,9 +136,14 @@ export function normalizeCharacterProfile(character: CharacterProfile, fallbackU
     ...(boundUserProfile ? { boundUserProfile } : {}),
     ...(initialProfile ? { initialProfile } : {}),
     ...(profileHistory.length ? { profileHistory } : {}),
-    mindState: mindStateLines.length
+    mindState: mindStateLines.length || hasProfileThemeSnapshot
       ? {
           lines: mindStateLines,
+          profileThemeId: String(character.mindState?.profileThemeId ?? '').trim() || undefined,
+          profileThemeName: String(character.mindState?.profileThemeName ?? '').trim() || undefined,
+          profileThemeContent: profileThemeContent || undefined,
+          profileThemeHtml: String(character.mindState?.profileThemeHtml ?? '').trim() || undefined,
+          profileThemeCss: String(character.mindState?.profileThemeCss ?? '').trim() || undefined,
           updatedAt: Number.isFinite(character.mindState?.updatedAt) ? Number(character.mindState?.updatedAt) : Date.now(),
           readAt: Number.isFinite(character.mindState?.readAt) ? Number(character.mindState?.readAt) : 0,
           sourceConversationId: String(character.mindState?.sourceConversationId ?? '').trim() || undefined,

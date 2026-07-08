@@ -177,6 +177,9 @@
         <button type="button" @click="openCharacterProfile">
           <span>角色主页</span>
         </button>
+        <button type="button" @click="openProfileThemes">
+          <span>主页自定义</span>
+        </button>
         <button type="button" @click="openUserProfile">
           <span>我的主页</span>
         </button>
@@ -1750,6 +1753,11 @@ function openChatSettings() {
 function openSmallTheater() {
   showActionMenu.value = false;
   void router.push({ name: 'small-theater', params: { id: props.id } });
+}
+
+function openProfileThemes() {
+  showActionMenu.value = false;
+  void router.push({ name: 'profile-themes', params: { id: props.id } });
 }
 
 function openChatSearch() {
