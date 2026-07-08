@@ -30,7 +30,17 @@ export interface RoleplayMessageActions {
   recallMessageIds: string[];
   quotes: RoleplayQuoteAction[];
   transferDecisions?: Array<{ messageId: string; status: 'accepted' | 'rejected' }>;
+  musicListenInviteDecisions?: Array<{ messageId: string; status: 'accepted' | 'rejected' }>;
+  musicListenInvite?: { note?: string; query?: string; source?: string; track?: Partial<MusicTrack> } | null;
+  musicActions?: RoleplayMusicAction[];
   offlineInvitation?: { prompt: string } | null;
+}
+
+export interface RoleplayMusicAction {
+  type: 'play' | 'favorite_current' | 'favorite_track';
+  query?: string;
+  source?: string;
+  track?: Partial<MusicTrack>;
 }
 
 export type RoleplayStickerPosition = 'before' | 'after';
@@ -1225,6 +1235,117 @@ function normalizeTransferDecisionActions(value: unknown): Array<{ messageId: st
   return messageIds.map((messageId) => ({ messageId, status }));
 }
 
+function normalizeMusicListenInviteDecisionActions(value: unknown): Array<{ messageId: string; status: 'accepted' | 'rejected' }> {
+  return normalizeTransferDecisionActions(value);
+}
+
+function normalizeMusicTrackDraft(value: unknown): Partial<MusicTrack> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const name = normalizeLocationText(record.name ?? record.title ?? record.songName);
+  const platformId = normalizeLocationText(record.platformId ?? record.id ?? record.songId);
+  const source = normalizeLocationText(record.source ?? record.platform) || 'netease';
+  if (!name && !platformId) return undefined;
+  const artists = Array.isArray(record.artists)
+    ? record.artists.map((artist) => String(artist ?? '').trim()).filter(Boolean)
+    : normalizeLocationText(record.artist ?? record.artists ?? record.singer)
+      .split(/[、/,，]/)
+      .map((artist) => artist.trim())
+      .filter(Boolean);
+  return {
+    id: normalizeLocationText(record.trackId ?? record.musicId) || `${source}:${platformId || name}`,
+    platformId: platformId || normalizeLocationText(record.trackId ?? record.musicId) || name,
+    source,
+    name: name || platformId,
+    artists,
+    album: normalizeLocationText(record.album),
+    picId: normalizeLocationText(record.picId),
+    lyricId: normalizeLocationText(record.lyricId),
+    coverUrl: normalizeLocationText(record.coverUrl),
+    audioUrl: normalizeLocationText(record.audioUrl)
+  };
+}
+
+function normalizeMusicListenInviteAction(record: Record<string, unknown>, actionRecord: Record<string, unknown>): RoleplayMessageActions['musicListenInvite'] {
+  const candidates = [
+    actionRecord.musicListenInvite,
+    actionRecord.listenTogetherInvite,
+    actionRecord.inviteListenTogether,
+    record.musicListenInvite,
+    record.listenTogetherInvite,
+    record.inviteListenTogether
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (typeof candidate === 'string') return { note: candidate.trim() || undefined };
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+      const inviteRecord = candidate as Record<string, unknown>;
+      const explicitDisabled = inviteRecord.enabled === false || inviteRecord.enabled === 'false' || inviteRecord.status === 'none';
+      if (explicitDisabled) continue;
+      return {
+        note: normalizeLocationText(inviteRecord.note ?? inviteRecord.content ?? inviteRecord.text) || undefined,
+        query: normalizeLocationText(inviteRecord.query ?? inviteRecord.keyword ?? inviteRecord.song) || undefined,
+        source: normalizeLocationText(inviteRecord.source ?? inviteRecord.platform) || undefined,
+        track: normalizeMusicTrackDraft(inviteRecord.track)
+      };
+    }
+  }
+  return null;
+}
+
+function normalizeMusicActionType(value: unknown): RoleplayMusicAction['type'] | '' {
+  const type = String(value ?? '').trim().toLocaleLowerCase();
+  if (['play', 'switch', 'switch_track', 'play_track', 'search_play', '切歌', '播放', '换歌'].includes(type)) return 'play';
+  if (['favorite_current', 'like_current', 'add_current_to_favorite', 'add_current_to_favorites', '收藏当前', '喜欢当前', '收藏这首', '喜欢这首'].includes(type)) return 'favorite_current';
+  if (['favorite_track', 'like_track', 'add_to_favorite', 'add_to_favorites', '收藏歌曲', '加入喜欢'].includes(type)) return 'favorite_track';
+  return '';
+}
+
+function normalizeMusicActions(value: unknown): RoleplayMusicAction[] {
+  if (Array.isArray(value)) return value.flatMap((item) => normalizeMusicActions(item));
+  if (!value || typeof value !== 'object') return [];
+  const record = value as Record<string, unknown>;
+  if (!record.type && !record.action && !record.intent) {
+    const mappedActions = Object.entries(record).flatMap(([key, candidate]) => {
+      const keyType = normalizeMusicActionType(key);
+      const genericFavorite = ['favorite', 'like', 'add_favorite', '收藏', '喜欢', '加入我的喜欢'].includes(key.trim().toLocaleLowerCase());
+      if (!keyType && !genericFavorite) return [];
+      if (candidate === false || candidate === null || candidate === undefined || candidate === 'false') return [];
+      if (candidate === true || candidate === 'true') {
+        const type = keyType === 'favorite_track' ? 'favorite_current' : keyType || 'favorite_current';
+        return [{ type } satisfies RoleplayMusicAction];
+      }
+      if (typeof candidate === 'string') {
+        const query = candidate.trim();
+        const type = keyType === 'favorite_track' && !query ? 'favorite_current' : keyType || (query ? 'favorite_track' : 'favorite_current');
+        return [{ type, query: query || undefined } satisfies RoleplayMusicAction];
+      }
+      if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+        return normalizeMusicActions({ ...(candidate as Record<string, unknown>), type: key });
+      }
+      return [];
+    });
+    if (mappedActions.length > 0) return mappedActions;
+  }
+  const rawType = String(record.type ?? record.action ?? record.intent ?? '').trim().toLocaleLowerCase();
+  const explicitQuery = normalizeLocationText(record.query ?? record.keyword ?? record.song ?? record.title ?? record.name ?? record.songName ?? record.musicName);
+  const artistQuery = normalizeLocationText(record.artist ?? record.artists ?? record.singer ?? record.singers);
+  const query = [explicitQuery, artistQuery].filter(Boolean).join(' ').trim() || undefined;
+  let type = normalizeMusicActionType(record.type ?? record.action ?? record.intent);
+  if (!type && ['favorite', 'like', 'add_favorite', 'add_to_favorites', '收藏', '喜欢', '加入我的喜欢'].includes(rawType)) {
+    type = query ? 'favorite_track' : 'favorite_current';
+  }
+  if (!type) type = normalizeMusicActionType(record.name);
+  if (type === 'favorite_track' && !query && !record.track) type = 'favorite_current';
+  if (!type) return [];
+  return [{
+    type,
+    query,
+    source: normalizeLocationText(record.source ?? record.platform) || undefined,
+    track: normalizeMusicTrackDraft(record.track)
+  }];
+}
+
 function normalizeRoleplayMessageActions(record: Record<string, unknown>): RoleplayMessageActions {
   const actionRecord = record.messageActions && typeof record.messageActions === 'object'
     ? record.messageActions as Record<string, unknown>
@@ -1262,7 +1383,32 @@ function normalizeRoleplayMessageActions(record: Record<string, unknown>): Rolep
     ...normalizeTransferDecisionActions(actionRecord.transferReplies)
   ];
   const transferDecisions = Array.from(new Map(transferDecisionEntries.map((decision) => [decision.messageId, decision])).values());
-  return { recallMessageIds, quotes, transferDecisions, offlineInvitation: normalizeOfflineInvitationAction(record, actionRecord) };
+  const musicListenInviteDecisionEntries = [
+    ...normalizeMusicListenInviteDecisionActions(record.musicListenInviteDecisions),
+    ...normalizeMusicListenInviteDecisionActions(record.listenTogetherDecisions),
+    ...normalizeMusicListenInviteDecisionActions(actionRecord.musicListenInviteDecisions),
+    ...normalizeMusicListenInviteDecisionActions(actionRecord.listenTogetherDecisions)
+  ];
+  const musicListenInviteDecisions = Array.from(new Map(musicListenInviteDecisionEntries.map((decision) => [decision.messageId, decision])).values());
+  const musicActions = [
+    ...normalizeMusicActions(record.musicActions),
+    ...normalizeMusicActions(record.musicAction),
+    ...normalizeMusicActions(record.listenTogetherActions),
+    ...normalizeMusicActions(record.listenTogetherAction),
+    ...normalizeMusicActions(actionRecord.musicActions),
+    ...normalizeMusicActions(actionRecord.musicAction),
+    ...normalizeMusicActions(actionRecord.listenTogetherActions),
+    ...normalizeMusicActions(actionRecord.listenTogetherAction)
+  ].slice(0, 4);
+  return {
+    recallMessageIds,
+    quotes,
+    transferDecisions,
+    musicListenInviteDecisions,
+    musicListenInvite: normalizeMusicListenInviteAction(record, actionRecord),
+    musicActions,
+    offlineInvitation: normalizeOfflineInvitationAction(record, actionRecord)
+  };
 }
 
 function normalizeOfflineInvitationAction(record: Record<string, unknown>, actionRecord: Record<string, unknown>): { prompt: string } | null {
@@ -2509,6 +2655,15 @@ function formatMusicCommentPromptLine(comment: MusicComment, input: { user: User
   return `${comment.id}｜${musicCommentPromptAuthorName(comment, input)}${replyText}：${comment.content}`;
 }
 
+function musicCommentAvatarUrl(seed: string) {
+  let hash = 0;
+  Array.from(seed).forEach((character) => {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  });
+  const account = 100000 + (hash % 899999999);
+  return `https://q1.qlogo.cn/g?b=qq&nk=${account}&s=100`;
+}
+
 function normalizeMusicComments(value: unknown, input: { user: UserProfile; characters: CharacterProfile[]; existingComments: MusicComment[] }) {
   const source = Array.isArray((value as { comments?: unknown[] })?.comments)
     ? (value as { comments: unknown[] }).comments
@@ -2522,7 +2677,7 @@ function normalizeMusicComments(value: unknown, input: { user: UserProfile; char
   const createdAt = Date.now();
 
   source.forEach((entry, index) => {
-    if (comments.length >= 15 || !entry || typeof entry !== 'object') return;
+    if (comments.length >= 55 || !entry || typeof entry !== 'object') return;
     const record = entry as Record<string, unknown>;
     const content = String(record.content ?? record.text ?? record.comment ?? '').trim();
     if (!content) return;
@@ -2547,7 +2702,7 @@ function normalizeMusicComments(value: unknown, input: { user: UserProfile; char
       authorName,
       authorId: character?.id,
       authorType,
-      avatar: character?.avatar,
+      avatar: musicCommentAvatarUrl(authorId || authorName || draftId || content),
       content,
       ...(contentTranslation ? { contentTranslation } : {}),
       ...(parentId && parentId !== id ? { parentId } : {}),
@@ -2584,14 +2739,18 @@ export async function generateMusicCommentThread(input: {
     `歌曲信息：\n${formatMusicTrackPrompt(input.track)}`,
     `该用户账号绑定的角色：\n${characterText}`,
     existingComments.length ? `已有评论区：\n${existingComments.map((comment) => formatMusicCommentPromptLine(comment, input)).join('\n')}` : '已有评论区：暂无。',
-    input.mode === 'expand' ? '任务：在已有评论区基础上追加新的评论和回复，延续上下文。' : '任务：生成一版新的完整评论区，可包含一级评论和互相回复。',
+    input.mode === 'expand' ? '任务：在已有评论区基础上追加 45-55 条新的评论和回复，延续上下文；一级评论和回复合计必须落在 45-55 条。' : '任务：生成一版新的完整评论区，可包含一级评论和互相回复；一级评论和回复合计必须落在 45-55 条。',
+    '网易云评论区核心定位：不以专业乐评为主，而是依附歌曲情绪的全民情感树洞、微型文学社区和线上轻社交场。区别于 QQ 音乐、酷狗偏短句吐槽、B 站偏二次元玩梗，要形成“云村”独有的复合风格，兼具致郁、治愈、搞笑、科普、纪实多重面貌。',
+    '八大主流内容类型必须自然混合，但根据歌曲气质分配比例，不要像清单作业。1. 伤痛微型故事：1-3 行短故事，有时间、人物、遗憾结局和强留白，题材可含失恋、异地无果、暗恋、亲人离别、学业失败、底层孤独、自我独白；文风克制文艺，少控诉，多隐喻，但不要复制疼痛文学模板。2. 治愈励志纪实：学生党考研/高考/考公打卡、拟录取报喜，打工人加班漂泊和自我和解，对抗低谷、原生家庭和自我疗愈；语言温暖平实，可出现“一切都会好”“再坚持一下”“接纳普通的自己”。3. 沙雕段子/反套路搞笑：用数理化历史语文等学科脑洞解构悲伤，用作业、加班、美食、赶海桶、电瓶等生活梗魔改歌词，或者在伤感楼下搞笑补刀，制造前一秒落泪后一秒笑出的反差。4. 民间科普和野生乐评：少量讲创作背景、歌手经历、MV、词曲幕后、外语/粤语/方言翻译、曲风乐器和地域文化，像热心听友补充，不要写成论文。5. 时代纪实和集体记忆：年份打卡、毕业、高考、疫情、春运、跨年、上岸、青春回忆，让一首歌像数字备忘录，可有 80/90/00 后跨年龄对话。6. 许愿祈福：上岸、平安、脱单、家人健康、暴富、还愿打卡，形成线上许愿圣地感。7. 角色扮演和虚拟树洞：二战考生、深夜治愈博主、失恋过来人等固定人设倾诉，匿名写不敢发朋友圈的心事，多个评论可互相呼应成故事楼。8. 饭圈/歌手圈层：温柔安利新作、舞台、演唱会、偶像暖心瞬间，也允许路人客观评价唱功和舞台，粉丝与路人温和共存。',
+    '语言规则：短句、口语、留白、真实生活细节优先；可以致郁、治愈、搞笑、科普、纪实并存。避免堆砌华丽辞藻，避免全员深夜 emo，避免硬编惨案骗赞，避免“NPC/路人A/朋友A”式占位。要体现从早期“网抑云”到现在“网愈云”的演变：允许遗憾和孤独，但更多真实、成长、上岸、普通生活也值得期待。',
+    '互动规则：顶层评论像热评主楼，回复里要有“抱抱”“我也是”“会好的”、还愿、打卡、搞笑补刀、理性纠正、方言/翻译补充、同款故事接龙。适当让一些 parentId 指向已有评论或本次前面评论，形成陌生人共情闭环和神回复楼，不要只有孤立一级评论。',
     `输出格式：
 {
   "comments": [
     { "id": "c1", "authorId": "绑定角色id，可留空", "authorName": "角色真名或真实感听友名", "content": "评论内容", "contentTranslation": "如需翻译则填写，否则留空", "parentId": "回复的已有评论ID或本次前面输出的id，可留空" }
   ]
 }`,
-    '要求：1. 输出 6-15 条；2. 至少包含 2 条该用户绑定角色的评论或回复，角色 authorId 必须来自绑定角色，且角色 authorName 必须写真名；3. 其余可以是有真实感的路人听友；4. 可以回复任意已有评论或本次前面评论；5. 用户和绑定角色只能使用真名，不得使用网名、昵称、备注或主页名；6. 不要使用“NPC”“路人A”“朋友A”这类占位名；7. 语气像音乐 App 评论区，短、自然、有情绪和梗，但不要刷屏；8. contentTranslation 规则：外语、粤语都要翻译成自然现代简体普通话，不要加“翻译：”前缀。'
+    '要求：1. 输出 45-55 条，一级评论和回复评论合计计数；2. 至少包含 2 条该用户绑定角色的评论或回复，角色 authorId 必须来自绑定角色，且角色 authorName 必须写真名；3. 其余可以是有真实感的路人听友；4. 可以回复任意已有评论或本次前面评论；5. 用户和绑定角色只能使用真名，不得使用网名、昵称、备注或主页名；6. 不要使用“NPC”“路人A”“朋友A”这类占位名；7. 语气像网易云音乐评论区，短、自然、有情绪和梗，但不要刷屏；8. contentTranslation 规则：外语、粤语都要翻译成自然现代简体普通话，不要加“翻译：”前缀。'
   ].join('\n\n');
 
   const apiReply = await callTextApi(input.settings, prompt, input.modelOverride);

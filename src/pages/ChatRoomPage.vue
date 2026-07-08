@@ -9,6 +9,17 @@
       @open-menu="openChatSettings"
     />
 
+    <section v-if="activeListenTogether" class="listen-status-strip" aria-label="一起听状态">
+      <img :src="character.avatar" alt="" aria-hidden="true" />
+      <span>正在和{{ characterDisplayName }}一起听</span>
+      <button class="listen-status-track" type="button" @click="goToMusicPage">
+        <strong>{{ activeListenTrackLabel }}</strong>
+      </button>
+      <button class="listen-status-close" type="button" aria-label="关闭一起听" @click="showStopListenConfirm = true">
+        <X :size="13" />
+      </button>
+    </section>
+
     <main ref="messageListRef" class="message-list" :style="messageListStyle" @scroll="handleMessageListScroll">
       <div v-if="hasEarlierMessages" class="history-loader">上滑加载更早消息</div>
       <MessageBubble
@@ -26,6 +37,7 @@
         :selected="isMessageSelected(message)"
         :can-quote="canQuoteMessage(message)"
         @apply-image="applyChatImageCandidate"
+        @accept-music-listen-invite="acceptMusicListenInvite(message)"
         @accept-offline-invitation="acceptOfflineInvitation(message)"
         @accept-transfer="respondToTransfer(message.id, 'accepted')"
         @busy-action="store.showConfigAlert"
@@ -35,6 +47,7 @@
         @open-user-profile="openUserProfile"
         @quote-message="quoteMessage"
         @regenerate-image="regenerateChatImage"
+        @reject-music-listen-invite="rejectMusicListenInvite(message)"
         @reject-offline-invitation="rejectOfflineInvitation(message)"
         @reject-transfer="respondToTransfer(message.id, 'rejected')"
         @toggle-select="toggleMessageSelection(message)"
@@ -189,6 +202,9 @@
         <button type="button" :disabled="chatActionLocked" @click="openTransferPanel">
           <span>转账</span>
         </button>
+        <button type="button" :disabled="chatActionLocked" @click="openMusicListenInvitePanel">
+          <span>邀请一起听</span>
+        </button>
         <button type="button" @click="openModelSwitch">
           <span>模型切换</span>
         </button>
@@ -213,6 +229,47 @@
         <button class="danger-menu-action" type="button" :disabled="chatActionLocked" @click="openClearHistoryConfirm">
           <span>清空记忆</span>
         </button>
+      </section>
+    </AppModal>
+
+    <AppModal v-model="showMusicListenPanel" title="邀请一起听" :show-header="false" variant="ins">
+      <section class="listen-invite-send-panel">
+        <div class="listen-panel-head">
+          <div>
+            <p>Listen Together</p>
+            <h3>邀请 {{ characterDisplayName }} 一起听</h3>
+          </div>
+        </div>
+        <section class="listen-compose-preview" aria-label="一起听邀请预览">
+          <span class="listen-preview-disc" aria-hidden="true">
+            <img v-if="musicInviteTrack?.coverUrl" :src="musicInviteTrack.coverUrl" alt="" />
+          </span>
+          <span class="listen-preview-copy">
+            <small>LINK FM</small>
+            <strong>{{ musicInviteTrack?.name || '一起听歌' }}</strong>
+            <span>{{ musicInviteTrackArtists }}</span>
+          </span>
+        </section>
+        <label class="listen-field">
+          <span>邀请备注（可选）</span>
+          <input v-model="musicListenNoteDraft" maxlength="80" placeholder="例如：这首想和你一起听" />
+        </label>
+        <div class="listen-actions-sheet">
+          <button class="secondary-action" type="button" @click="showMusicListenPanel = false">取消</button>
+          <button class="primary-action" type="button" :disabled="chatActionLocked" @click="sendMusicListenInviteMessage">发送邀请</button>
+        </div>
+      </section>
+    </AppModal>
+
+    <AppModal v-model="showStopListenConfirm" title="关闭一起听" :show-header="false" variant="ins">
+      <section class="listen-stop-confirm">
+        <span>Listen Together</span>
+        <h3>结束和{{ characterDisplayName }}的一起听？</h3>
+        <p>关闭后聊天状态栏会消失，音乐页也不再显示对方的一起听状态。</p>
+        <div class="listen-stop-actions">
+          <button class="secondary-action" type="button" @click="showStopListenConfirm = false">取消</button>
+          <button class="primary-action" type="button" @click="confirmStopListenTogether">关闭</button>
+        </div>
       </section>
     </AppModal>
 
@@ -493,6 +550,7 @@ import MessageComposer from '@/components/chat/MessageComposer.vue';
 import UserProfileSheet from '@/components/chat/UserProfileSheet.vue';
 import StickerLibraryModal from '@/components/stickers/StickerLibraryModal.vue';
 import { useAppStore } from '@/stores/appStore';
+import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 import type { CharacterProfile, ChatImageAttachment, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatTransferStatus, ChatVoiceAttachment, Sticker, UserProfile } from '@/types/domain';
 import { getCharacterDisplayName } from '@/utils/character';
 import { readChatImageFile } from '@/utils/imageFile';
@@ -581,6 +639,7 @@ const props = defineProps<{
 }>();
 
 const store = useAppStore();
+const musicPlayer = useMusicPlayerStore();
 const router = useRouter();
 const route = useRoute();
 const showProfile = ref(false);
@@ -594,6 +653,8 @@ const showImagePanel = ref(false);
 const showVoicePanel = ref(false);
 const showLocationPanel = ref(false);
 const showTransferPanel = ref(false);
+const showMusicListenPanel = ref(false);
+const showStopListenConfirm = ref(false);
 const showNarrationPanel = ref(false);
 const showMessageMenu = ref(false);
 const showEditModal = ref(false);
@@ -637,6 +698,7 @@ const locationAddressDraft = ref('');
 const locationDistanceDraft = ref('');
 const transferAmountDraft = ref('');
 const transferNoteDraft = ref('');
+const musicListenNoteDraft = ref('');
 const narrationDraft = ref('');
 const regeneratePromptDraft = ref('');
 const recordedVoiceDraft = ref<Pick<ChatVoiceAttachment, 'audioUrl' | 'duration' | 'mimeType'> | null>(null);
@@ -722,7 +784,7 @@ const activeMessageIsSynthetic = computed(() => Boolean(activeMessage.value?.id.
 const activeMessageTransferIsReceipt = computed(() => Boolean(activeMessage.value?.transfer?.responseToMessageId));
 const canRecallActiveMessage = computed(() => Boolean(activeMessage.value && activeMessage.value.sender === 'user' && !activeMessageIsSynthetic.value));
 const canQuoteActiveMessage = computed(() => Boolean(activeMessage.value && canQuoteMessage(activeMessage.value)));
-const canEditActiveMessage = computed(() => Boolean(activeMessage.value && !activeMessageIsSynthetic.value && !activeMessageTransferIsReceipt.value && !activeMessage.value.theaterLink));
+const canEditActiveMessage = computed(() => Boolean(activeMessage.value && !activeMessageIsSynthetic.value && !activeMessageTransferIsReceipt.value && !activeMessage.value.musicListenInvite && !activeMessage.value.theaterLink));
 const canFavoriteActiveMessage = computed(() => Boolean(activeMessage.value && !activeMessageIsSynthetic.value && store.canFavoriteMessage(activeMessage.value)));
 const isActiveMessageFavorited = computed(() => Boolean(activeMessage.value && store.isMessageFavorited(activeMessage.value.id)));
 const favoriteActionLabel = computed(() => {
@@ -758,6 +820,14 @@ const locationPreviewDistance = computed(() => locationDistanceDraft.value.trim(
 const locationPreviewDistanceLabel = computed(() => `距离对方 ${locationPreviewDistance.value}`);
 const locationPreviewMapLabel = computed(() => createLinkMapLabel(locationPreviewAddress.value || locationPreviewName.value, locationPreviewName.value));
 const transferPreviewSummary = computed(() => transferNoteDraft.value.trim() || '添加备注后会随转账一起显示');
+const musicInviteTrack = computed(() => musicPlayer.currentTrack);
+const musicInviteTrackArtists = computed(() => musicInviteTrack.value?.artists.join(' / ') || '会从当前播放或音乐页继续');
+const activeListenTogether = computed(() => Boolean(conversation.value && musicPlayer.isListeningWithConversation(props.id)));
+const activeListenTrackLabel = computed(() => {
+  const track = musicPlayer.currentTrack;
+  if (!track) return '等待选歌';
+  return `${track.name}-${track.artists.join('/') || '未知歌手'}`;
+});
 const chatActionLocked = computed(() => currentConversationReplying.value);
 const stickerRecommendationBase = computed(() => {
   if (!chatSettings.value.stickerSuggestionsEnabled) return [];
@@ -1105,6 +1175,22 @@ function openTransferPanel() {
   showTransferPanel.value = true;
 }
 
+function openMusicListenInvitePanel() {
+  if (chatActionLocked.value) return;
+  showActionMenu.value = false;
+  musicListenNoteDraft.value = '';
+  showMusicListenPanel.value = true;
+}
+
+async function goToMusicPage() {
+  await router.push({ name: 'music' });
+}
+
+function confirmStopListenTogether() {
+  if (character.value) musicPlayer.stopListenTogether(character.value.id);
+  showStopListenConfirm.value = false;
+}
+
 function openNarrationPanel() {
   if (chatActionLocked.value) return;
   showActionMenu.value = false;
@@ -1127,6 +1213,29 @@ async function sendTransferMessage() {
 
 async function respondToTransfer(messageId: string, status: Exclude<ChatTransferStatus, 'pending'>) {
   return store.updateTransferStatus(messageId, status, 'user');
+}
+
+async function sendMusicListenInviteMessage() {
+  if (chatActionLocked.value) return;
+  releaseKeyboardScrollGuard();
+  const userMessage = await store.appendUserMusicListenInviteMessage(props.id, {
+    note: musicListenNoteDraft.value.trim() || undefined,
+    track: musicInviteTrack.value ?? undefined
+  }, quoteTarget.value);
+  if (!userMessage) return;
+  quoteTarget.value = null;
+  showMusicListenPanel.value = false;
+  await scrollMessagesToBottom();
+}
+
+async function acceptMusicListenInvite(message: ChatMessage) {
+  if (!message.musicListenInvite || message.musicListenInvite.status !== 'pending') return;
+  await store.acceptMusicListenInvite(message.id);
+}
+
+async function rejectMusicListenInvite(message: ChatMessage) {
+  if (!message.musicListenInvite || message.musicListenInvite.status !== 'pending') return;
+  await store.rejectMusicListenInvite(message.id);
 }
 
 async function rejectOfflineInvitation(message: ChatMessage) {
@@ -1893,6 +2002,82 @@ onBeforeUnmount(() => {
   scroll-padding-bottom: calc(8px + var(--keyboard-inset) + var(--sticker-panel-offset, 0px));
 }
 
+.listen-status-strip {
+  display: grid;
+  grid-template-columns: 24px minmax(0, auto) minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  margin: 0 10px 4px;
+  padding: 5px 6px 5px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  color: #202329;
+  box-shadow: 0 8px 22px rgba(17, 20, 24, 0.08);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+.listen-status-strip img {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.listen-status-strip span,
+.listen-status-strip strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listen-status-track,
+.listen-status-close {
+  display: grid;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.listen-status-track {
+  width: 100%;
+  overflow: hidden;
+  justify-items: start;
+  cursor: pointer;
+}
+
+.listen-status-close {
+  place-items: center;
+  justify-self: end;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: rgba(89, 96, 106, 0.76);
+}
+
+.listen-status-close:active {
+  background: rgba(226, 59, 88, 0.08);
+  color: #e23b58;
+}
+
+.listen-status-strip span {
+  max-width: 112px;
+  color: #e23b58;
+  font-size: 11px;
+  font-weight: 860;
+}
+
+.listen-status-strip strong {
+  display: block;
+  width: 100%;
+  color: #59606a;
+  font-size: 11px;
+  font-weight: 760;
+}
+
 .chat-room :deep(.composer) {
   transform: translate3d(0, calc(0px - var(--keyboard-inset) - var(--sticker-panel-offset, 0px)), 0);
 }
@@ -1938,6 +2123,163 @@ onBeforeUnmount(() => {
   width: 100%;
   min-width: 0;
   container-type: inline-size;
+}
+
+.listen-invite-send-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.listen-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.listen-panel-head p,
+.listen-panel-head h3 {
+  margin: 0;
+}
+
+.listen-panel-head p {
+  color: #e23b58;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.listen-panel-head h3 {
+  color: #202329;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.listen-compose-preview {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 86px;
+  overflow: hidden;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 38px 43px, rgba(226, 59, 88, 0.13), transparent 54px),
+    linear-gradient(135deg, #ffffff 0%, #fff8fa 58%, #f7fbf9 100%);
+  padding: 14px;
+  box-shadow: inset 0 0 0 1px rgba(226, 59, 88, 0.12), 0 10px 24px rgba(226, 59, 88, 0.06);
+}
+
+.listen-preview-disc {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  overflow: hidden;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, #ffffff 0 14px, transparent 15px),
+    repeating-radial-gradient(circle, rgba(226, 59, 88, 0.10) 0 1px, rgba(255, 255, 255, 0.82) 2px 6px),
+    linear-gradient(135deg, #fff3f6, #edf9f3);
+  box-shadow: inset 0 0 0 1px rgba(226, 59, 88, 0.16), 0 10px 20px rgba(226, 59, 88, 0.10);
+}
+
+.listen-preview-disc img {
+  width: 72%;
+  height: 72%;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 3px 10px rgba(17, 20, 24, 0.10);
+}
+
+.listen-preview-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.listen-preview-copy small,
+.listen-preview-copy span {
+  overflow: hidden;
+  color: #737983;
+  font-size: 12px;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listen-preview-copy strong {
+  overflow: hidden;
+  color: #202329;
+  font-size: 18px;
+  font-weight: 930;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listen-field {
+  display: grid;
+  gap: 7px;
+}
+
+.listen-field span {
+  color: #69717b;
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.listen-field input {
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: #f4f5f7;
+  color: #202329;
+  padding: 0 13px;
+  outline: none;
+}
+
+.listen-actions-sheet {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.listen-stop-confirm {
+  display: grid;
+  gap: 10px;
+}
+
+.listen-stop-confirm > span {
+  color: #e23b58;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.listen-stop-confirm h3,
+.listen-stop-confirm p {
+  margin: 0;
+}
+
+.listen-stop-confirm h3 {
+  color: #202329;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.listen-stop-confirm p {
+  color: #69717b;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.listen-stop-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 4px;
 }
 
 .image-panel-head {

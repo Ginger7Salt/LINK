@@ -26,7 +26,7 @@
         @pointerup="handlePointerUp"
         @selectstart.prevent.stop="suppressNativeSelection"
       >
-        <div class="bubble" :class="{ narration: message.displayStyle === 'narration', sticker: message.sticker, image: message.image, voice: message.voice, location: message.location, transfer: message.transfer, theaterLink: message.theaterLink, offlineInvitation: message.offlineInvitation }" :style="bubbleStyle">
+        <div class="bubble" :class="{ narration: message.displayStyle === 'narration', sticker: message.sticker, image: message.image, voice: message.voice, location: message.location, transfer: message.transfer, musicListenInvite: message.musicListenInvite, theaterLink: message.theaterLink, offlineInvitation: message.offlineInvitation }" :style="bubbleStyle">
           <template v-if="message.sticker">
             <img class="sticker-image" :src="getStickerDisplayImageUrl(message.sticker)" :alt="message.sticker.description" draggable="false" />
           </template>
@@ -95,6 +95,24 @@
               <span v-if="canRespondTransferCard" class="transfer-request-actions" @pointerdown.stop @pointerup.stop>
                 <button class="transfer-request-action transfer-request-action--reject" type="button" @click.stop="emit('reject-transfer')">拒绝</button>
                 <button class="transfer-request-action transfer-request-action--accept" type="button" @click.stop="emit('accept-transfer')">接收</button>
+              </span>
+            </section>
+          </template>
+          <template v-else-if="message.musicListenInvite">
+            <section class="listen-invite-card" :class="`listen-invite-card--${musicInviteStatus}`" aria-label="一起听邀请">
+              <span class="listen-invite-disc" aria-hidden="true">
+                <img v-if="message.musicListenInvite.track?.coverUrl" :src="message.musicListenInvite.track.coverUrl" alt="" draggable="false" />
+                <Music2 v-else :size="22" />
+              </span>
+              <span class="listen-invite-copy">
+                <small>{{ musicInviteKicker }}</small>
+                <strong>{{ musicInviteTitle }}</strong>
+                <span>{{ musicInviteSubtitle }}</span>
+              </span>
+              <span class="listen-invite-chip">{{ musicInviteChip }}</span>
+              <span v-if="canRespondMusicInviteCard" class="listen-invite-actions" @pointerdown.stop @pointerup.stop>
+                <button type="button" @click.stop="emit('reject-music-listen-invite')">拒绝</button>
+                <button type="button" @click.stop="emit('accept-music-listen-invite')">同意</button>
               </span>
             </section>
           </template>
@@ -213,7 +231,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { DoorOpen, Globe2, LoaderCircle, Pause, Play, Quote, X } from 'lucide-vue-next';
+import { DoorOpen, Globe2, LoaderCircle, Music2, Pause, Play, Quote, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import type { CharacterProfile, ChatAppearanceSettings, ChatImageCandidate, ChatMessage, UserProfile } from '@/types/domain';
 import { useAppStore } from '@/stores/appStore';
@@ -261,6 +279,8 @@ const emit = defineEmits<{
   'reject-offline-invitation': [];
   'accept-transfer': [];
   'reject-transfer': [];
+  'accept-music-listen-invite': [];
+  'reject-music-listen-invite': [];
 }>();
 
 const store = useAppStore();
@@ -402,14 +422,16 @@ const quoteText = computed(() => props.message.quote?.sticker
         ? props.message.quote.location.name
         : props.message.quote?.transfer
           ? `${props.message.quote.transfer.responseToMessageId ? '转账回执 ' : ''}¥${props.message.quote.transfer.amount}`
-          : props.message.quote?.theaterLink
+            : props.message.quote?.musicListenInvite
+              ? `一起听 ${props.message.quote.musicListenInvite.track?.name || props.message.quote.musicListenInvite.status}`
+              : props.message.quote?.theaterLink
             ? props.message.quote.theaterLink.title
   : props.message.quote?.content ?? '');
 const quoteThumbnail = computed(() => props.message.quote?.sticker?.imageUrl ?? props.message.quote?.image?.url ?? '');
 const quoteAuthorLabel = computed(() => (props.message.quote?.authorName ? `${props.message.quote.authorName}：` : ''));
 
 const bubbleStyle = computed(() => {
-  if (props.message.sticker || props.message.image || props.message.location || props.message.transfer || props.message.theaterLink || props.message.offlineInvitation) return {};
+  if (props.message.sticker || props.message.image || props.message.location || props.message.transfer || props.message.musicListenInvite || props.message.theaterLink || props.message.offlineInvitation) return {};
   if (props.message.displayStyle === 'narration') {
     return {
       background: props.appearance.narrationBubbleColor,
@@ -519,6 +541,20 @@ const linePayCardSubtext = computed(() => {
 });
 const linePayRequestNoteText = computed(() => linePayNote.value || blankTransferRequestLine);
 const canRespondTransferCard = computed(() => props.message.sender === 'char' && !linePayIsReceipt.value && linePayStatus.value === 'pending');
+const musicInviteStatus = computed(() => props.message.musicListenInvite?.status ?? 'pending');
+const musicInviteTrack = computed(() => props.message.musicListenInvite?.track ?? null);
+const musicInviteTitle = computed(() => musicInviteTrack.value?.name || '邀请一起听');
+const musicInviteSubtitle = computed(() => {
+  const artists = musicInviteTrack.value?.artists?.filter(Boolean).join(' / ') || '';
+  return artists || props.message.musicListenInvite?.note || (props.message.sender === 'char' ? '对方想和你一起听歌' : '等待对方加入音乐房间');
+});
+const musicInviteKicker = computed(() => (props.message.sender === 'char' ? `${characterDisplayName.value} 发起` : `${userDisplayName.value} 发起`));
+const musicInviteChip = computed(() => ({
+  pending: props.message.sender === 'char' ? '待你选择' : '等待对方',
+  accepted: '已连接',
+  rejected: '已拒绝'
+}[musicInviteStatus.value]));
+const canRespondMusicInviteCard = computed(() => props.message.sender === 'char' && musicInviteStatus.value === 'pending');
 const offlineInvitationStatusLabel = computed(() => ({
   pending: '要进入线下模式继续这一幕吗？',
   accepted: '已进入线下模块',
@@ -1139,6 +1175,7 @@ onBeforeUnmount(() => {
 
 .bubble.location,
 .bubble.transfer,
+.bubble.musicListenInvite,
 .bubble.theaterLink {
   padding: 0;
   overflow: hidden;
@@ -1184,6 +1221,14 @@ onBeforeUnmount(() => {
   box-shadow: 0 9px 22px rgba(22, 27, 33, 0.08);
 }
 
+.bubble.musicListenInvite {
+  width: min(224px, 66vw);
+  min-width: min(194px, 56vw);
+  background: #ffffff;
+  border: 0;
+  box-shadow: 0 9px 22px rgba(22, 27, 33, 0.08);
+}
+
 .bubble.theaterLink {
   width: min(222px, 64vw);
   min-width: min(189px, 55vw);
@@ -1207,6 +1252,8 @@ onBeforeUnmount(() => {
 .message-row.char .bubble.location,
 .message-row.user .bubble.transfer,
 .message-row.char .bubble.transfer,
+.message-row.user .bubble.musicListenInvite,
+.message-row.char .bubble.musicListenInvite,
 .message-row.user .bubble.theaterLink,
 .message-row.char .bubble.theaterLink,
 .message-row.char .bubble.offlineInvitation,
@@ -1221,9 +1268,149 @@ onBeforeUnmount(() => {
 
 .message-row.user .bubble.transfer,
 .message-row.char .bubble.transfer,
+.message-row.user .bubble.musicListenInvite,
+.message-row.char .bubble.musicListenInvite,
 .message-row.user .bubble.theaterLink,
 .message-row.char .bubble.theaterLink {
   background: #ffffff;
+}
+
+.listen-invite-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  gap: 9px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(226, 59, 88, 0.12);
+  border-radius: inherit;
+  background: linear-gradient(135deg, #ffffff 0%, #fff8fa 58%, #f7fbf9 100%);
+  color: #111111;
+  padding: 9px;
+  box-shadow: 0 8px 18px rgba(226, 59, 88, 0.06);
+}
+
+.listen-invite-card::before {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 24px 24px, rgba(226, 59, 88, 0.13), transparent 42px),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.58), transparent 58%);
+  content: '';
+  pointer-events: none;
+}
+
+.listen-invite-disc,
+.listen-invite-copy,
+.listen-invite-chip,
+.listen-invite-actions {
+  position: relative;
+  z-index: 1;
+}
+
+.listen-invite-disc {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  overflow: hidden;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, #ffffff 0 11px, transparent 12px),
+    repeating-radial-gradient(circle, rgba(226, 59, 88, 0.10) 0 1px, rgba(255, 255, 255, 0.78) 2px 5px),
+    linear-gradient(135deg, #fff3f6, #eef9f3);
+  color: #e23b58;
+  box-shadow: inset 0 0 0 1px rgba(226, 59, 88, 0.15), 0 6px 14px rgba(226, 59, 88, 0.10);
+}
+
+.listen-invite-disc img {
+  width: 72%;
+  height: 72%;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 2px 8px rgba(17, 20, 24, 0.10);
+}
+
+.listen-invite-disc svg {
+  width: 18px;
+  height: 18px;
+  color: #c58a98;
+  stroke-width: 1.8;
+}
+
+.listen-invite-copy {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.listen-invite-copy small,
+.listen-invite-copy span {
+  min-width: 0;
+  overflow: hidden;
+  color: #737983;
+  font-size: 9px;
+  font-weight: 760;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listen-invite-copy strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #101010;
+  font-size: 12px;
+  font-weight: 930;
+  line-height: 1.18;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listen-invite-chip {
+  align-self: start;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: #fff0f2;
+  color: #d72f4e;
+  font-size: 8px;
+  font-weight: 920;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.listen-invite-card--accepted .listen-invite-chip {
+  background: #effaf3;
+  color: #05883f;
+}
+
+.listen-invite-card--rejected .listen-invite-chip {
+  background: #f2f3f5;
+  color: #6a737d;
+}
+
+.listen-invite-actions {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.listen-invite-actions button {
+  min-height: 28px;
+  border: 0;
+  border-radius: 9px;
+  background: #f0f1f3;
+  color: #24272d;
+  font-size: 10px;
+  font-weight: 930;
+}
+
+.listen-invite-actions button:last-child {
+  background: #e23b58;
+  color: #ffffff;
+  box-shadow: 0 8px 16px rgba(226, 59, 88, 0.18);
 }
 
 .offline-invitation-message {

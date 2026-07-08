@@ -480,6 +480,16 @@ export interface ChatTransferAttachment {
   responseToMessageId?: string;
 }
 
+export type ChatMusicListenInviteStatus = 'pending' | 'accepted' | 'rejected';
+
+export interface ChatMusicListenInviteAttachment {
+  status: ChatMusicListenInviteStatus;
+  note?: string;
+  track?: MusicTrack;
+  respondedAt?: number;
+  startedAt?: number;
+}
+
 export interface ChatSmallTheaterLinkAttachment {
   theaterId: string;
   title: string;
@@ -507,6 +517,7 @@ export interface ChatMessageQuote {
   voice?: ChatVoiceAttachment;
   location?: ChatLocationAttachment;
   transfer?: ChatTransferAttachment;
+  musicListenInvite?: ChatMusicListenInviteAttachment;
   theaterLink?: ChatSmallTheaterLinkAttachment;
   offlineInvitation?: ChatOfflineInvitationAttachment;
 }
@@ -528,6 +539,7 @@ export interface ChatMessage {
   voice?: ChatVoiceAttachment;
   location?: ChatLocationAttachment;
   transfer?: ChatTransferAttachment;
+  musicListenInvite?: ChatMusicListenInviteAttachment;
   theaterLink?: ChatSmallTheaterLinkAttachment;
   offlineInvitation?: ChatOfflineInvitationAttachment;
   quote?: ChatMessageQuote;
@@ -540,7 +552,7 @@ export interface ChatMessage {
   editedAt?: number;
 }
 
-export type FavoriteMessageKind = 'text' | 'image' | 'sticker' | 'voice' | 'location' | 'transfer' | 'theaterLink' | 'offlineInvitation' | 'narration';
+export type FavoriteMessageKind = 'text' | 'image' | 'sticker' | 'voice' | 'location' | 'transfer' | 'musicListenInvite' | 'theaterLink' | 'offlineInvitation' | 'narration';
 
 export interface FavoriteMessageRecord {
   id: string;
@@ -677,6 +689,20 @@ export interface MusicCommentThread {
   expanded: boolean;
   generatedAt: number;
   updatedAt: number;
+}
+
+export interface MusicListeningContext {
+  active: boolean;
+  conversationId: string;
+  characterId: string;
+  characterName: string;
+  userId: string;
+  inviter: 'user' | 'char';
+  joinedAt: number;
+  currentTrack?: MusicTrack;
+  currentTime: number;
+  duration: number;
+  lyricLine?: string;
 }
 
 export type WorldBookScope = 'global-online' | 'global-offline' | 'local';
@@ -1067,6 +1093,7 @@ export interface PromptContext {
   offlineSettings?: ConversationOfflineSettings;
   replyInstruction?: string;
   activeProfileTheme?: Pick<ProfileTheme, 'id' | 'name' | 'prompt' | 'regex' | 'css' | 'template' | 'source' | 'builtIn'>;
+  musicListening?: MusicListeningContext;
 }
 
 export interface GenerateReplyInput extends PromptContext {

@@ -1,6 +1,6 @@
 <template>
-  <section ref="screenRef" class="screen music-page">
-    <header class="top-bar music-top-bar">
+  <section ref="screenRef" :class="['screen', 'music-page', 'mode-' + pageMode]">
+    <header v-if="pageMode !== 'player'" class="top-bar music-top-bar">
       <h1 class="top-title">Music</h1>
       <div class="icon-row music-actions">
         <button class="icon-button" type="button" aria-label="播放页" @click="setMode('player')">
@@ -17,69 +17,105 @@
 
     <main class="music-content" :class="{ 'player-content': pageMode === 'player' }">
       <section v-if="pageMode === 'player'" class="player-panel">
-        <div class="player-stage">
-          <div class="flip-card" :class="{ flipped: lyricCardFlipped }" role="button" tabindex="0" :aria-label="lyricCardFlipped ? '切回唱片' : '查看完整歌词'" @click.stop="toggleLyricCard" @keydown.enter.prevent.stop="toggleLyricCard" @keydown.space.prevent.stop="toggleLyricCard">
-            <div class="flip-card-inner">
-              <div class="flip-face flip-front">
-                <div class="signal-caption">
-                  <span>LINK FM</span>
-                  <strong>{{ isPlaying ? '正在共振' : '待机巡航' }}</strong>
+        <div class="player-stage" @pointercancel="handlePlayerPointerCancel" @pointerdown="handlePlayerPointerDown" @pointermove="handlePlayerPointerMove" @pointerup="handlePlayerPointerUp">
+          <div class="listen-pages" :style="playerSlideStyle">
+            <section class="listen-page listen-cover-page" aria-label="一起听唱片页">
+              <div class="listen-topline">
+                <button type="button" aria-label="我的喜欢" @click="setMode('likes')"><Heart :size="20" /></button>
+                <span>LINK FM</span>
+                <button type="button" aria-label="搜索歌曲" @click="openSearch"><Search :size="21" /></button>
+              </div>
+
+              <div class="listen-room-head">
+                <strong>{{ listenStatusTitle }}</strong>
+                <div class="listen-avatars" :class="{ connected: listeningTogether }">
+                  <span><img :src="currentUserAvatar" alt="" aria-hidden="true" /></span>
+                  <span><img :src="listenPartnerAvatar" alt="" aria-hidden="true" /></span>
                 </div>
-                <div class="now-playing-line cover-now-playing">
+                <p>{{ listenRoomCaption }}</p>
+              </div>
+
+              <div class="listen-doodle-layer" aria-hidden="true"><span>♡</span><span>♪</span><span>z</span><span>喵</span><span>。</span></div>
+
+              <div class="record listen-record" :class="{ spinning: isPlaying }">
+                <div class="grooves"></div>
+                <div class="album-art">
+                  <img :src="coverImageSrc(activeTrack)" alt="" aria-hidden="true" @error="handleCoverError" />
+                </div>
+              </div>
+
+              <div class="listen-live-pill">
+                <Heart :size="15" fill="currentColor" />
+                <span>{{ activeLyricLine }}</span>
+              </div>
+
+              <div class="listen-track-actions">
+                <div class="listen-song-meta">
                   <strong>{{ nowPlayingTitle }}</strong>
                   <span>{{ nowPlayingArtists }}</span>
                 </div>
-                <div class="record" :class="{ spinning: isPlaying }">
-                  <div class="grooves"></div>
-                  <div class="album-art">
-                    <img :src="coverImageSrc(activeTrack)" alt="" aria-hidden="true" @error="handleCoverError" />
-                  </div>
-                </div>
+                <button class="listen-social-button" type="button" :disabled="!activeTrack" :class="{ active: activeTrack && isFavorite(activeTrack.id) }" :aria-label="favoriteActionLabel" @click="activeTrack && toggleFavorite(activeTrack)">
+                  <Heart :size="31" :fill="activeTrack && isFavorite(activeTrack.id) ? 'currentColor' : 'none'" />
+                  <span>99+</span>
+                </button>
+                <button class="listen-social-button" type="button" :disabled="!activeTrack" aria-label="评论区" @click="setMode('comments')">
+                  <MessageSquareText :size="30" />
+                  <span>99+</span>
+                </button>
               </div>
-              <div class="flip-face flip-back">
-                <div class="lyrics-card-head">
-                  <span>LYRICS</span>
-                  <strong>{{ nowPlayingTitle }}</strong>
-                  <small>{{ nowPlayingArtists }}</small>
-                </div>
-                <div ref="lyricScrollRef" class="full-lyrics" aria-label="完整歌词">
-                  <template v-if="parsedActiveLyrics.length">
-                    <p v-for="(line, index) in parsedActiveLyrics" :key="`${line.time}-${index}`" :class="{ active: index === activeLyricIndex, passed: index < activeLyricIndex }">
-                      {{ line.text }}
-                    </p>
-                  </template>
-                  <p v-else class="active">{{ activeLyricLine }}</p>
-                </div>
-              </div>
-            </div>
-          </div>
 
-          <section class="progress-panel" aria-label="播放控制">
-            <div class="progress-row">
-              <span>{{ currentTimeLabel }}</span>
-              <input :value="progressValue" type="range" min="0" max="100" step="0.1" aria-label="播放进度" @input="seekAudio" />
-              <span>{{ durationLabel }}</span>
-            </div>
-            <div class="transport-row">
-              <button class="favorite-toggle" type="button" :disabled="!activeTrack" :class="{ active: activeTrack && isFavorite(activeTrack.id) }" :aria-label="activeTrack && isFavorite(activeTrack.id) ? '从我的喜欢删除' : '加入我的喜欢'" @click="activeTrack && toggleFavorite(activeTrack)">
-                <Heart :size="25" :fill="activeTrack && isFavorite(activeTrack.id) ? 'currentColor' : 'none'" />
-              </button>
-              <button type="button" aria-label="上一首" @click="playNeighbor(-1)">
-                <SkipBack :size="31" />
-              </button>
-              <button class="main-play" type="button" :disabled="!activeTrack || loadingAudioTrackId === activeTrack?.id" :aria-label="isPlaying ? '暂停' : '播放'" @click="activeTrack && togglePlay(activeTrack)">
-                <LoaderCircle v-if="activeTrack && loadingAudioTrackId === activeTrack.id" class="spin" :size="36" />
-                <Pause v-else-if="isPlaying" :size="37" fill="currentColor" />
-                <Play v-else :size="40" fill="currentColor" />
-              </button>
-              <button type="button" aria-label="下一首" @click="playNeighbor(1)">
-                <SkipForward :size="31" />
-              </button>
-              <button type="button" :disabled="!activeTrack" aria-label="评论区" @click="setMode('comments')">
-                <MessageCircle :size="25" />
-              </button>
-            </div>
-          </section>
+              <section class="progress-panel listen-progress-panel" aria-label="播放控制">
+                <div class="progress-row">
+                  <span>{{ currentTimeLabel }}</span>
+                  <input :value="progressValue" type="range" min="0" max="100" step="0.1" aria-label="播放进度" @input="seekAudio" />
+                  <span>{{ durationLabel }}</span>
+                </div>
+                <div class="transport-row">
+                  <button class="mode-toggle" type="button" :class="playbackMode" :aria-label="playModeLabel" @click="cyclePlaybackMode">
+                    <Shuffle v-if="playbackMode === 'shuffle'" :size="25" />
+                    <Repeat1 v-else-if="playbackMode === 'repeat-one'" :size="25" />
+                    <Repeat v-else-if="playbackMode === 'repeat-all'" :size="25" />
+                    <ListOrdered v-else :size="25" />
+                  </button>
+                  <button type="button" aria-label="上一首" @click="playNeighbor(-1)"><SkipBack :size="31" /></button>
+                  <button class="main-play" type="button" :disabled="!activeTrack || loadingAudioTrackId === activeTrack?.id" :aria-label="isPlaying ? '暂停' : '播放'" @click="activeTrack && togglePlay(activeTrack)"><LoaderCircle v-if="activeTrack && loadingAudioTrackId === activeTrack.id" class="spin" :size="36" /><Pause v-else-if="isPlaying" :size="37" fill="currentColor" /><Play v-else :size="40" fill="currentColor" /></button>
+                  <button type="button" aria-label="下一首" @click="playNeighbor(1)"><SkipForward :size="31" /></button>
+                  <button type="button" aria-label="播放列表" @click="showQueuePanel = true"><ListMusic :size="25" /></button>
+                </div>
+              </section>
+            </section>
+
+            <section class="listen-page listen-lyrics-page" aria-label="一起听歌词页">
+              <div class="lyrics-card-head">
+                <span>LYRICS</span>
+                <strong>{{ nowPlayingTitle }}</strong>
+                <small>{{ nowPlayingArtists }}</small>
+              </div>
+              <div ref="lyricScrollRef" class="full-lyrics" aria-label="完整歌词">
+                <template v-if="parsedActiveLyrics.length">
+                  <p v-for="(line, index) in parsedActiveLyrics" :key="`${line.time}-${index}`" :class="{ active: index === activeLyricIndex, passed: index < activeLyricIndex }">{{ line.text }}</p>
+                </template>
+                <p v-else class="active">{{ activeLyricLine }}</p>
+              </div>
+            </section>
+          </div>
+          <div class="listen-page-dots" aria-hidden="true"><span :class="{ active: playerPageIndex === 0 }"></span><span :class="{ active: playerPageIndex === 1 }"></span></div>
+          <div v-if="showQueuePanel" class="queue-backdrop" @click.self="showQueuePanel = false" @pointerdown.stop>
+            <section class="queue-panel" aria-label="播放列表">
+              <div class="queue-head">
+                <div><strong>播放列表</strong><span>{{ playModeLabel }} · {{ playbackQueue.length }} 首</span></div>
+                <button type="button" aria-label="关闭播放列表" @click="showQueuePanel = false"><X :size="20" /></button>
+              </div>
+              <div class="queue-list">
+                <button v-for="track in playbackQueue" :key="track.id" class="queue-track" type="button" :class="{ active: activeTrack?.id === track.id }" @click="selectQueueTrack(track)">
+                  <span><strong>{{ track.name }}</strong><small>{{ trackArtists(track) }}</small></span>
+                  <Pause v-if="activeTrack?.id === track.id && isPlaying" :size="18" fill="currentColor" />
+                  <Play v-else-if="activeTrack?.id === track.id" :size="18" fill="currentColor" />
+                </button>
+                <p v-if="!playbackQueue.length">搜索或收藏歌曲后会出现在这里。</p>
+              </div>
+            </section>
+          </div>
         </div>
       </section>
 
@@ -114,11 +150,6 @@
               <span class="track-cover"><img :src="coverImageSrc(track)" alt="" aria-hidden="true" @error="handleCoverError" /></span>
               <span><strong>{{ track.name }}</strong><small>{{ trackArtists(track) }} · {{ track.album || '未知专辑' }}</small></span>
             </button>
-            <button type="button" :aria-label="activeTrack?.id === track.id && isPlaying ? '暂停' : '播放'" @click="togglePlay(track)">
-              <LoaderCircle v-if="loadingAudioTrackId === track.id" class="spin" :size="18" />
-              <Pause v-else-if="activeTrack?.id === track.id && isPlaying" :size="18" />
-              <Play v-else :size="18" />
-            </button>
             <button class="favorite-toggle" type="button" :class="{ active: isFavorite(track.id) }" :aria-label="isFavorite(track.id) ? '从我的喜欢删除' : '加入我的喜欢'" @click="toggleFavorite(track)">
               <Heart :size="18" :fill="isFavorite(track.id) ? 'currentColor' : 'none'" />
             </button>
@@ -133,51 +164,67 @@
       </section>
 
       <section v-else-if="pageMode === 'comments'" class="content-sheet comments-sheet">
-        <div class="room-hero">
-          <div class="room-cover">
-            <img :src="coverImageSrc(activeTrack)" alt="" aria-hidden="true" @error="handleCoverError" />
+        <div class="comments-track-strip">
+          <span class="comments-track-cover"><img :src="coverImageSrc(activeTrack)" alt="" aria-hidden="true" @error="handleCoverError" /></span>
+          <div class="comments-track-title">
+            <strong>{{ commentTrackTitle }}</strong>
+            <span>- {{ nowPlayingArtists }}</span>
           </div>
-          <div class="room-copy">
-            <span>LISTENING ROOM</span>
-            <strong>{{ activeTrack?.name || '评论区' }}</strong>
-            <small>一首歌一个评论区 · {{ activeThread?.comments.length || 0 }} 条</small>
+        </div>
+
+        <div class="comments-divider" aria-hidden="true"></div>
+
+        <div class="comments-section-head">
+          <strong>评论({{ activeThread?.comments.length || 0 }})</strong>
+          <div class="comment-sort-tabs" aria-label="评论排序">
+            <button type="button" :class="{ active: commentSortMode === 'recommend' }" @click="commentSortMode = 'recommend'">推荐</button>
+            <button type="button" :class="{ active: commentSortMode === 'hot' }" @click="commentSortMode = 'hot'">最热</button>
+            <button type="button" :class="{ active: commentSortMode === 'newest' }" @click="commentSortMode = 'newest'">最新</button>
           </div>
-          <div class="room-meter" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
         </div>
-        <div class="comment-toolbar">
-          <button type="button" :disabled="!activeTrack || generatingCommentTrackId === activeTrack.id" @click="generateThread('replace')">
-            <RefreshCw :class="{ spin: activeTrack && generatingCommentTrackId === activeTrack.id }" :size="16" />{{ activeThread ? '重新生成' : '生成评论区' }}
-          </button>
-          <button type="button" :disabled="!activeThread || !activeTrack || generatingCommentTrackId === activeTrack.id" @click="generateThread('expand')">
-            <Sparkles :size="16" />拓展评论区
-          </button>
-          <button type="button" :disabled="!activeThread" @click="toggleThreadExpanded">
-            <ChevronUp v-if="activeThread?.expanded" :size="16" /><ChevronDown v-else :size="16" />{{ activeThread?.expanded ? '收起' : '展开' }}
-          </button>
-        </div>
+
         <p v-if="commentError" class="message error">{{ commentError }}</p>
-        <div v-if="activeTrack && generatingCommentTrackId === activeTrack.id" class="message"><LoaderCircle class="spin" :size="18" />评论区生成中</div>
-        <div v-else-if="visibleComments.length" class="comment-list">
-          <article v-for="comment in visibleComments" :key="comment.id" class="comment-card">
-            <span class="comment-avatar"><img v-if="comment.avatar" :src="comment.avatar" alt="" aria-hidden="true" /><UserRound v-else :size="18" /></span>
+        <div v-if="showFullCommentLoading" class="netease-loading"><LoaderCircle class="spin" :size="20" /> {{ generatingCommentMode === 'expand' ? '评论区拓展中' : '评论区生成中' }}</div>
+        <div v-else-if="commentGroups.length" class="comment-list netease-comment-list">
+          <article v-for="group in commentGroups" :key="group.comment.id" class="comment-card netease-comment-card">
+            <span class="comment-avatar"><img :src="commentAvatar(group.comment)" alt="" aria-hidden="true" /></span>
             <div class="comment-body">
-              <div class="comment-meta"><strong>{{ comment.authorName }}</strong><small>{{ commentAuthorType(comment) }}</small></div>
-              <p v-if="comment.parentId" class="reply-quote">回复 {{ parentCommentName(comment.parentId) }}：{{ parentCommentText(comment.parentId) }}</p>
-              <p>{{ comment.content }}</p>
-              <small v-if="comment.contentTranslation" class="translation">{{ comment.contentTranslation }}</small>
-              <button type="button" @click="replyTargetId = comment.id">回复</button>
+              <div class="comment-meta-row">
+                <div class="comment-meta"><strong>{{ group.comment.authorName }}</strong><small>{{ commentSubtitle(group.comment) }}</small></div>
+                <button class="comment-like-button" type="button" aria-label="点赞"><span>{{ commentLikeText(group.comment) }}</span><ThumbsUp :size="20" /></button>
+              </div>
+              <p>{{ group.comment.content }}</p>
+              <small v-if="group.comment.contentTranslation" class="translation">{{ group.comment.contentTranslation }}</small>
+              <button v-if="group.replies.length" class="reply-expand" type="button" @click="toggleCommentReplies(group.comment.id)">
+                {{ expandedReplyIds.has(group.comment.id) ? '收起回复' : `展开${group.replies.length}条回复` }}
+              </button>
+              <div v-if="expandedReplyIds.has(group.comment.id)" class="inline-replies">
+                <button v-for="reply in group.replies" :key="reply.id" type="button" @click="replyTargetId = reply.id">
+                  <strong>{{ reply.authorName }}</strong><span>：{{ reply.content }}</span>
+                </button>
+              </div>
+              <button class="comment-reply-action" type="button" @click="replyTargetId = group.comment.id">回复</button>
             </div>
           </article>
+          <div v-if="showInlineCommentLoading" class="netease-inline-loading"><LoaderCircle class="spin" :size="16" /> 评论区拓展中</div>
         </div>
-        <div v-else class="empty-room">
-          <MessageCircle :size="28" />
+        <div v-else class="empty-room netease-empty-room">
+          <MessageCircle :size="34" />
           <strong>{{ activeTrack ? '这首歌还没有听友入场' : '先选择一首歌' }}</strong>
-          <span>{{ activeTrack ? '生成一组 AI 评论，或者先写下第一句。' : '从搜索页点一首歌，再回来开评论现场。' }}</span>
+          <span>{{ activeTrack ? '生成评论区，或者先写下第一句。' : '从搜索页点一首歌，再回来开评论现场。' }}</span>
         </div>
-        <form v-if="activeTrack" class="comment-composer" @submit.prevent="submitUserComment">
-          <div v-if="replyTargetId" class="reply-target">回复 {{ parentCommentName(replyTargetId) }}<button type="button" aria-label="取消回复" @click="replyTargetId = ''"><X :size="14" /></button></div>
-          <div class="composer-row"><input v-model="commentDraft" type="text" maxlength="180" placeholder="写评论或回复" /><button type="submit" :disabled="!commentDraft.trim()"><Send :size="17" /></button></div>
-        </form>
+
+        <div class="comments-bottom-panel">
+          <div class="comment-topic-row" aria-label="评论快捷操作">
+            <button type="button"><Hash :size="16" />话题</button>
+            <button type="button" :disabled="!activeTrack || generatingCommentTrackId === activeTrack.id" @click="generateThread('replace')"><Hash :size="16" />生成评论区</button>
+            <button type="button" :disabled="!activeThread || !activeTrack || generatingCommentTrackId === activeTrack.id" @click="generateThread('expand')"><Hash :size="16" />拓展评论区</button>
+          </div>
+          <form v-if="activeTrack" class="comment-composer" @submit.prevent="submitUserComment">
+            <div v-if="replyTargetId" class="reply-target">回复 {{ parentCommentName(replyTargetId) }}<button type="button" aria-label="取消回复" @click="replyTargetId = ''"><X :size="14" /></button></div>
+            <div class="composer-row"><input v-model="commentDraft" type="text" maxlength="180" placeholder="听说爱评论的人粉丝多" /><button type="submit" :disabled="!commentDraft.trim()" :aria-label="commentDraft.trim() ? '发送评论' : '表情'"><Send v-if="commentDraft.trim()" :size="17" /><Smile v-else :size="21" /></button></div>
+          </form>
+        </div>
       </section>
 
       <section v-else class="content-sheet likes-sheet">
@@ -186,12 +233,7 @@
             <span v-for="track in favoritePreviewTracks" :key="track.id"><img :src="coverImageSrc(track)" alt="" aria-hidden="true" @error="handleCoverError" /></span>
             <Heart v-if="!favoritePreviewTracks.length" :size="46" fill="currentColor" />
           </div>
-          <div><span>PRIVATE MIX</span><h2>我的喜欢音乐</h2><p>{{ favoriteTracks.length }} 首 · {{ commentThreads.length }} 个独立评论区</p></div>
-        </div>
-        <div class="library-stats" aria-label="音乐资产">
-          <span><strong>{{ favoriteTracks.length }}</strong><small>收藏歌曲</small></span>
-          <span><strong>{{ commentThreads.length }}</strong><small>评论现场</small></span>
-          <span><strong>{{ activeTrack ? 'ON' : 'IDLE' }}</strong><small>当前播放</small></span>
+          <div><span>PRIVATE MIX</span><h2>我的喜欢音乐</h2><p>{{ favoriteTracks.length }}首</p></div>
         </div>
         <div v-if="favoriteTracks.length" class="track-list">
           <article v-for="track in favoriteTracks" :key="track.id" class="track-row" :class="{ active: activeTrack?.id === track.id }">
@@ -199,7 +241,6 @@
               <span class="track-cover"><img :src="coverImageSrc(track)" alt="" aria-hidden="true" @error="handleCoverError" /></span>
               <span><strong>{{ track.name }}</strong><small>{{ trackArtists(track) }} · {{ track.album || '未知专辑' }}</small></span>
             </button>
-            <button type="button" aria-label="播放" @click="togglePlay(track)"><Play :size="18" /></button>
             <button type="button" class="favorite-toggle active" aria-label="从我的喜欢删除" @click="toggleFavorite(track)"><Heart :size="18" fill="currentColor" /></button>
           </article>
         </div>
@@ -211,7 +252,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
-import { ChevronDown, ChevronUp, Disc3, Heart, LoaderCircle, MessageCircle, Pause, Play, RefreshCw, Search, Send, SkipBack, SkipForward, Sparkles, UserRound, X } from 'lucide-vue-next';
+import { Disc3, Hash, Heart, ListMusic, ListOrdered, LoaderCircle, MessageCircle, MessageSquareText, Pause, Play, Repeat, Repeat1, Search, Send, Shuffle, SkipBack, SkipForward, Smile, ThumbsUp, X } from 'lucide-vue-next';
 import { deleteEntity, getDb, putEntity } from '@/data/db';
 import { generateMusicCommentThread, hasTextGenerationConfig } from '@/services/ai';
 import { fetchMusicAudioUrl, fetchMusicCoverUrl, fetchMusicLyricText, mergeMusicTrack, searchMusicTracks } from '@/services/music';
@@ -222,6 +263,18 @@ import { createId } from '@/utils/id';
 import { getUserAiName } from '@/utils/profile';
 
 type MusicPageMode = 'player' | 'search' | 'comments' | 'likes';
+type PlaybackMode = 'sequence' | 'repeat-all' | 'shuffle' | 'repeat-one';
+type CommentSortMode = 'recommend' | 'hot' | 'newest';
+type CommentGroup = { comment: MusicComment; replies: MusicComment[] };
+
+const playbackModeLabels: Record<PlaybackMode, string> = {
+  sequence: '顺序播放',
+  'repeat-all': '列表循环',
+  shuffle: '随机播放',
+  'repeat-one': '单曲循环'
+};
+const playbackModeOrder: PlaybackMode[] = ['sequence', 'repeat-all', 'shuffle', 'repeat-one'];
+const commentRegions = ['河北', '湖南', '广西', '广东', '江苏', '浙江', '四川', '福建', '北京', '湖北', '云南', '重庆'];
 
 const store = useAppStore();
 const musicPlayer = useMusicPlayerStore();
@@ -243,13 +296,21 @@ const lastSearchKeyword = ref('');
 const lastSearchSource = ref<MusicSource>('netease');
 const loadingLyricTrackId = ref('');
 const generatingCommentTrackId = ref('');
+const generatingCommentMode = ref<'replace' | 'expand' | ''>('');
 const commentDraft = ref('');
 const replyTargetId = ref('');
-const lyricCardFlipped = ref(false);
+const playerPageIndex = ref(0);
+const playbackMode = ref<PlaybackMode>('sequence');
+const commentSortMode = ref<CommentSortMode>('recommend');
+const expandedReplyIds = ref(new Set<string>());
+const showQueuePanel = ref(false);
 const screenRef = ref<HTMLElement | null>(null);
 const searchInputRef = ref<HTMLInputElement | null>(null);
 const lyricScrollRef = ref<HTMLElement | null>(null);
 const lyricTextByTrackId = ref<Record<string, string>>({});
+let playerPointerStart: { x: number; y: number; pointerId: number } | null = null;
+let playerSwipeTracking = false;
+let playRequestSerial = 0;
 
 const activeTrackId = computed({
   get: () => musicPlayer.activeTrackId,
@@ -267,20 +328,38 @@ const isPlaying = computed(() => musicPlayer.isPlaying);
 const currentTime = computed(() => musicPlayer.currentTime);
 const duration = computed(() => musicPlayer.duration);
 const progressValue = computed(() => musicPlayer.progressValue);
+const playbackEndedTick = computed(() => musicPlayer.playbackEndedTick);
 const activeTrack = computed(() => findTrack(activeTrackId.value) ?? musicPlayer.currentTrack);
 const activeThread = computed(() => {
   const track = activeTrack.value;
   return track ? commentThreads.value.find((thread) => thread.trackKey === getTrackKey(track)) : undefined;
 });
-const visibleComments = computed(() => {
-  const comments = activeThread.value?.comments ?? [];
-  return activeThread.value?.expanded ? comments : comments.slice(0, 6);
-});
+const commentGroups = computed(() => buildCommentGroups(activeThread.value?.comments ?? []));
+const isGeneratingActiveComments = computed(() => Boolean(activeTrack.value && generatingCommentTrackId.value === activeTrack.value.id));
+const showFullCommentLoading = computed(() => isGeneratingActiveComments.value && (generatingCommentMode.value !== 'expand' || !commentGroups.value.length));
+const showInlineCommentLoading = computed(() => isGeneratingActiveComments.value && generatingCommentMode.value === 'expand' && commentGroups.value.length > 0);
 const favoritePreviewTracks = computed(() => favoriteTracks.value.slice(0, 4));
+const playbackQueue = computed(() => {
+  const sourceTracks = favoriteTracks.value.length ? favoriteTracks.value : searchResults.value;
+  const track = activeTrack.value;
+  if (!track || sourceTracks.some((entry) => entry.id === track.id)) return sourceTracks;
+  return [track, ...sourceTracks];
+});
 const currentTimeLabel = computed(() => formatDuration(currentTime.value));
 const durationLabel = computed(() => duration.value ? formatDuration(duration.value) : '03:40');
 const nowPlayingTitle = computed(() => activeTrack.value?.name || '先搜索一首歌');
 const nowPlayingArtists = computed(() => activeTrack.value ? trackArtists(activeTrack.value) : 'LINK FM');
+const commentTrackTitle = computed(() => activeTrack.value?.name || '评论区');
+const playModeLabel = computed(() => playbackModeLabels[playbackMode.value]);
+const favoriteActionLabel = computed(() => activeTrack.value && isFavorite(activeTrack.value.id) ? '已喜欢' : '喜欢');
+const playerSlideStyle = computed(() => ({ transform: `translate3d(-${playerPageIndex.value * 100}%, 0, 0)` }));
+const listenPartner = computed(() => musicPlayer.listeningPartner ? store.characterById(musicPlayer.listeningPartner.characterId) : null);
+const listenBoundUser = computed(() => musicPlayer.listeningPartner ? store.userById(musicPlayer.listeningPartner.userId) : null);
+const currentUserAvatar = computed(() => listenBoundUser.value?.avatar || store.user?.avatar || fallbackCoverUrl);
+const listeningTogether = computed(() => Boolean(listenPartner.value));
+const listenPartnerAvatar = computed(() => listenPartner.value?.avatar || fallbackCoverUrl);
+const listenStatusTitle = computed(() => listenPartner.value ? `正在和 ${listenPartner.value.nickname || listenPartner.value.name} 一起听` : '一起听待机中');
+const listenRoomCaption = computed(() => listenPartner.value ? '相距520km，一起听了1314小时52分钟' : '从聊天里邀请角色后，右侧头像会亮起');
 const parsedActiveLyrics = computed(() => {
   const track = activeTrack.value;
   return track ? parseLyricLines(lyricTextByTrackId.value[track.id] || '') : [];
@@ -312,12 +391,25 @@ watch(activeTrack, (track) => {
   if (track) void loadTrackLyric(track);
 });
 
-watch([activeLyricIndex, lyricCardFlipped], () => {
-  if (!lyricCardFlipped.value) return;
+watch(() => store.musicFavoriteTracks, (tracks) => {
+  favoriteTracks.value = [...tracks].sort((left, right) => (right.addedAt ?? 0) - (left.addedAt ?? 0));
+}, { deep: true });
+
+watch(activeLyricLine, (line) => {
+  musicPlayer.setCurrentLyricLine(line);
+}, { immediate: true });
+
+watch([activeLyricIndex, playerPageIndex], () => {
+  if (playerPageIndex.value !== 1) return;
   void nextTick(() => {
     const activeLine = lyricScrollRef.value?.querySelector<HTMLElement>('p.active');
     activeLine?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   });
+});
+
+watch(playbackEndedTick, (tick, previousTick) => {
+  if (!tick || tick === previousTick) return;
+  void playAfterCurrentEnded();
 });
 
 function setMode(mode: MusicPageMode) {
@@ -336,10 +428,6 @@ function scrollMusicToTop() {
   void nextTick(() => screenRef.value?.scrollTo({ top: 0, behavior: 'auto' }));
 }
 
-function toggleLyricCard() {
-  lyricCardFlipped.value = !lyricCardFlipped.value;
-}
-
 function getTrackKey(track: MusicTrack) {
   return `${track.source}:${track.platformId || track.id}`;
 }
@@ -352,6 +440,7 @@ async function loadMusicData() {
   ]);
   favoriteTracks.value = favorites.sort((left, right) => (right.addedAt ?? 0) - (left.addedAt ?? 0));
   commentThreads.value = threads.sort((left, right) => right.updatedAt - left.updatedAt);
+  store.syncMusicFavoriteTracks(favoriteTracks.value);
   if (!activeTrack.value) activeTrackId.value = favoriteTracks.value[0]?.id || '';
 }
 
@@ -484,6 +573,11 @@ async function selectTrack(track: MusicTrack, nextMode: MusicPageMode = 'player'
   scrollMusicToTop();
   replyTargetId.value = '';
   commentDraft.value = '';
+  void loadTrackLyric(track);
+  if (nextMode === 'player') {
+    await playTrackNow(track);
+    return;
+  }
   if (!track.coverUrl) {
     try {
       updateTrackEverywhere(await withCover(track));
@@ -491,7 +585,6 @@ async function selectTrack(track: MusicTrack, nextMode: MusicPageMode = 'player'
       // 封面失败不影响选择歌曲。
     }
   }
-  void loadTrackLyric(track);
 }
 
 async function loadTrackLyric(track: MusicTrack) {
@@ -530,38 +623,103 @@ async function ensurePlayableTrack(track: MusicTrack) {
     ]);
     const nextTrack = mergeMusicTrack(coveredTrack, { audioUrl });
     updateTrackEverywhere(nextTrack);
-    if (isFavorite(nextTrack.id)) await putEntity('musicFavoriteTracks', nextTrack);
+    if (isFavorite(nextTrack.id)) await store.saveMusicFavoriteTrack(nextTrack);
     return nextTrack;
   } finally {
-    musicPlayer.setLoadingAudioTrackId('');
+    if (loadingAudioTrackId.value === track.id) musicPlayer.setLoadingAudioTrackId('');
   }
 }
 
-async function togglePlay(track: MusicTrack) {
-  if (loadingAudioTrackId.value) return;
+async function playTrackNow(track: MusicTrack, restart = false) {
+  const requestId = ++playRequestSerial;
   try {
     const playableTrack = await ensurePlayableTrack(track);
+    if (requestId !== playRequestSerial) return;
     activeTrackId.value = playableTrack.id;
     pageMode.value = 'player';
     await nextTick();
-    await musicPlayer.toggleTrack(playableTrack);
+    if (requestId !== playRequestSerial) return;
+    await musicPlayer.playTrack(playableTrack, { restart });
   } catch (error) {
     const message = error instanceof Error ? error.message : '歌曲播放失败。';
     if (!/interrupted by a call to pause/i.test(message)) searchError.value = message;
   }
 }
 
+async function togglePlay(track: MusicTrack) {
+  if (loadingAudioTrackId.value === track.id) return;
+  if (activeTrack.value?.id === track.id && isPlaying.value) {
+    musicPlayer.pause();
+    return;
+  }
+  await playTrackNow(track);
+}
+
 async function toggleFavorite(track: MusicTrack) {
   if (isFavorite(track.id)) {
     favoriteTracks.value = favoriteTracks.value.filter((entry) => entry.id !== track.id);
     await deleteEntity('musicFavoriteTracks', track.id);
+    store.syncMusicFavoriteTracks(favoriteTracks.value);
     return;
   }
   const now = Date.now();
   const nextTrack = mergeMusicTrack(await withCover(track), { addedAt: now, updatedAt: now });
   favoriteTracks.value = [nextTrack, ...favoriteTracks.value];
   updateTrackEverywhere(nextTrack);
-  await putEntity('musicFavoriteTracks', nextTrack);
+  await store.saveMusicFavoriteTrack(nextTrack);
+}
+
+function cyclePlaybackMode() {
+  const currentIndex = playbackModeOrder.indexOf(playbackMode.value);
+  playbackMode.value = playbackModeOrder[(currentIndex + 1) % playbackModeOrder.length];
+}
+
+function randomQueueTrack(list: MusicTrack[]) {
+  if (list.length <= 1) return list[0] ?? null;
+  const candidates = list.filter((track) => track.id !== activeTrackId.value);
+  return candidates[Math.floor(Math.random() * candidates.length)] ?? list[0] ?? null;
+}
+
+function selectQueueTrack(track: MusicTrack) {
+  showQueuePanel.value = false;
+  void playTrackNow(track);
+}
+
+function handlePlayerPointerDown(event: PointerEvent) {
+  if (event.button !== 0 || event.isPrimary === false) return;
+  playerPointerStart = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+  playerSwipeTracking = false;
+}
+
+function handlePlayerPointerMove(event: PointerEvent) {
+  if (!playerPointerStart || event.pointerId !== playerPointerStart.pointerId) return;
+  const deltaX = event.clientX - playerPointerStart.x;
+  const deltaY = event.clientY - playerPointerStart.y;
+  const horizontalDistance = Math.abs(deltaX);
+  const verticalDistance = Math.abs(deltaY);
+  if (!playerSwipeTracking) {
+    if (verticalDistance > 14 && verticalDistance > horizontalDistance) {
+      handlePlayerPointerCancel();
+      return;
+    }
+    if (horizontalDistance > 18 && horizontalDistance > verticalDistance * 1.2) playerSwipeTracking = true;
+  }
+  if (!playerSwipeTracking) return;
+  event.preventDefault();
+}
+
+function handlePlayerPointerUp(event: PointerEvent) {
+  if (!playerPointerStart || event.pointerId !== playerPointerStart.pointerId) return;
+  const deltaX = event.clientX - playerPointerStart.x;
+  if (playerSwipeTracking && Math.abs(deltaX) > 48) {
+    playerPageIndex.value = deltaX < 0 ? 1 : 0;
+  }
+  handlePlayerPointerCancel();
+}
+
+function handlePlayerPointerCancel() {
+  playerPointerStart = null;
+  playerSwipeTracking = false;
 }
 
 function upsertThread(thread: MusicCommentThread) {
@@ -585,6 +743,7 @@ async function generateThread(mode: 'replace' | 'expand') {
   }
   const trackKey = getTrackKey(track);
   generatingCommentTrackId.value = track.id;
+  generatingCommentMode.value = mode;
   commentError.value = '';
   try {
     const currentThread = commentThreads.value.find((thread) => thread.trackKey === trackKey);
@@ -610,12 +769,8 @@ async function generateThread(mode: 'replace' | 'expand') {
     commentError.value = error instanceof Error ? error.message : '评论区生成失败。';
   } finally {
     generatingCommentTrackId.value = '';
+    generatingCommentMode.value = '';
   }
-}
-
-async function toggleThreadExpanded() {
-  if (!activeThread.value) return;
-  await saveThread({ ...activeThread.value, expanded: !activeThread.value.expanded, updatedAt: Date.now() });
 }
 
 async function submitUserComment() {
@@ -656,15 +811,94 @@ function parentCommentName(commentId: string) {
   return parentComment(commentId)?.authorName || '评论';
 }
 
-function parentCommentText(commentId: string) {
-  const content = parentComment(commentId)?.content || '';
-  return content.length > 34 ? `${content.slice(0, 34)}...` : content;
+function buildCommentGroups(comments: MusicComment[]): CommentGroup[] {
+  const knownIds = new Set(comments.map((comment) => comment.id));
+  const repliesByParent = new Map<string, MusicComment[]>();
+  const rootComments: MusicComment[] = [];
+
+  comments.forEach((comment) => {
+    if (comment.parentId && knownIds.has(comment.parentId)) {
+      const replies = repliesByParent.get(comment.parentId) ?? [];
+      replies.push(comment);
+      repliesByParent.set(comment.parentId, replies);
+      return;
+    }
+    rootComments.push(comment);
+  });
+
+  return sortRootComments(rootComments, repliesByParent).map((comment) => ({
+    comment,
+    replies: [...(repliesByParent.get(comment.id) ?? [])].sort((leftComment, rightComment) => leftComment.createdAt - rightComment.createdAt)
+  }));
 }
 
-function commentAuthorType(comment: MusicComment) {
-  if (comment.authorType === 'user') return '我';
-  if (comment.authorType === 'character') return '角色';
-  return '听友';
+function sortRootComments(comments: MusicComment[], repliesByParent: Map<string, MusicComment[]>) {
+  return [...comments].sort((leftComment, rightComment) => {
+    if (commentSortMode.value === 'newest') return rightComment.createdAt - leftComment.createdAt;
+    if (commentSortMode.value === 'hot') return commentLikeCount(rightComment) - commentLikeCount(leftComment) || rightComment.createdAt - leftComment.createdAt;
+    const rightScore = commentLikeCount(rightComment) + (repliesByParent.get(rightComment.id)?.length ?? 0) * 360 + (rightComment.authorType === 'character' ? 120 : 0);
+    const leftScore = commentLikeCount(leftComment) + (repliesByParent.get(leftComment.id)?.length ?? 0) * 360 + (leftComment.authorType === 'character' ? 120 : 0);
+    return rightScore - leftScore || rightComment.createdAt - leftComment.createdAt;
+  });
+}
+
+function toggleCommentReplies(commentId: string) {
+  const nextIds = new Set(expandedReplyIds.value);
+  if (nextIds.has(commentId)) nextIds.delete(commentId);
+  else nextIds.add(commentId);
+  expandedReplyIds.value = nextIds;
+}
+
+function commentAvatar(comment: MusicComment) {
+  if (comment.authorType === 'user' && comment.avatar) return comment.avatar;
+  return qqAvatarUrl(comment.authorId || comment.authorName || comment.id);
+}
+
+function commentSubtitle(comment: MusicComment) {
+  return `${formatCommentDate(comment.createdAt)} ${commentRegion(comment)}`;
+}
+
+function commentRegion(comment: MusicComment) {
+  return commentRegions[hashText(`${comment.id}:${comment.authorName}`) % commentRegions.length];
+}
+
+function commentLikeText(comment: MusicComment) {
+  const count = commentLikeCount(comment);
+  if (count >= 10000) return `${(count / 10000).toFixed(1).replace(/\.0$/, '')}万`;
+  return count ? String(count) : '';
+}
+
+function commentLikeCount(comment: MusicComment) {
+  if (comment.authorType === 'user') return 0;
+  return hashText(`${comment.id}:${comment.content}`) % 5200;
+}
+
+function formatCommentDate(timestamp: number) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '刚刚';
+  const elapsed = Date.now() - timestamp;
+  const dayMs = 24 * 60 * 60 * 1000;
+  if (elapsed < 60 * 1000) return '刚刚';
+  if (elapsed < dayMs) return `${Math.max(1, Math.floor(elapsed / (60 * 60 * 1000)))}小时前`;
+  if (elapsed < 7 * dayMs) return `${Math.floor(elapsed / dayMs)}天前`;
+  return `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())}`;
+}
+
+function padNumber(value: number) {
+  return String(value).padStart(2, '0');
+}
+
+function qqAvatarUrl(seed: string) {
+  const account = 100000 + (hashText(seed) % 899999999);
+  return `https://q1.qlogo.cn/g?b=qq&nk=${account}&s=100`;
+}
+
+function hashText(value: string) {
+  let hash = 0;
+  Array.from(value).forEach((character) => {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  });
+  return hash;
 }
 
 function seekAudio(event: Event) {
@@ -680,11 +914,26 @@ function formatDuration(seconds: number) {
 }
 
 function playNeighbor(direction: -1 | 1) {
-  const list = favoriteTracks.value.length ? favoriteTracks.value : searchResults.value;
+  const list = playbackQueue.value;
   if (!list.length) return;
+  if (playbackMode.value === 'repeat-one' && activeTrack.value) {
+    void playTrackNow(activeTrack.value, true);
+    return;
+  }
+  if (playbackMode.value === 'shuffle') {
+    const nextTrack = randomQueueTrack(list);
+    if (nextTrack) void playTrackNow(nextTrack, true);
+    return;
+  }
   const currentIndex = Math.max(0, list.findIndex((track) => track.id === activeTrackId.value));
-  const nextTrack = list[(currentIndex + direction + list.length) % list.length];
-  if (nextTrack) void togglePlay(nextTrack);
+  const nextIndex = currentIndex + direction;
+  if (playbackMode.value === 'sequence' && (nextIndex < 0 || nextIndex >= list.length)) return;
+  const nextTrack = list[(nextIndex + list.length) % list.length];
+  if (nextTrack) void playTrackNow(nextTrack, true);
+}
+
+function playAfterCurrentEnded() {
+  playNeighbor(1);
 }
 </script>
 
@@ -713,7 +962,9 @@ function playNeighbor(direction: -1 | 1) {
 }
 
 .music-content.player-content {
+  height: calc(100dvh - var(--tab-height) - var(--safe-bottom));
   padding: 0;
+  overflow: hidden;
 }
 
 .track-list::-webkit-scrollbar {
@@ -722,25 +973,33 @@ function playNeighbor(direction: -1 | 1) {
 
 .player-panel {
   display: grid;
-  min-height: calc(100dvh - var(--tab-height) - 58px - var(--safe-bottom));
+  height: calc(100dvh - var(--tab-height) - var(--safe-bottom));
+  min-height: 0;
+  overflow: hidden;
 }
 
 .player-stage {
   position: relative;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  min-height: calc(100dvh - var(--tab-height) - 58px - var(--safe-bottom));
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
-  perspective: 1200px;
-  background: #ffffff;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(255, 255, 255, 0.08), transparent 28%),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 4px),
+    #080808;
   box-shadow: none;
+  color: #ffffff;
+  touch-action: pan-y;
 }
 
 .player-stage::before {
   position: absolute;
   inset: 0;
   z-index: 1;
-  background: none;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(255, 255, 255, 0.13), transparent 5px),
+    radial-gradient(circle at 88% 28%, rgba(255, 255, 255, 0.12), transparent 4px),
+    radial-gradient(circle at 78% 76%, rgba(255, 255, 255, 0.1), transparent 5px);
   pointer-events: none;
   content: '';
 }
@@ -754,6 +1013,496 @@ function playNeighbor(direction: -1 | 1) {
   background: transparent;
   pointer-events: none;
   content: '';
+}
+
+.listen-pages {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  transition: transform 360ms cubic-bezier(0.2, 0.72, 0.12, 1);
+  will-change: transform;
+}
+
+.listen-page {
+  position: relative;
+  display: grid;
+  flex: 0 0 100%;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: max(12px, var(--safe-top)) 20px 10px;
+}
+
+.listen-cover-page {
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
+  justify-items: center;
+  gap: clamp(7px, 1.4dvh, 13px);
+}
+
+.listen-lyrics-page {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  background: #080808;
+}
+
+.listen-topline {
+  display: grid;
+  grid-template-columns: 40px 1fr 40px;
+  align-items: center;
+  width: 100%;
+  min-height: 38px;
+}
+
+.listen-topline span {
+  justify-self: center;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.listen-topline button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.listen-room-head {
+  display: grid;
+  justify-items: center;
+  gap: clamp(7px, 1.2dvh, 10px);
+  width: 100%;
+  text-align: center;
+}
+
+.listen-room-head strong {
+  max-width: 100%;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listen-room-head p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: clamp(11px, 1.8dvh, 13px);
+  font-weight: 900;
+}
+
+.listen-avatars {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: clamp(48px, 9.2dvh, 64px);
+  padding: 7px 18px 12px;
+}
+
+.listen-avatars span {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: clamp(48px, 9.2dvh, 64px);
+  height: clamp(48px, 9.2dvh, 64px);
+  overflow: hidden;
+  border: 3px solid rgba(255, 255, 255, 0.95);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.28);
+}
+
+.listen-avatars span + span {
+  margin-left: 0;
+  opacity: 0.96;
+  filter: none;
+}
+
+.listen-avatars.connected span + span {
+  opacity: 1;
+  filter: none;
+}
+
+.listen-avatars img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.listen-doodle-layer {
+  position: absolute;
+  inset: 72px 18px 120px;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.listen-doodle-layer span {
+  position: absolute;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 25px;
+  font-weight: 950;
+}
+
+.listen-doodle-layer span:nth-child(1) { left: 3%; top: 8%; }
+.listen-doodle-layer span:nth-child(2) { right: 12%; top: 3%; transform: rotate(-16deg); }
+.listen-doodle-layer span:nth-child(3) { right: 4%; top: 49%; transform: rotate(14deg); }
+.listen-doodle-layer span:nth-child(4) { left: 0; bottom: 22%; transform: rotate(-10deg); }
+.listen-doodle-layer span:nth-child(5) { right: 22%; bottom: 6%; }
+
+.record.listen-record {
+  align-self: center;
+  width: min(72vw, 34dvh, 312px);
+  margin: 0;
+  background:
+    radial-gradient(circle at 50% 50%, transparent 0 42%, rgba(255, 255, 255, 0.12) 42.5% 44%, transparent 44.5% 48%, rgba(255, 255, 255, 0.1) 49% 50.5%, transparent 51%),
+    radial-gradient(circle at 36% 28%, rgba(255, 255, 255, 0.22), transparent 19%),
+    radial-gradient(circle at 50% 50%, #202124 0 36%, #070708 37% 57%, #1d1e20 58% 64%, #050505 65% 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    inset 0 20px 46px rgba(255, 255, 255, 0.1),
+    inset 0 -28px 48px rgba(0, 0, 0, 0.84),
+    0 28px 60px rgba(0, 0, 0, 0.72);
+}
+
+.record.listen-record::before {
+  position: absolute;
+  inset: 7%;
+  border-radius: 50%;
+  background:
+    conic-gradient(from 245deg, transparent 0 64deg, rgba(255, 255, 255, 0.18) 78deg, transparent 100deg 360deg),
+    radial-gradient(circle, transparent 0 47%, rgba(255, 255, 255, 0.12) 48%, transparent 49% 100%);
+  mix-blend-mode: screen;
+  opacity: 0.7;
+  pointer-events: none;
+  content: '';
+}
+
+.record.listen-record .grooves {
+  inset: 4%;
+  background:
+    repeating-radial-gradient(circle, rgba(255, 255, 255, 0.12) 0 1px, transparent 1px 7px),
+    conic-gradient(from 90deg, rgba(255, 255, 255, 0.1), transparent 24%, rgba(255, 255, 255, 0.12) 38%, transparent 56%, rgba(0, 0, 0, 0.62) 74%, rgba(255, 255, 255, 0.08));
+  opacity: 0.58;
+}
+
+.record.listen-record .album-art {
+  width: 61%;
+  border: 0;
+  background: #050505;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.14),
+    0 0 0 7px rgba(0, 0, 0, 0.28),
+    inset 0 -34px 45px rgba(255, 255, 255, 0.28),
+    0 18px 32px rgba(0, 0, 0, 0.46);
+}
+
+.record.listen-record .album-art::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 47%, rgba(255, 255, 255, 0.42));
+  pointer-events: none;
+  content: '';
+}
+
+.listen-live-pill {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: min(86%, 360px);
+  min-height: clamp(30px, 5.2dvh, 38px);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  padding: 0 14px;
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+}
+
+.listen-live-pill span {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listen-track-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px 32px;
+  align-items: end;
+  gap: 7px;
+  width: 100%;
+  padding: 0 18px;
+}
+
+.listen-song-meta {
+  display: grid;
+  justify-items: start;
+  gap: 3px;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+}
+
+.listen-song-meta strong,
+.listen-song-meta span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listen-song-meta strong {
+  color: #ffffff;
+  font-size: clamp(12px, 1.85dvh, 14px);
+  line-height: 1.08;
+  font-weight: 950;
+}
+
+.listen-song-meta span {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 10px;
+  font-weight: 820;
+}
+
+.listen-social-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  align-content: end;
+  width: 32px;
+  height: 31px;
+  gap: 0;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  font-weight: 950;
+}
+
+.listen-social-button svg {
+  position: relative;
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+  stroke-width: 2.35;
+  filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.48));
+}
+
+.listen-social-button span {
+  position: absolute;
+  top: 2px;
+  left: 23px;
+  z-index: 3;
+  min-width: 20px;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 9.5px;
+  line-height: 1;
+  font-weight: 950;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.65);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listen-social-button.active {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.listen-social-button.active svg {
+  color: #ff4f6e;
+  fill: #ff4f6e;
+  stroke: #ff4f6e;
+}
+
+.progress-panel.listen-progress-panel {
+  width: 100%;
+  gap: clamp(8px, 1.6dvh, 14px);
+  background: transparent !important;
+  color: #ffffff;
+  padding: 0;
+}
+
+.progress-panel.listen-progress-panel .progress-row {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.progress-panel.listen-progress-panel .progress-row input {
+  accent-color: #ffffff;
+}
+
+.progress-panel.listen-progress-panel .transport-row {
+  grid-template-columns: repeat(5, 42px);
+  justify-content: space-between;
+  gap: 4px;
+  width: min(100%, 300px);
+  margin: 0 auto;
+}
+
+.progress-panel.listen-progress-panel .transport-row button,
+.progress-panel.listen-progress-panel .transport-row .main-play {
+  color: #ffffff;
+}
+
+.progress-panel.listen-progress-panel .transport-row .mode-toggle:not(.sequence) {
+  color: #ffffff;
+  filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.28));
+}
+
+.progress-panel.listen-progress-panel .transport-row .main-play svg {
+  filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.48));
+}
+
+.listen-page-dots {
+  position: absolute;
+  left: 50%;
+  bottom: max(5px, var(--safe-bottom));
+  z-index: 4;
+  display: flex;
+  gap: 5px;
+  transform: translateX(-50%);
+}
+
+.listen-page-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.listen-page-dots span.active {
+  width: 14px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.queue-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  align-items: end;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.queue-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  max-height: min(64dvh, 430px);
+  min-height: min(52dvh, 360px);
+  overflow: hidden;
+  border-radius: 24px 24px 0 0;
+  background: rgba(18, 18, 20, 0.96);
+  color: #ffffff;
+  box-shadow: 0 -24px 60px rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(22px);
+}
+
+.queue-head {
+  display: grid;
+  grid-template-columns: 1fr 36px;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 18px 10px;
+}
+
+.queue-head > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.queue-head strong {
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.queue-head span {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.queue-head button,
+.queue-track {
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.queue-head button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.queue-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 10px calc(16px + var(--safe-bottom));
+}
+
+.queue-list::-webkit-scrollbar {
+  display: none;
+}
+
+.queue-track {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border-radius: 14px;
+  padding: 11px 10px;
+  text-align: left;
+}
+
+.queue-track.active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.queue-track span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.queue-track strong,
+.queue-track small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-track strong {
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.queue-track small,
+.queue-list p {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.queue-list p {
+  margin: 20px 8px;
+  text-align: center;
 }
 
 .flip-card {
@@ -892,6 +1641,46 @@ function playNeighbor(direction: -1 | 1) {
   line-height: 1.25;
   transform: translateX(8px);
   text-shadow: none;
+}
+
+.listen-lyrics-page .lyrics-card-head {
+  z-index: 1;
+  padding: 4px 0 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.listen-lyrics-page .lyrics-card-head span {
+  color: rgba(255, 255, 255, 0.54);
+}
+
+.listen-lyrics-page .lyrics-card-head strong {
+  color: #ffffff;
+  font-size: 26px;
+}
+
+.listen-lyrics-page .lyrics-card-head small {
+  color: rgba(255, 255, 255, 0.64);
+}
+
+.listen-lyrics-page .full-lyrics {
+  padding: 18px 4px 48px;
+  mask-image: linear-gradient(180deg, transparent, #000 10%, #000 88%, transparent);
+}
+
+.listen-lyrics-page .full-lyrics p {
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 16px;
+  text-align: left;
+}
+
+.listen-lyrics-page .full-lyrics p.passed {
+  color: rgba(255, 255, 255, 0.26);
+}
+
+.listen-lyrics-page .full-lyrics p.active {
+  color: #ffffff;
+  font-size: 26px;
+  transform: translateX(8px);
 }
 
 .signal-caption {
@@ -1357,6 +2146,11 @@ function playNeighbor(direction: -1 | 1) {
   background: #eef2f8;
 }
 
+.search-sheet .track-row,
+.likes-sheet .track-row {
+  grid-template-columns: 1fr 36px;
+}
+
 .track-main {
   display: flex;
   min-width: 0;
@@ -1769,9 +2563,621 @@ function playNeighbor(direction: -1 | 1) {
   min-height: 108px;
 }
 
+.music-page.mode-comments {
+  overflow-y: auto;
+  background: #ffffff;
+  color: #20232b;
+  font-family: var(--app-current-font-family);
+}
+
+.music-page.mode-comments .music-content {
+  min-height: 0;
+  padding: 0 0 92px;
+  color: #20232b;
+}
+
+.music-page.mode-comments .comments-sheet {
+  min-height: 0;
+  gap: 0;
+  background: #ffffff;
+}
+
+.music-page.mode-comments .music-top-bar {
+  background: #ffffff;
+  border-bottom-color: transparent;
+  color: #111317;
+}
+
+.music-page.mode-comments .icon-button {
+  color: #111317;
+}
+
+.music-page.mode-comments button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.netease-comments-header {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  display: grid;
+  grid-template-columns: 52px 1fr 86px;
+  align-items: center;
+  min-height: 76px;
+  padding: 12px 18px 0;
+  background: #ffffff;
+}
+
+.netease-comments-header > button,
+.netease-header-actions button {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  color: #2c2f36;
+}
+
+.netease-title-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  min-width: 0;
+}
+
+.netease-title-tabs button {
+  position: relative;
+  min-height: 44px;
+  color: #8e929b;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.netease-title-tabs button.active {
+  color: #171a22;
+}
+
+.netease-title-tabs button.active::after {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 31px;
+  height: 5px;
+  border-radius: 999px;
+  background: #f3224a;
+  content: "";
+  transform: translateX(-50%);
+}
+
+.netease-title-tabs sup {
+  margin-left: 2px;
+  color: #8e929b;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.netease-header-actions {
+  display: flex;
+  justify-content: end;
+  gap: 8px;
+}
+
+.comments-track-strip {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 24px 8px;
+  background: #ffffff;
+}
+
+.comments-track-cover {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  overflow: hidden;
+  border: 7px solid #111114;
+  border-radius: 50%;
+  background: #111114;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.comments-track-cover img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.comments-track-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+  color: #20232b;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.comments-track-title strong,
+.comments-track-title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comments-track-title span {
+  min-width: 44px;
+  color: #5b5f68;
+}
+
+.comments-divider {
+  height: 7px;
+  background: #f4f4f5;
+}
+
+.comments-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 24px 7px;
+  background: #ffffff;
+}
+
+.comments-section-head > strong {
+  color: #1d2028;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.comment-sort-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  min-width: 0;
+}
+
+.comment-sort-tabs button {
+  color: #999da5;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.comment-sort-tabs button.active {
+  color: #2c3038;
+}
+
+.music-page.mode-comments .netease-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 112px;
+  padding: 18px 0 16px;
+  color: #777c86;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.music-page.mode-comments .netease-inline-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 14px 0 18px;
+  color: #858a94;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.music-page.mode-comments .comment-list.netease-comment-list {
+  display: block;
+  min-height: 360px;
+  padding: 0 18px 70px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.music-page.mode-comments .comment-card.netease-comment-card {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 8px;
+  padding: 10px 2px 9px;
+  border-bottom: 1px solid #f0f1f3;
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.music-page.mode-comments .comment-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #f0f1f4;
+}
+
+.comment-meta-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.music-page.mode-comments .comment-meta {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.music-page.mode-comments .comment-meta strong {
+  overflow: hidden;
+  color: #666b75;
+  font-size: 12px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.music-page.mode-comments .comment-meta small {
+  color: #9da1aa;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.comment-like-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  min-width: 44px;
+  color: #969aa2 !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+}
+
+.comment-like-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.music-page.mode-comments .comment-body {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.music-page.mode-comments .comment-body p {
+  margin: 0;
+  color: #161a24;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.music-page.mode-comments .translation {
+  color: #8f949d;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.reply-expand {
+  position: relative;
+  justify-self: start;
+  margin-top: 1px;
+  padding-left: 44px !important;
+  color: #5e7892 !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+}
+
+.reply-expand::before {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 36px;
+  height: 1px;
+  background: #e2e4e8;
+  content: "";
+}
+
+.inline-replies {
+  display: grid;
+  gap: 5px;
+  border-radius: 8px;
+  background: #f6f7f9;
+  padding: 7px 9px;
+}
+
+.inline-replies button {
+  padding: 0;
+  text-align: left;
+  color: #333844;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.inline-replies strong {
+  color: #66748a;
+  font-weight: 900;
+}
+
+.comment-reply-action {
+  justify-self: end;
+  margin-left: auto;
+  color: #9a9fa8 !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+}
+
+.music-page.mode-comments .comment-body .comment-reply-action {
+  justify-self: end !important;
+  margin-left: auto;
+}
+
+.music-page.mode-comments .empty-room.netease-empty-room {
+  min-height: 118px;
+  margin: 0 18px 68px;
+  border-radius: 0;
+  background: #ffffff;
+  color: #747985;
+  box-shadow: none;
+}
+
+.music-page.mode-comments .empty-room.netease-empty-room strong {
+  color: #242832;
+  font-size: 14px;
+}
+
+.comments-bottom-panel {
+  position: fixed;
+  right: 0;
+  bottom: calc(var(--tab-height) + var(--safe-bottom));
+  left: 0;
+  z-index: 7;
+  display: grid;
+  background: #ffffff;
+  border-top: 1px solid #eceef1;
+  box-shadow: 0 -10px 24px rgba(25, 28, 36, 0.04);
+}
+
+.comment-topic-row {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 5px 10px;
+  scrollbar-width: none;
+}
+
+.comment-topic-row::-webkit-scrollbar {
+  display: none;
+}
+
+.comment-topic-row button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 24px;
+  flex: 0 0 auto;
+  border: 1px solid #e4e6ea !important;
+  border-radius: 999px;
+  background: #ffffff !important;
+  color: #383c46 !important;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.comment-topic-row svg {
+  width: 12px;
+  height: 12px;
+}
+
+.comment-topic-row button:disabled {
+  color: #b1b5be !important;
+}
+
+.music-page.mode-comments .comment-composer {
+  display: grid;
+  gap: 4px;
+  border-radius: 0;
+  background: #ffffff;
+  padding: 4px 12px 6px;
+  box-shadow: none;
+}
+
+.music-page.mode-comments .reply-target {
+  color: #777c86;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.music-page.mode-comments .composer-row {
+  display: grid;
+  grid-template-columns: 1fr 28px;
+  align-items: center;
+  min-height: 32px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  padding: 0 4px 0 12px;
+}
+
+.music-page.mode-comments .composer-row input {
+  color: #1c202a;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.music-page.mode-comments .composer-row input::placeholder {
+  color: #9fa4ad;
+}
+
+.music-page.mode-comments .composer-row button {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: transparent;
+  color: #252936;
+}
+
+.music-page.mode-comments .composer-row button svg {
+  width: 17px;
+  height: 17px;
+}
+
 .message.error {
   color: #2c3036;
   background: #e8ebef;
+}
+
+.music-page.mode-search,
+.music-page.mode-likes {
+  background:
+    radial-gradient(circle at 50% 8%, rgba(255, 255, 255, 0.1), transparent 24%),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 4px),
+    #080808;
+  color: #ffffff;
+}
+
+.music-page.mode-search .music-top-bar,
+.music-page.mode-likes .music-top-bar {
+  background: transparent;
+  border-bottom-color: transparent;
+  color: #ffffff;
+}
+
+.music-page.mode-search .icon-button,
+.music-page.mode-likes .icon-button {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.music-page.mode-search .music-content,
+.music-page.mode-likes .music-content {
+  color: #ffffff;
+}
+
+.music-page.mode-search .content-sheet,
+.music-page.mode-likes .content-sheet {
+  gap: 14px;
+}
+
+.music-page.mode-search .search-console,
+.music-page.mode-likes .playlist-hero,
+.music-page.mode-likes .library-stats span,
+.music-page.mode-search .track-list,
+.music-page.mode-likes .track-list,
+.music-page.mode-search .message,
+.music-page.mode-likes .message {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 18px 34px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(18px);
+}
+
+.music-page.mode-search .search-console {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.06)),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 4px),
+    rgba(18, 18, 20, 0.9);
+}
+
+.music-page.mode-search .source-segment {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.music-page.mode-search .source-segment button {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.music-page.mode-search .source-segment button.active {
+  background: #ffffff;
+  color: #111317;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+}
+
+.music-page.mode-search .search-form {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.music-page.mode-search .search-field,
+.music-page.mode-search .search-form button,
+.music-page.mode-search .load-more-button {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.music-page.mode-search .search-field input {
+  color: #ffffff;
+}
+
+.music-page.mode-search .search-field input::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.music-page.mode-search .message,
+.music-page.mode-likes .message,
+.music-page.mode-search .result-head small,
+.music-page.mode-search .load-more-note,
+.music-page.mode-likes .library-stats small,
+.music-page.mode-search .track-main small,
+.music-page.mode-likes .track-main small {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.music-page.mode-search .result-head strong,
+.music-page.mode-likes .library-stats strong,
+.music-page.mode-search .track-main strong,
+.music-page.mode-likes .track-main strong {
+  color: #ffffff;
+}
+
+.music-page.mode-search .track-row,
+.music-page.mode-likes .track-row {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), 0 12px 26px rgba(0, 0, 0, 0.22);
+}
+
+.music-page.mode-search .track-row.active,
+.music-page.mode-likes .track-row.active {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.music-page.mode-search .track-row > button:not(.track-main),
+.music-page.mode-likes .track-row > button:not(.track-main) {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.music-page.mode-search .track-row > .favorite-toggle.active,
+.music-page.mode-likes .track-row > .favorite-toggle.active {
+  color: #ff4f6e;
+}
+
+.music-page.mode-likes .playlist-hero {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.18), transparent 30%),
+    linear-gradient(135deg, #1c1d20 0%, #34383f 46%, #070708 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 24px 48px rgba(0, 0, 0, 0.32);
+}
+
+.music-page.mode-likes .library-stats span {
+  background: rgba(255, 255, 255, 0.09);
 }
 
 .spin {
@@ -1795,7 +3201,7 @@ function playNeighbor(direction: -1 | 1) {
 
   .player-panel,
   .player-stage {
-    min-height: calc(100dvh - var(--tab-height) - 56px - var(--safe-bottom));
+    min-height: calc(100dvh - var(--tab-height) - var(--safe-bottom));
   }
 
   .song-summary {

@@ -2,7 +2,7 @@ import { computed, ref, toRaw } from 'vue';
 import { defineStore } from 'pinia';
 import { deleteEntity, loadSnapshot, putEntity, replaceSnapshot, scheduleStartupStorageMaintenance } from '@/data/db';
 import { defaultSettings } from '@/data/seed';
-import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatSmallTheaterLinkAttachment, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationMemoryAtom, ConversationMemoryRecord, ConversationSettings, FavoriteMessageKind, FavoriteMessageRecord, GenerateReplyInput, GeneratedImageRecord, ImageModuleId, MusicCommentThread, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatMusicListenInviteAttachment, ChatMusicListenInviteStatus, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatSmallTheaterLinkAttachment, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationMemoryAtom, ConversationMemoryRecord, ConversationSettings, FavoriteMessageKind, FavoriteMessageRecord, GenerateReplyInput, GeneratedImageRecord, ImageModuleId, MusicCommentThread, MusicListeningContext, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
 import { createAccountId, createId } from '@/utils/id';
 import { getCharacterAiName, getCharacterInitialProfile, getCharacterVoomAuthorName, getCharacterVoomDisplayName, normalizeCharacterMindStateLines, normalizeCharacterProfile } from '@/utils/character';
 import { getUserAiName, getUserDisplayName, getUserVoomAuthorName, normalizeUserProfile, normalizeVisualProfile } from '@/utils/profile';
@@ -15,6 +15,8 @@ import { RECENT_STICKER_GROUP_NAME, cacheStickerImageUrl, createStickerFromDraft
 import { ageMemoryKind, collectIncrementalGrandSummaries, createMemoryRecord, estimateTokenCount, filterHighestMemoryLayers, getConversationActiveMessages, getConversationFloorCount, getGrandSummaryHiddenRange, getHiddenMessageIds, getMemoryContext, getMemoryMergeDepth, getMessageFloorMap, getMessagesInFloorRange, getNextSummaryRange, getNextSummaryStartFloor, getVisibleMessages, isIncrementalGrandSummary, normalizeConversationSettings, normalizeMemoryRecordEntries, renderCharacterMemoryPrompt, shouldCompressMemory } from '@/utils/memory';
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
 import { estimateRoleplayReplyInputTokens, fetchVendorModels, generateConversationSummary, generateImageByProvider, generateRoleplayReply, generateSmallTheater, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, shouldAutoGenerateMoment, type ConversationSummaryIdentityRule, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
+import { fetchMusicAudioUrl, fetchMusicCoverUrl, mergeMusicTrack, searchMusicTracks } from '@/services/music';
+import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 import { GitHubBackupError, downloadGitHubBackup, downloadGitHubBackupVersion, ensureGitHubBackupRepository, formatGitHubBackupError, listGitHubBackupHistory, uploadGitHubBackup } from '@/services/githubBackup';
 import { showLinkNotification } from '@/services/keepAlive';
 import { playRingtone } from '@/services/ringtone';
@@ -125,6 +127,7 @@ function getTimelineMessagePreview(message: ChatMessage) {
   if (message.voice) return `[语音] ${message.voice.transcript}`.trim();
   if (message.location) return `[位置] ${message.location.name || message.location.address || message.location.distance || ''}`.trim();
   if (message.transfer) return `${message.transfer.responseToMessageId ? '[转账回执]' : '[转账]'} ${message.transfer.amount || ''} ${message.transfer.note || ''}`.trim();
+  if (message.musicListenInvite) return `[一起听] ${message.musicListenInvite.track?.name || message.musicListenInvite.note || message.musicListenInvite.status || ''}`.trim();
   if (message.theaterLink) return `[网站链接] ${message.theaterLink.title} ${message.theaterLink.summary}`.trim();
   if (message.offlineInvitation) return `[离线邀请] ${message.offlineInvitation.prompt || message.offlineInvitation.status || ''}`.trim();
   return message.content.trim();
@@ -310,6 +313,7 @@ export const useAppStore = defineStore('app', () => {
   const conversationMemories = ref<ConversationMemoryRecord[]>([]);
   const conversationMemoryAtoms = ref<ConversationMemoryAtom[]>([]);
   const generatedImages = ref<GeneratedImageRecord[]>([]);
+  const musicPlayer = useMusicPlayerStore();
   const favorites = ref<FavoriteMessageRecord[]>([]);
   const settings = ref<AppSettings | null>(null);
   const user = computed(() => {
@@ -1038,6 +1042,7 @@ export const useAppStore = defineStore('app', () => {
         timeAwareness: chatSettings.timeAwareness,
         timeAwarenessNow: options.timeAwarenessNow,
         offlineSettings: chatSettings.offline,
+        musicListening: musicListeningContextForConversation(conversationId),
         replyInstruction: options.replyInstruction
           ? options.replyInstruction
           : options.proactive
@@ -1096,6 +1101,7 @@ export const useAppStore = defineStore('app', () => {
       offlineInvitationEnabled: chatSettings.offlineInvitationEnabled,
       timeAwareness: chatSettings.timeAwareness,
       offlineSettings: chatSettings.offline,
+      musicListening: musicListeningContextForConversation(id),
       availableStickers: availableCharacterStickers.map((sticker) => ({
         stickerId: sticker.id,
         description: sticker.description,
@@ -1824,6 +1830,173 @@ export const useAppStore = defineStore('app', () => {
       : formatTransferContent(transfer);
   }
 
+  function musicTrackArtists(track?: MusicTrack | null) {
+    return track?.artists?.filter(Boolean).join(' / ') || '未知歌手';
+  }
+
+  function musicTrackTitle(track?: MusicTrack | null) {
+    if (!track) return '一起听';
+    const artists = musicTrackArtists(track);
+    return artists ? `${track.name} - ${artists}` : track.name;
+  }
+
+  function normalizeMusicListenInviteAttachment(payload: Partial<Pick<ChatMusicListenInviteAttachment, 'note' | 'track'>> = {}): ChatMusicListenInviteAttachment {
+    return {
+      status: 'pending',
+      note: payload.note?.trim() || undefined,
+      track: payload.track
+    };
+  }
+
+  function formatMusicListenInviteContent(invitation: Pick<ChatMusicListenInviteAttachment, 'status' | 'note' | 'track'>) {
+    const statusText = {
+      pending: '等待选择',
+      accepted: '正在一起听',
+      rejected: '已拒绝'
+    }[invitation.status];
+    return `[一起听] ${musicTrackTitle(invitation.track)}${invitation.note ? ` · ${invitation.note}` : ''} · ${statusText}`;
+  }
+
+  function musicListeningContextForConversation(conversationId: string): MusicListeningContext | undefined {
+    const partner = musicPlayer.listeningPartner;
+    if (!partner || partner.conversationId !== conversationId) return undefined;
+    const conversation = conversationById(conversationId);
+    const character = characterById(partner.characterId || conversation?.charId || '');
+    const boundUser = userById(partner.userId || conversation?.userId || '') ?? user.value;
+    return {
+      active: true,
+      conversationId,
+      characterId: partner.characterId,
+      characterName: character ? getCharacterAiName(character) : '角色',
+      userId: partner.userId,
+      inviter: partner.inviter,
+      joinedAt: partner.joinedAt,
+      currentTrack: musicPlayer.currentTrack ?? undefined,
+      currentTime: musicPlayer.currentTime,
+      duration: musicPlayer.duration,
+      lyricLine: musicPlayer.currentLyricLine || undefined
+    };
+  }
+
+  function syncMusicFavoriteTracks(tracks: MusicTrack[]) {
+    musicFavoriteTracks.value = [...tracks].sort((left, right) => (right.addedAt ?? 0) - (left.addedAt ?? 0));
+  }
+
+  async function saveMusicFavoriteTrack(track: MusicTrack) {
+    const now = Date.now();
+    const existing = musicFavoriteTracks.value.find((entry) => entry.id === track.id);
+    const nextTrack = mergeMusicTrack(track, {
+      addedAt: existing?.addedAt ?? track.addedAt ?? now,
+      updatedAt: now
+    });
+    const nextTracks = musicFavoriteTracks.value.filter((entry) => entry.id !== nextTrack.id);
+    syncMusicFavoriteTracks([nextTrack, ...nextTracks]);
+    await putEntity('musicFavoriteTracks', nextTrack);
+    return nextTrack;
+  }
+
+  function musicSourceForSearch(source?: string) {
+    const normalizedSource = source?.trim().toLocaleLowerCase();
+    return normalizedSource === 'kuwo' || normalizedSource === 'joox' ? normalizedSource : 'netease';
+  }
+
+  async function withMusicCover(track: MusicTrack) {
+    if (track.coverUrl || !track.picId) return track;
+    const coverUrl = await fetchMusicCoverUrl(track);
+    return coverUrl ? mergeMusicTrack(track, { coverUrl }) : track;
+  }
+
+  async function ensurePlayableMusicTrack(track: MusicTrack) {
+    const coveredTrack = await withMusicCover(track);
+    if (coveredTrack.audioUrl) return coveredTrack;
+    const audioUrl = await fetchMusicAudioUrl(coveredTrack);
+    return mergeMusicTrack(coveredTrack, { audioUrl });
+  }
+
+  async function resolveMusicTrackFromAction(action: { query?: string; source?: string; track?: Partial<MusicTrack> } | null | undefined) {
+    if (!action) return null;
+    const draft = action.track;
+    if (draft?.id && draft.platformId && draft.source && draft.name) {
+      return withMusicCover({
+        id: draft.id,
+        platformId: draft.platformId,
+        urlId: draft.urlId,
+        source: draft.source,
+        name: draft.name,
+        artists: draft.artists ?? [],
+        album: draft.album ?? '',
+        picId: draft.picId ?? '',
+        lyricId: draft.lyricId ?? '',
+        coverUrl: draft.coverUrl,
+        audioUrl: draft.audioUrl,
+        duration: draft.duration,
+        addedAt: draft.addedAt,
+        updatedAt: draft.updatedAt
+      });
+    }
+    const query = action.query?.trim() || draft?.name?.trim() || '';
+    if (!query) return null;
+    const tracks = await searchMusicTracks(query, musicSourceForSearch(action.source), 1, 8);
+    return tracks[0] ? withMusicCover(tracks[0]) : null;
+  }
+
+  async function playMusicTrackForConversation(conversationId: string, track: MusicTrack) {
+    const playableTrack = await ensurePlayableMusicTrack(track);
+    musicPlayer.setCurrentTrack(playableTrack);
+    await musicPlayer.playTrack(playableTrack);
+    if (musicFavoriteTracks.value.some((entry) => entry.id === playableTrack.id)) await saveMusicFavoriteTrack(playableTrack);
+    return playableTrack;
+  }
+
+  function startMusicListenTogether(conversationId: string, inviter: 'user' | 'char') {
+    const conversation = conversationById(conversationId);
+    if (!conversation) return false;
+    const character = characterById(conversation.charId);
+    const boundUser = userById(conversation.userId || character?.boundUserId || '') ?? user.value;
+    if (!character || !boundUser) return false;
+    musicPlayer.startListenTogether({
+      conversationId,
+      characterId: character.id,
+      userId: boundUser.id,
+      inviter
+    });
+    return true;
+  }
+
+  async function applyCharacterMusicActions(conversationId: string, actions: Array<{ type: string; query?: string; source?: string; track?: Partial<MusicTrack> }>) {
+    if (!musicPlayer.isListeningWithConversation(conversationId)) return [];
+    const conversation = conversationById(conversationId);
+    const character = conversation ? characterById(conversation.charId) : null;
+    const characterName = character ? getCharacterAiName(character) : '角色';
+    const notices: string[] = [];
+    for (const action of actions.slice(0, 4)) {
+      try {
+        if (action.type === 'favorite_current') {
+          const track = musicPlayer.currentTrack;
+          if (track) {
+            await saveMusicFavoriteTrack(track);
+            notices.push(`${characterName}把《${track.name}》加入了我的喜欢音乐。`);
+          }
+          continue;
+        }
+        const track = await resolveMusicTrackFromAction(action);
+        if (!track) continue;
+        if (action.type === 'favorite_track') {
+          await saveMusicFavoriteTrack(track);
+          notices.push(`${characterName}把《${track.name}》加入了我的喜欢音乐。`);
+          continue;
+        }
+        if (action.type === 'play') {
+          const playableTrack = await playMusicTrackForConversation(conversationId, track);
+          notices.push(`${characterName}切到了《${playableTrack.name}》。`);
+        }
+      } catch (error) {
+        console.warn('Music action failed.', error);
+      }
+    }
+    return notices;
+  }
+
   function createSmallTheaterUrl(theaterId: string) {
     return `/theaters/${encodeURIComponent(theaterId)}`;
   }
@@ -1912,6 +2085,7 @@ export const useAppStore = defineStore('app', () => {
       voice: quote.voice ? { ...quote.voice } : undefined,
       location: quote.location ? { ...quote.location } : undefined,
       transfer: quote.transfer ? { ...quote.transfer } : undefined,
+      musicListenInvite: quote.musicListenInvite ? { ...quote.musicListenInvite } : undefined,
       theaterLink: quote.theaterLink ? { ...quote.theaterLink } : undefined,
       offlineInvitation: quote.offlineInvitation ? { ...quote.offlineInvitation } : undefined
     };
@@ -1923,6 +2097,7 @@ export const useAppStore = defineStore('app', () => {
     if (message.voice) return `[语音] ${message.voice.transcript}`.trim();
     if (message.location) return formatLocationContent(message.location).trim();
     if (message.transfer) return formatTransferMessageContent(message.transfer).trim();
+    if (message.musicListenInvite) return formatMusicListenInviteContent(message.musicListenInvite).trim();
     if (message.theaterLink) return formatSmallTheaterLinkContent(message.theaterLink).trim();
     if (message.offlineInvitation) return formatOfflineInvitationContent(message.offlineInvitation).trim();
     return message.content.trim();
@@ -1934,6 +2109,7 @@ export const useAppStore = defineStore('app', () => {
     if (message.voice) return 'voice';
     if (message.location) return 'location';
     if (message.transfer) return 'transfer';
+    if (message.musicListenInvite) return 'musicListenInvite';
     if (message.theaterLink) return 'theaterLink';
     if (message.offlineInvitation) return 'offlineInvitation';
     if (message.displayStyle === 'narration') return 'narration';
@@ -1943,7 +2119,7 @@ export const useAppStore = defineStore('app', () => {
   function canFavoriteMessage(message: ChatMessage) {
     if (message.voice) return true;
     if (message.image) return Boolean(message.image.url);
-    if (message.sticker || message.location || message.transfer || message.theaterLink || message.offlineInvitation) return false;
+    if (message.sticker || message.location || message.transfer || message.musicListenInvite || message.theaterLink || message.offlineInvitation) return false;
     return Boolean(message.content.trim() || message.displayStyle === 'narration');
   }
 
@@ -2004,6 +2180,7 @@ export const useAppStore = defineStore('app', () => {
       voice: message.voice ? { ...message.voice } : undefined,
       location: message.location ? { ...message.location } : undefined,
       transfer: message.transfer ? { ...message.transfer } : undefined,
+      musicListenInvite: message.musicListenInvite ? { ...message.musicListenInvite } : undefined,
       theaterLink: message.theaterLink ? { ...message.theaterLink } : undefined,
       offlineInvitation: message.offlineInvitation ? { ...message.offlineInvitation } : undefined
     };
@@ -4115,6 +4292,34 @@ export const useAppStore = defineStore('app', () => {
     return userMessage;
   }
 
+  async function appendUserMusicListenInviteMessage(conversationId: string, payload: Partial<Pick<ChatMusicListenInviteAttachment, 'note' | 'track'>> = {}, quote?: ChatMessageQuote | null) {
+    const conversation = conversationById(conversationId);
+    if (!conversation) return;
+    const invitation = normalizeMusicListenInviteAttachment({
+      note: payload.note,
+      track: payload.track ?? musicPlayer.currentTrack ?? undefined
+    });
+    const userMessage: ChatMessage = {
+      id: createId('msg'),
+      conversationId,
+      sender: 'user',
+      mode: 'online',
+      content: formatMusicListenInviteContent(invitation),
+      musicListenInvite: invitation,
+      quote: cloneMessageQuote(quote),
+      createdAt: Date.now(),
+      status: 'sent'
+    };
+    messages.value.push(userMessage);
+    await putEntity('messages', userMessage);
+    const nextConversation = { ...conversation, activeMode: 'online' as const, updatedAt: userMessage.createdAt, unreadCount: 0 };
+    const conversationIndex = conversations.value.findIndex((item) => item.id === conversationId);
+    if (conversationIndex >= 0) conversations.value[conversationIndex] = nextConversation;
+    await putEntity('conversations', nextConversation);
+    void maybeAutoSummarizeConversation(conversationId);
+    return userMessage;
+  }
+
   async function appendUserSmallTheaterLinkMessage(conversationId: string, theater: SmallTheater, quote?: ChatMessageQuote | null) {
     const conversation = conversationById(conversationId);
     if (!conversation) return;
@@ -4203,6 +4408,57 @@ export const useAppStore = defineStore('app', () => {
     }
     void maybeAutoSummarizeConversation(message.conversationId);
     return nextMessage;
+  }
+
+  async function updateMusicListenInviteStatus(messageId: string, status: ChatMusicListenInviteStatus, actor: 'user' | 'char' = 'user') {
+    if (status === 'pending') return null;
+    const message = messages.value.find((item) => item.id === messageId);
+    if (!message?.musicListenInvite || message.musicListenInvite.status !== 'pending') return null;
+    if (actor === 'user' && message.sender !== 'char') return null;
+    if (actor === 'char' && message.sender !== 'user') return null;
+    const respondedAt = Date.now();
+    const nextInvitation: ChatMusicListenInviteAttachment = {
+      ...message.musicListenInvite,
+      status,
+      respondedAt,
+      startedAt: status === 'accepted' ? respondedAt : message.musicListenInvite.startedAt
+    };
+    const nextMessage: ChatMessage = {
+      ...message,
+      content: formatMusicListenInviteContent(nextInvitation),
+      musicListenInvite: nextInvitation,
+      editedAt: respondedAt
+    };
+    const messageIndex = messages.value.findIndex((item) => item.id === messageId);
+    if (messageIndex >= 0) messages.value[messageIndex] = nextMessage;
+    await putEntity('messages', nextMessage);
+    if (status === 'accepted') {
+      startMusicListenTogether(message.conversationId, message.sender === 'user' ? 'user' : 'char');
+      if (nextInvitation.track) {
+        void playMusicTrackForConversation(message.conversationId, nextInvitation.track).catch((error) => console.warn('Listen invite playback failed.', error));
+      }
+    }
+    const conversation = conversationById(message.conversationId);
+    if (conversation) {
+      const nextConversation = {
+        ...conversation,
+        updatedAt: respondedAt,
+        unreadCount: actor === 'char' ? unreadCountAfterIncomingMessage(conversation, 1) : 0
+      };
+      const conversationIndex = conversations.value.findIndex((item) => item.id === message.conversationId);
+      if (conversationIndex >= 0) conversations.value[conversationIndex] = nextConversation;
+      await putEntity('conversations', nextConversation);
+    }
+    void maybeAutoSummarizeConversation(message.conversationId);
+    return nextMessage;
+  }
+
+  async function acceptMusicListenInvite(messageId: string) {
+    return updateMusicListenInviteStatus(messageId, 'accepted', 'user');
+  }
+
+  async function rejectMusicListenInvite(messageId: string) {
+    return updateMusicListenInviteStatus(messageId, 'rejected', 'user');
   }
 
   async function summarizeConversationWindow(conversationId: string, options: { forceStartFloor?: number; forceEndFloor?: number; hiddenStartFloor?: number; hiddenEndFloor?: number; allowPartial?: boolean; replaceMemoryId?: string } = {}): Promise<ConversationSummaryResult | null> {
@@ -5014,6 +5270,19 @@ export const useAppStore = defineStore('app', () => {
           status: decision.status === 'accepted' ? 'accepted' as const : decision.status === 'rejected' ? 'rejected' as const : null
         }))
         .filter((decision): decision is { messageId: string; status: 'accepted' | 'rejected' } => Boolean(decision.messageId && decision.status && messages.value.some((message) => message.id === decision.messageId && message.conversationId === conversationId && message.sender === 'user' && message.transfer?.status === 'pending')));
+      const validMusicListenInviteDecisions = (parsedReply.messageActions?.musicListenInviteDecisions ?? [])
+        .map((decision) => ({
+          messageId: String(decision.messageId ?? '').trim(),
+          status: decision.status === 'accepted' ? 'accepted' as const : decision.status === 'rejected' ? 'rejected' as const : null
+        }))
+        .filter((decision): decision is { messageId: string; status: 'accepted' | 'rejected' } => Boolean(decision.messageId && decision.status && messages.value.some((message) => message.id === decision.messageId && message.conversationId === conversationId && message.sender === 'user' && message.musicListenInvite?.status === 'pending')));
+      const musicListenInvite = conversation.activeMode === 'online'
+        ? normalizeMusicListenInviteAttachment({
+          note: parsedReply.messageActions?.musicListenInvite?.note,
+          track: await resolveMusicTrackFromAction(parsedReply.messageActions?.musicListenInvite) ?? undefined
+        })
+        : null;
+      const canSendMusicListenInvite = Boolean(musicListenInvite && (musicListenInvite.note || musicListenInvite.track));
       const offlineInvitation = conversation.activeMode === 'online' && chatSettings.offlineInvitationEnabled
         ? normalizeOfflineInvitationAttachment(parsedReply.messageActions?.offlineInvitation?.prompt ?? '')
         : null;
@@ -5023,7 +5292,7 @@ export const useAppStore = defineStore('app', () => {
         const quote = targetMessage ? createMessageQuoteSnapshot(targetMessage) : null;
         if (quote) quoteByReplyIndex.set(Math.max(0, Math.floor(quoteAction.replyIndex)), quote);
       }
-      if (!effectiveReplyMessages.length && !replyStickers.length && !replyImages.length && !narrationMessages.length && !hasOrderedSticker && !hasOrderedNarration && !hasOrderedImage && !hasOrderedVoice && !hasOrderedLocation && !hasOrderedTransfer && !validRecallMessageIds.length && !validTransferDecisions.length && !offlineInvitation) {
+      if (!effectiveReplyMessages.length && !replyStickers.length && !replyImages.length && !narrationMessages.length && !hasOrderedSticker && !hasOrderedNarration && !hasOrderedImage && !hasOrderedVoice && !hasOrderedLocation && !hasOrderedTransfer && !validRecallMessageIds.length && !validTransferDecisions.length && !validMusicListenInviteDecisions.length && !canSendMusicListenInvite && !(parsedReply.messageActions?.musicActions ?? []).length && !offlineInvitation) {
         showConfigAlert('AI 返回内容中没有可显示的聊天文本，请重试或检查模型输出格式。', '回复异常');
         return;
       }
@@ -5055,6 +5324,10 @@ export const useAppStore = defineStore('app', () => {
       for (const decision of validTransferDecisions) {
         await updateTransferStatus(decision.messageId, decision.status, 'char');
       }
+      for (const decision of validMusicListenInviteDecisions) {
+        await updateMusicListenInviteStatus(decision.messageId, decision.status, 'char');
+      }
+      const musicActionNotices = await applyCharacterMusicActions(conversationId, parsedReply.messageActions?.musicActions ?? []);
       const createdAt = Date.now();
       const charNarrationMessages = narrationMessages.map((content, index) => ({
         id: createId('msg'),
@@ -5263,8 +5536,36 @@ export const useAppStore = defineStore('app', () => {
           status: 'sent' as const
         } satisfies ChatMessage);
       }
+      if (canSendMusicListenInvite && musicListenInvite) {
+        charMessages.push({
+          id: createId('msg'),
+          conversationId,
+          sender: 'char' as const,
+          mode: 'online' as const,
+          content: formatMusicListenInviteContent(musicListenInvite),
+          musicListenInvite,
+          replyBatchId,
+          ...replyVariantFields,
+          createdAt: createdAt + charMessageOffset++,
+          status: 'sent' as const
+        } satisfies ChatMessage);
+      }
+      for (const notice of musicActionNotices) {
+        charMessages.push({
+          id: createId('msg'),
+          conversationId,
+          sender: 'system' as const,
+          mode: conversation.activeMode,
+          content: notice,
+          createdAt: createdAt + charMessageOffset++,
+          displayStyle: 'narration' as const,
+          replyBatchId,
+          ...replyVariantFields,
+          status: 'sent' as const
+        } satisfies ChatMessage);
+      }
       if (plotChoices.length) {
-        const plotChoiceMessage = charMessages.find((message) => message.sender === 'char' && !message.sticker && !message.image && !message.voice && !message.location && !message.transfer);
+        const plotChoiceMessage = charMessages.find((message) => message.sender === 'char' && !message.sticker && !message.image && !message.voice && !message.location && !message.transfer && !message.musicListenInvite);
         if (plotChoiceMessage) plotChoiceMessage.plotChoices = plotChoices;
       }
       if (charMessages.length) {
@@ -5631,7 +5932,8 @@ export const useAppStore = defineStore('app', () => {
             modelOverride: getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode)
           }),
           stickerVisionEnabled: chatSettings.stickerVisionEnabled,
-          timeAwareness: chatSettings.timeAwareness
+          timeAwareness: chatSettings.timeAwareness,
+          musicListening: musicListeningContextForConversation(conversationId)
         },
         settings.value ?? undefined,
         modelOverride
@@ -6042,7 +6344,8 @@ export const useAppStore = defineStore('app', () => {
             modelOverride: getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode)
           }),
           stickerVisionEnabled: chatSettings.stickerVisionEnabled,
-          timeAwareness: chatSettings.timeAwareness
+          timeAwareness: chatSettings.timeAwareness,
+          musicListening: musicListeningContextForConversation(conversationId)
         },
         topic: selectedTopic,
         settings: settings.value ?? undefined,
@@ -6124,7 +6427,8 @@ export const useAppStore = defineStore('app', () => {
             modelOverride: getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode)
           }),
           stickerVisionEnabled: chatSettings.stickerVisionEnabled,
-          timeAwareness: chatSettings.timeAwareness
+          timeAwareness: chatSettings.timeAwareness,
+          musicListening: musicListeningContextForConversation(conversation.id)
         },
         topic: selectedTopic,
         sourceTheater: theater,
@@ -6927,8 +7231,15 @@ export const useAppStore = defineStore('app', () => {
     appendUserVoiceMessage,
     appendUserLocationMessage,
     appendUserTransferMessage,
+    appendUserMusicListenInviteMessage,
     appendUserSmallTheaterLinkMessage,
     updateTransferStatus,
+    updateMusicListenInviteStatus,
+    acceptMusicListenInvite,
+    rejectMusicListenInvite,
+    musicListeningContextForConversation,
+    syncMusicFavoriteTracks,
+    saveMusicFavoriteTrack,
     deleteMessages,
     updateMessageContent,
     updateMessageLocation,

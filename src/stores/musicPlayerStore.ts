@@ -2,6 +2,14 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type { MusicTrack } from '@/types/domain';
 
+export interface MusicListenTogetherPartner {
+  conversationId: string;
+  characterId: string;
+  userId: string;
+  inviter: 'user' | 'char';
+  joinedAt: number;
+}
+
 export const useMusicPlayerStore = defineStore('musicPlayer', () => {
   const currentTrack = ref<MusicTrack | null>(null);
   const loadingAudioTrackId = ref('');
@@ -9,6 +17,9 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
   const currentTime = ref(0);
   const duration = ref(0);
   const playbackError = ref('');
+  const listeningPartner = ref<MusicListenTogetherPartner | null>(null);
+  const currentLyricLine = ref('');
+  const playbackEndedTick = ref(0);
   let audio: HTMLAudioElement | null = null;
 
   const activeTrackId = computed(() => currentTrack.value?.id || '');
@@ -39,6 +50,7 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
   function handleAudioEnded() {
     isPlaying.value = false;
     syncAudioProgress();
+    playbackEndedTick.value += 1;
   }
 
   function handleAudioPaused() {
@@ -81,6 +93,18 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
     loadingAudioTrackId.value = trackId;
   }
 
+  async function playTrack(track: MusicTrack, options: { restart?: boolean } = {}) {
+    const player = ensureAudio();
+    if (!player) throw new Error('当前环境无法播放音频。');
+    if (!track.audioUrl) throw new Error('歌曲暂无可播放地址。');
+    currentTrack.value = track;
+    playbackError.value = '';
+    const sourceChanged = player.src !== track.audioUrl;
+    if (sourceChanged) player.src = track.audioUrl;
+    if (options.restart || sourceChanged || player.ended) player.currentTime = 0;
+    await player.play();
+  }
+
   async function toggleTrack(track: MusicTrack) {
     const player = ensureAudio();
     if (!player) throw new Error('当前环境无法播放音频。');
@@ -88,11 +112,7 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
       player.pause();
       return;
     }
-    if (!track.audioUrl) throw new Error('歌曲暂无可播放地址。');
-    currentTrack.value = track;
-    playbackError.value = '';
-    if (player.src !== track.audioUrl) player.src = track.audioUrl;
-    await player.play();
+    await playTrack(track);
   }
 
   function pause() {
@@ -107,6 +127,26 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
     syncAudioProgress();
   }
 
+  function setCurrentLyricLine(line: string) {
+    currentLyricLine.value = line.trim();
+  }
+
+  function startListenTogether(partner: Omit<MusicListenTogetherPartner, 'joinedAt'> & { joinedAt?: number }) {
+    listeningPartner.value = {
+      ...partner,
+      joinedAt: partner.joinedAt ?? Date.now()
+    };
+  }
+
+  function stopListenTogether(characterId?: string) {
+    if (characterId && listeningPartner.value?.characterId !== characterId) return;
+    listeningPartner.value = null;
+  }
+
+  function isListeningWithConversation(conversationId: string) {
+    return listeningPartner.value?.conversationId === conversationId;
+  }
+
   return {
     currentTrack,
     activeTrackId,
@@ -116,13 +156,21 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
     duration,
     progressValue,
     playbackError,
+    listeningPartner,
+    currentLyricLine,
+    playbackEndedTick,
     setAudioElement,
     setCurrentTrack,
     updateCurrentTrack,
     setLoadingAudioTrackId,
+    playTrack,
     toggleTrack,
     pause,
     seekToPercent,
-    syncAudioProgress
+    syncAudioProgress,
+    setCurrentLyricLine,
+    startListenTogether,
+    stopListenTogether,
+    isListeningWithConversation
   };
 });

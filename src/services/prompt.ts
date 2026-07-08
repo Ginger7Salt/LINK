@@ -178,6 +178,9 @@ export const profileMutationPrompt = `补充输出规则：
     "recallMessageIds": [],
     "quotes": [],
     "transferDecisions": [],
+    "musicListenInviteDecisions": [],
+    "musicListenInvite": null,
+    "musicActions": [],
     "offlineInvitation": null
   },
   "profileUpdate": {
@@ -206,6 +209,9 @@ export const profileMutationPrompt = `补充输出规则：
     "recallMessageIds": [],
     "quotes": [],
     "transferDecisions": [],
+    "musicListenInviteDecisions": [],
+    "musicListenInvite": null,
+    "musicActions": [],
     "offlineInvitation": null
   },
   "profileUpdate": {
@@ -228,18 +234,21 @@ export const profileMutationPrompt = `补充输出规则：
 7. location 项显示成定位卡片：{ "type":"location", "name":"地点名称", "address":"详细地址，可留空", "distance":"你与{{user}}的距离" }。只在线上模式使用；name 是你当前所在或要主动发送的位置，distance 必须写清你与{{user}}的相对距离。
 8. transfer 项显示成转账卡片：{ "type":"transfer", "amount":"金额", "note":"备注，可留空" }。只在线上模式使用；amount 必须是数字字符串，最多两位小数，表示你主动给{{user}}转账，发送后等待{{user}}接收或拒绝。
 9. 当最近对话里出现用户发来的待处理转账，你可以按上下文选择接收或拒绝：在 messageActions.transferDecisions 里写 {"messageId":"用户转账消息id","status":"accepted"} 或 {"messageId":"用户转账消息id","status":"rejected"}。只能处理 pending 的用户转账，不要处理角色自己发出的转账。
-10. sticker 项显示成 Sticker：{ "type":"sticker", "stickers":["Sticker id或文字描述"] }。
-11. narration 项显示成旁白：{ "type":"narration", "content":"旁白句" }。修改网名或个性签名时，资料变动旁白必须写成 messages 里的 narration 项，并放在你希望显示的位置；不要写进 text。
-12. 线上模式每轮只生成一个“角色主页主题”。如果本轮主页主题是 Mood，才在 profileUpdate.innerMonologue 输出 3-5 句当前内心独白，并让 profileThemeContent 留空或省略。
-12.1 如果本轮主页主题不是 Mood，不要生成 innerMonologue；只填写 profileUpdate.profileThemeId 和 profileUpdate.profileThemeContent。profileThemeContent 是用于替换整张角色主页弹窗的数据，不是主页里的一小块，不要重复塞进聊天消息。
-13. 线下模式可以把 profileUpdate 设为 null；线上模式即使不修改资料，也保留 profileUpdate，并让 nickname、signature、narration 为空字符串。修改资料时 profileUpdate.narration 也保持空字符串，资料变动旁白只放 messages 的 narration 项。
-14. 最近对话每条消息前的 [msg_xxx] 是 messageId。你可以像真实社交软件一样撤回自己之前发出的某条消息，但只能把你自己发过的角色消息 id 放进 messageActions.recallMessageIds；不要撤回用户或系统消息。撤回是独立动作，不要求前后固定搭配文字解释；是否解释由角色和语境决定。
-15. 你可以引用用户之前发过的某条消息进行回复。若第 n 个 text 气泡要引用用户消息，在 messageActions.quotes 里写 {"replyIndex": n, "messageId": "用户消息id"}；replyIndex 从 0 开始，只按 text 气泡计数，不把 voice、image、location、transfer、sticker、narration 算进去。
-16. 引用用于自然承接上下文。引用时 text.content 里仍只写你真正要发出的新消息，不要重复被引用内容；引用不要求必须放在本轮第一条 text 上。
-17. 如果没有撤回、引用或转账处理动作，messageActions 里的数组都保持空数组。
-18. 如上下文未告知绝对禁止写成两人已经见面、正在同一物理空间、你主动来找{{user}}、你已经在{{user}}附近等待、你知道或安排了{{user}}线下行程。除非{{user}}自己明确发来定位或描述，否则你不知道{{user}}在哪里、在做什么。
-19. 你可以在关系和语境合适时主动发起线下邀约：本质是你想和{{user}}见面，在线上聊天里只表示“提出邀约”，不代表两人已经见面、你已经在路上、你已经到{{user}}附近或知道{{user}}未告知的现实行程。邀约必须先用正常 text 气泡自然说出，然后在 messageActions.offlineInvitation 写 { "prompt": "用户接受后进入线下模块时，本章开场要承接的场景/动作/关系氛围，50-160字" }。不邀约时 offlineInvitation 固定为 null。
-20. offlineInvitation.prompt 只给线下模块作为开章输入；可以写你想开启的见面场景、氛围和角色主动性，但不能把用户接受前的线下见面写成已发生事实，不能写角色已知{{user}}未告知的现实位置、行程或住址。`;
+10. 当最近对话里出现用户发来的待处理一起听邀请，你可以按上下文选择同意或拒绝：在 messageActions.musicListenInviteDecisions 里写 {"messageId":"用户一起听邀请消息id","status":"accepted"} 或 {"messageId":"用户一起听邀请消息id","status":"rejected"}。只能处理 pending 的用户邀请。
+11. 你可以主动邀请用户一起听：先用正常 text 气泡自然提出，再在 messageActions.musicListenInvite 写 { "note":"邀请备注，可留空", "query":"想一起听的歌名/歌手，可留空", "source":"netease/kuwo/joox，可留空" }。如果你知道明确歌曲，也可写 track。用户同意前不要把两人写成已经一起听。
+12. 一起听状态下，你可以主动选择歌曲或加入喜欢：messageActions.musicActions 可写 {"type":"play","query":"歌名 歌手","source":"netease"}、{"type":"favorite_current"} 或 {"type":"favorite_track","query":"歌名 歌手"}。只在当前已经一起听时使用；不要在未连接时切歌或收藏。如果你在聊天内容里表达“我切到/换成/放这首/给你加到喜欢/我收藏了”，必须同时写入对应 musicActions；不写 action 就表示这件事没有实际发生。play 和 favorite_track 的 query 必须尽量包含歌名和歌手。
+13. sticker 项显示成 Sticker：{ "type":"sticker", "stickers":["Sticker id或文字描述"] }。
+14. narration 项显示成旁白：{ "type":"narration", "content":"旁白句" }。修改网名或个性签名时，资料变动旁白必须写成 messages 里的 narration 项，并放在你希望显示的位置；不要写进 text。
+15. 线上模式每轮只生成一个“角色主页主题”。如果本轮主页主题是 Mood，才在 profileUpdate.innerMonologue 输出 3-5 句当前心声，并让 profileThemeContent 留空或省略。
+15.1 如果本轮主页主题不是 Mood，不要生成 innerMonologue；只填写 profileUpdate.profileThemeId 和 profileUpdate.profileThemeContent。profileThemeContent 是用于替换整张角色主页弹窗的数据，不是主页里的一小块，不要重复塞进聊天消息。
+16. 线下模式可以把 profileUpdate 设为 null；线上模式即使不修改资料，也保留 profileUpdate，并让 nickname、signature、narration 为空字符串。修改资料时 profileUpdate.narration 也保持空字符串，资料变动旁白只放 messages 的 narration 项。
+17. 最近对话每条消息前的 [msg_xxx] 是 messageId。你可以像真实社交软件一样撤回自己之前发出的某条消息，但只能把你自己发过的角色消息 id 放进 messageActions.recallMessageIds；不要撤回用户或系统消息。撤回是独立动作，不要求前后固定搭配文字解释；是否解释由角色和语境决定。
+18. 你可以引用用户之前发过的某条消息进行回复。若第 n 个 text 气泡要引用用户消息，在 messageActions.quotes 里写 {"replyIndex": n, "messageId": "用户消息id"}；replyIndex 从 0 开始，只按 text 气泡计数，不把 voice、image、location、transfer、sticker、narration 算进去。
+19. 引用用于自然承接上下文。引用时 text.content 里仍只写你真正要发出的新消息，不要重复被引用内容；引用不要求必须放在本轮第一条 text 上。
+20. 如果没有撤回、引用、转账处理、一起听处理、音乐动作或线下邀约，messageActions 里的数组都保持空数组，对象字段保持 null。
+21. 如上下文未告知绝对禁止写成两人已经见面、正在同一物理空间、你主动来找{{user}}、你已经在{{user}}附近等待、你知道或安排了{{user}}线下行程。除非{{user}}自己明确发来定位或描述，否则你不知道{{user}}在哪里、在做什么。
+22. 你可以在关系和语境合适时主动发起线下邀约：本质是你想和{{user}}见面，在线上聊天里只表示“提出邀约”，不代表两人已经见面、你已经在路上、你已经到{{user}}附近或知道{{user}}未告知的现实行程。邀约必须先用正常 text 气泡自然说出，然后在 messageActions.offlineInvitation 写 { "prompt": "用户接受后进入线下模块时，本章开场要承接的场景/动作/关系氛围，50-160字" }。不邀约时 offlineInvitation 固定为 null。
+23. offlineInvitation.prompt 只给线下模块作为开章输入；可以写你想开启的见面场景、氛围和角色主动性，但不能把用户接受前的线下见面写成已发生事实，不能写角色已知{{user}}未告知的现实位置、行程或住址。`;
 
 export const offlineReplyOutputPrompt = `补充线下输出规则：
 
@@ -540,7 +549,7 @@ function formatPromptMessageTime(timestamp: number) {
   return promptMessageTimeFormatter.format(timestamp);
 }
 
-function getMessageText(message: Pick<PromptContext['messages'][number], 'content' | 'sender' | 'sticker' | 'image' | 'voice' | 'location' | 'transfer' | 'theaterLink' | 'offlineInvitation'>) {
+function getMessageText(message: Pick<PromptContext['messages'][number], 'content' | 'sender' | 'sticker' | 'image' | 'voice' | 'location' | 'transfer' | 'musicListenInvite' | 'theaterLink' | 'offlineInvitation'>) {
   if (message.sticker) return `[Sticker] ${message.sticker.description}`;
   if (message.image) {
     if (message.image.kind === 'description') return `用户发送了一张图片，图片内容为“${message.image.description}”。`;
@@ -579,6 +588,19 @@ function getMessageText(message: Pick<PromptContext['messages'][number], 'conten
     }[message.transfer.status];
     const noteText = message.transfer.note ? `，备注为“${message.transfer.note}”` : '';
     return `${senderText}发起了一笔转账：金额 ¥${message.transfer.amount}${noteText}，当前状态：${statusText}。`;
+  }
+  if (message.musicListenInvite) {
+    const senderText = message.sender === 'user' ? '用户' : '角色';
+    const receiverText = message.sender === 'user' ? '角色' : '用户';
+    const statusText = {
+      pending: `${receiverText}尚未同意或拒绝`,
+      accepted: `${receiverText}已同意，两人进入一起听状态`,
+      rejected: `${receiverText}已拒绝一起听邀请`
+    }[message.musicListenInvite.status];
+    const track = message.musicListenInvite.track;
+    const trackText = track ? `邀请歌曲：《${track.name}》 - ${track.artists.join(' / ') || '未知歌手'}。` : '';
+    const noteText = message.musicListenInvite.note ? `邀请备注：“${message.musicListenInvite.note}”。` : '';
+    return `${senderText}发起了一起听邀请，状态：${statusText}。${trackText}${noteText}`;
   }
   if (message.theaterLink) {
     const senderText = message.sender === 'user' ? '用户' : '角色';
@@ -747,6 +769,21 @@ function renderProfileThemePrompt(context: PromptContext) {
   ].filter(Boolean).join('\n');
 }
 
+function renderMusicListeningPrompt(context: PromptContext) {
+  const listening = context.musicListening;
+  if (!listening?.active) return '当前没有一起听连接。';
+  const track = listening.currentTrack;
+  const duration = listening.duration || track?.duration || 0;
+  return [
+    `当前正在和${listening.characterName}一起听。`,
+    `发起方：${listening.inviter === 'user' ? '用户' : '角色'}。`,
+    track ? `正在播放：《${track.name}》 - ${track.artists.join(' / ') || '未知歌手'}${track.album ? `，专辑《${track.album}》` : ''}。` : '当前还没有选定歌曲。',
+    `播放进度：${Math.max(0, Math.floor(listening.currentTime))} / ${Math.max(0, Math.floor(duration))} 秒。`,
+    listening.lyricLine ? `此刻听到的歌词：${listening.lyricLine}` : '此刻没有可用歌词。',
+    '一起听状态只允许同时连接一个角色；如果当前角色正在连接中，你可以自然提到正在一起听、对当前歌曲或歌词作出反应，也可以在合适时通过 messageActions.musicActions 切歌或把歌曲加入用户的“我的喜欢音乐”。只在文字里说“我切了/我收藏了”不会改变播放器或喜欢列表，必须写入 musicActions 才会真实执行。'
+  ].join('\n');
+}
+
 function replaceTokens(template: string, replacements: Record<string, string>) {
   return Object.entries(replacements).reduce((result, [token, value]) => result.split(token).join(value), template);
 }
@@ -827,10 +864,11 @@ export function buildPrompt(context: PromptContext, options: { includeOnlineChat
       ? '时间判定规则：最近对话里的“发送时间”只表示那条历史消息实际发出的时间。回复时先以“现实时间感知”里的当前时间判断现在，再根据历史发送时间推算已经过去多久；不要把最后一条用户消息的发送时间当作当前时间。'
       : '',
     `当前对话总结：\n${normalizePromptIdentityText(context.conversationSummary || '暂无总结。', context)}`,
+    `一起听状态：\n${renderMusicListeningPrompt(context)}`,
     `记忆手册：\n${normalizePromptIdentityText(context.memorySummary || '暂无记忆手册。', context)}`,
     `世界书：\n${normalizePromptIdentityText(renderWorldBooks(selectedWorldBooks, context) || '无启用条目。', context)}`,
     context.mode === 'online'
-      ? 'Sticker / 图片 / 语音 / 定位 / 转账 / 网站链接规则：用户发送 Sticker 时，文字描述是用户提供的贴纸含义。用户发送真实图片时，若本次请求附带图片，你可以观察图片内容；用户发送文字描述卡片时，必须理解为“用户发送了一张图片，图片内容为描述文本”，虽然没有真实图片文件，也要按图片内容参与对话。用户或角色发送语音时，必须理解为对方用语音消息说出了对应文字内容，不要把它当成普通打字消息；角色也可以在合适时用 voice 项主动发送语音条。用户发送定位时，必须理解为用户把自己的当前位置发给了你，并告知了用户与角色之间的距离；角色也可以在合适时用 location 项主动发送自己的定位。用户发送转账时，必须理解为用户确实向你发起了对应金额的转账；你可以在后续按角色意愿接收或拒绝。角色也可以在合适时用 transfer 项主动向用户转账，等待用户接收或拒绝。用户发送网站链接卡片时，必须理解为用户转发了一个真实可读的网页链接给你，链接卡片附带的“网站内容”为你已经能看到的页面正文，可直接按其中内容参与对话。若未附带真实图片，不要臆造描述之外的图片细节。'
+      ? 'Sticker / 图片 / 语音 / 定位 / 转账 / 一起听 / 网站链接规则：用户发送 Sticker 时，文字描述是用户提供的贴纸含义。用户发送真实图片时，若本次请求附带图片，你可以观察图片内容；用户发送文字描述卡片时，必须理解为“用户发送了一张图片，图片内容为描述文本”，虽然没有真实图片文件，也要按图片内容参与对话。用户或角色发送语音时，必须理解为对方用语音消息说出了对应文字内容，不要把它当成普通打字消息；角色也可以在合适时用 voice 项主动发送语音条。用户发送定位时，必须理解为用户把自己的当前位置发给了你，并告知了用户与角色之间的距离；角色也可以在合适时用 location 项主动发送自己的定位。用户发送转账时，必须理解为用户确实向你发起了对应金额的转账；你可以在后续按角色意愿接收或拒绝。角色也可以在合适时用 transfer 项主动向用户转账，等待用户接收或拒绝。用户发送一起听邀请时，必须理解为用户正在邀请你进入音乐页的一起听状态；你可以按关系和语境接受或拒绝。若你主动邀请用户一起听，先用普通 text 自然提出，再在 messageActions.musicListenInvite 写入邀请。一起听状态下你可以感知当前歌曲、播放进度和此刻歌词，也可以用 messageActions.musicActions 切歌、搜索播放或把当前/指定歌曲加入用户的“我的喜欢音乐”。用户发送网站链接卡片时，必须理解为用户转发了一个真实可读的网页链接给你，链接卡片附带的“网站内容”为你已经能看到的页面正文，可直接按其中内容参与对话。若未附带真实图片，不要臆造描述之外的图片细节。'
       : '',
     context.mode === 'online' && options.includeAvailableStickers !== false ? `角色可用 Stickers：\n${renderAvailableStickers(context)}` : '',
     renderProfileThemePrompt(context),
