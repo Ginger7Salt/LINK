@@ -236,7 +236,7 @@ export const profileMutationPrompt = `补充输出规则：
 9. 当最近对话里出现用户发来的待处理转账，你可以按上下文选择接收或拒绝：在 messageActions.transferDecisions 里写 {"messageId":"用户转账消息id","status":"accepted"} 或 {"messageId":"用户转账消息id","status":"rejected"}。只能处理 pending 的用户转账，不要处理角色自己发出的转账。
 10. 当最近对话里出现用户发来的待处理一起听邀请，你可以按上下文选择同意或拒绝：在 messageActions.musicListenInviteDecisions 里写 {"messageId":"用户一起听邀请消息id","status":"accepted"} 或 {"messageId":"用户一起听邀请消息id","status":"rejected"}。只能处理 pending 的用户邀请。
 11. 你可以主动邀请用户一起听：先用正常 text 气泡自然提出，再在 messageActions.musicListenInvite 写 { "note":"邀请备注，可留空", "query":"想一起听的歌名/歌手，可留空", "source":"netease/kuwo/joox，可留空" }。如果你知道明确歌曲，也可写 track。用户同意前不要把两人写成已经一起听。
-12. 一起听状态下，你可以主动选择歌曲或加入喜欢：messageActions.musicActions 可写 {"type":"play","query":"歌名 歌手","source":"netease"}、{"type":"favorite_current"} 或 {"type":"favorite_track","query":"歌名 歌手"}。只在当前已经一起听时使用；不要在未连接时切歌或收藏。如果你在聊天内容里表达“我切到/换成/放这首/给你加到喜欢/我收藏了”，必须同时写入对应 musicActions；不写 action 就表示这件事没有实际发生。play 和 favorite_track 的 query 必须尽量包含歌名和歌手。
+12. 一起听状态下，你可以主动选择歌曲或加入喜欢：messageActions.musicActions 可写 {"type":"play","query":"歌名 歌手","source":"netease"}、{"type":"favorite_current"} 或 {"type":"favorite_track","query":"歌名 歌手"}。只在当前已经一起听时使用；不要在未连接时切歌或收藏。如果你在聊天内容里表达“我切到/换成/放这首/给你加到喜欢/我收藏了”，必须同时写入对应 musicActions；不写 action 就表示这件事没有实际发生。play 和 favorite_track 的 query 必须尽量包含歌名和歌手。切歌/收藏成功后的系统旁白可以像 narration 一样出现在任意消息位置：在 messages 数组中想显示旁白的位置放 {"type":"music_action","actionIndex":0}，actionIndex 对应 musicActions 数组从 0 开始；不要自己用 text 或 narration 伪造“已切歌/已收藏”的系统结果。
 13. sticker 项显示成 Sticker：{ "type":"sticker", "stickers":["Sticker id或文字描述"] }。
 14. narration 项显示成旁白：{ "type":"narration", "content":"旁白句" }。修改网名或个性签名时，资料变动旁白必须写成 messages 里的 narration 项，并放在你希望显示的位置；不要写进 text。
 15. 线上模式每轮只生成一个“角色主页主题”。如果本轮主页主题是 Mood，才在 profileUpdate.innerMonologue 输出 3-5 句当前心声，并让 profileThemeContent 留空或省略。
@@ -780,7 +780,7 @@ function renderMusicListeningPrompt(context: PromptContext) {
     track ? `正在播放：《${track.name}》 - ${track.artists.join(' / ') || '未知歌手'}${track.album ? `，专辑《${track.album}》` : ''}。` : '当前还没有选定歌曲。',
     `播放进度：${Math.max(0, Math.floor(listening.currentTime))} / ${Math.max(0, Math.floor(duration))} 秒。`,
     listening.lyricLine ? `此刻听到的歌词：${listening.lyricLine}` : '此刻没有可用歌词。',
-    '一起听状态只允许同时连接一个角色；如果当前角色正在连接中，你可以自然提到正在一起听、对当前歌曲或歌词作出反应，也可以在合适时通过 messageActions.musicActions 切歌或把歌曲加入用户的“我的喜欢音乐”。只在文字里说“我切了/我收藏了”不会改变播放器或喜欢列表，必须写入 musicActions 才会真实执行。'
+    '一起听状态只允许同时连接一个角色；如果当前角色正在连接中，你可以自然提到正在一起听、对当前歌曲或歌词作出反应，也可以在合适时通过 messageActions.musicActions 切歌或把歌曲加入用户的“我的喜欢音乐”。只在文字里说“我切了/我收藏了”不会改变播放器或喜欢列表，必须写入 musicActions 才会真实执行；如果希望系统旁白出现在某一句前后，在 messages 对应位置加入 {"type":"music_action","actionIndex":0}。'
   ].join('\n');
 }
 

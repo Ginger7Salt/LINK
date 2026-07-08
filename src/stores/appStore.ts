@@ -1,4 +1,4 @@
-import { computed, ref, toRaw } from 'vue';
+import { computed, ref, toRaw, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { deleteEntity, loadSnapshot, putEntity, replaceSnapshot, scheduleStartupStorageMaintenance } from '@/data/db';
 import { defaultSettings } from '@/data/seed';
@@ -1947,6 +1947,60 @@ export const useAppStore = defineStore('app', () => {
     if (musicFavoriteTracks.value.some((entry) => entry.id === playableTrack.id)) await saveMusicFavoriteTrack(playableTrack);
     return playableTrack;
   }
+
+  async function playMusicQueueTrack(track: MusicTrack) {
+    musicPlayer.setLoadingAudioTrackId(track.id);
+    try {
+      const playableTrack = await ensurePlayableMusicTrack(track);
+      await musicPlayer.playTrack(playableTrack, { restart: true });
+      if (musicFavoriteTracks.value.some((entry) => entry.id === playableTrack.id)) await saveMusicFavoriteTrack(playableTrack);
+      return playableTrack;
+    } finally {
+      if (musicPlayer.loadingAudioTrackId === track.id) musicPlayer.setLoadingAudioTrackId('');
+    }
+  }
+
+  function playbackQueueWithCurrent() {
+    const storedQueue = musicPlayer.playbackQueue.length ? musicPlayer.playbackQueue : musicFavoriteTracks.value;
+    const currentTrack = musicPlayer.currentTrack;
+    if (!currentTrack || storedQueue.some((track) => track.id === currentTrack.id)) return storedQueue;
+    return [currentTrack, ...storedQueue];
+  }
+
+  function randomPlaybackQueueTrack(queue: MusicTrack[]) {
+    const currentTrackId = musicPlayer.currentTrack?.id || '';
+    if (queue.length <= 1) return queue[0] ?? null;
+    const candidates = queue.filter((track) => track.id !== currentTrackId);
+    return candidates[Math.floor(Math.random() * candidates.length)] ?? queue[0] ?? null;
+  }
+
+  function nextPlaybackQueueTrack(direction: -1 | 1 = 1) {
+    const queue = playbackQueueWithCurrent();
+    if (!queue.length) return null;
+    const currentTrack = musicPlayer.currentTrack;
+    if (musicPlayer.playbackMode === 'repeat-one' && currentTrack) return currentTrack;
+    if (musicPlayer.playbackMode === 'shuffle') return randomPlaybackQueueTrack(queue);
+    const currentIndex = currentTrack ? queue.findIndex((track) => track.id === currentTrack.id) : -1;
+    const normalizedIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex = normalizedIndex + direction;
+    if (musicPlayer.playbackMode === 'sequence' && (nextIndex < 0 || nextIndex >= queue.length)) return null;
+    return queue[(nextIndex + queue.length) % queue.length] ?? null;
+  }
+
+  async function playNextMusicTrackAfterEnded() {
+    const nextTrack = nextPlaybackQueueTrack(1);
+    if (!nextTrack) return;
+    try {
+      await playMusicQueueTrack(nextTrack);
+    } catch (error) {
+      console.warn('Music queue autoplay failed.', error);
+    }
+  }
+
+  watch(() => musicPlayer.playbackEndedTick, (tick, previousTick) => {
+    if (!tick || tick === previousTick) return;
+    void playNextMusicTrackAfterEnded();
+  });
 
   function startMusicListenTogether(conversationId: string, inviter: 'user' | 'char') {
     const conversation = conversationById(conversationId);
@@ -5227,6 +5281,10 @@ export const useAppStore = defineStore('app', () => {
               const transfer = normalizeTransferAttachment({ amount: segment.amount, note: segment.note });
               return transfer ? [{ type: 'transfer', amount: transfer.amount, ...(transfer.note ? { note: transfer.note } : {}) }] : [];
             }
+            if (segment.type === 'music_action') {
+              const actionIndex = Number(segment.actionIndex);
+              return [{ type: 'music_action', ...(Number.isFinite(actionIndex) && actionIndex >= 0 ? { actionIndex: Math.floor(actionIndex) } : {}) }];
+            }
             return [];
           })
           .slice(0, 12)
@@ -5262,6 +5320,7 @@ export const useAppStore = defineStore('app', () => {
       const hasOrderedVoice = orderedSegments.some((segment) => segment.type === 'voice' && segment.content.trim());
       const hasOrderedLocation = orderedSegments.some((segment) => segment.type === 'location' && segment.name.trim() && segment.distance.trim());
       const hasOrderedTransfer = orderedSegments.some((segment) => segment.type === 'transfer' && normalizeTransferAttachment({ amount: segment.amount, note: segment.note }));
+      const hasOrderedMusicAction = orderedSegments.some((segment) => segment.type === 'music_action');
       const recallMessageIds = parsedReply.messageActions?.recallMessageIds ?? [];
       const validRecallMessageIds = recallMessageIds.filter((messageId) => messages.value.some((message) => message.id === messageId && message.conversationId === conversationId && message.sender === 'char'));
       const validTransferDecisions = (parsedReply.messageActions?.transferDecisions ?? [])
@@ -5292,7 +5351,7 @@ export const useAppStore = defineStore('app', () => {
         const quote = targetMessage ? createMessageQuoteSnapshot(targetMessage) : null;
         if (quote) quoteByReplyIndex.set(Math.max(0, Math.floor(quoteAction.replyIndex)), quote);
       }
-      if (!effectiveReplyMessages.length && !replyStickers.length && !replyImages.length && !narrationMessages.length && !hasOrderedSticker && !hasOrderedNarration && !hasOrderedImage && !hasOrderedVoice && !hasOrderedLocation && !hasOrderedTransfer && !validRecallMessageIds.length && !validTransferDecisions.length && !validMusicListenInviteDecisions.length && !canSendMusicListenInvite && !(parsedReply.messageActions?.musicActions ?? []).length && !offlineInvitation) {
+      if (!effectiveReplyMessages.length && !replyStickers.length && !replyImages.length && !narrationMessages.length && !hasOrderedSticker && !hasOrderedNarration && !hasOrderedImage && !hasOrderedVoice && !hasOrderedLocation && !hasOrderedTransfer && !hasOrderedMusicAction && !validRecallMessageIds.length && !validTransferDecisions.length && !validMusicListenInviteDecisions.length && !canSendMusicListenInvite && !(parsedReply.messageActions?.musicActions ?? []).length && !offlineInvitation) {
         showConfigAlert('AI 返回内容中没有可显示的聊天文本，请重试或检查模型输出格式。', '回复异常');
         return;
       }
@@ -5429,6 +5488,36 @@ export const useAppStore = defineStore('app', () => {
           status: 'sent' as const
         } satisfies ChatMessage;
       };
+      const usedMusicActionNoticeIndexes = new Set<number>();
+      const createMusicActionNoticeMessage = (notice: string) => ({
+        id: createId('msg'),
+        conversationId,
+        sender: 'system' as const,
+        mode: conversation.activeMode,
+        content: notice,
+        createdAt: createdAt + charMessageOffset++,
+        displayStyle: 'narration' as const,
+        replyBatchId,
+        ...replyVariantFields,
+        status: 'sent' as const
+      } satisfies ChatMessage);
+      const takeMusicActionNotice = (preferredIndex?: number) => {
+        if (typeof preferredIndex === 'number' && musicActionNotices[preferredIndex] && !usedMusicActionNoticeIndexes.has(preferredIndex)) {
+          usedMusicActionNoticeIndexes.add(preferredIndex);
+          return musicActionNotices[preferredIndex];
+        }
+        const nextIndex = musicActionNotices.findIndex((notice, index) => Boolean(notice && !usedMusicActionNoticeIndexes.has(index)));
+        if (nextIndex < 0) return '';
+        usedMusicActionNoticeIndexes.add(nextIndex);
+        return musicActionNotices[nextIndex];
+      };
+      const appendMusicActionNotice = (targetMessages: ChatMessage[], preferredIndex?: number) => {
+        const notice = takeMusicActionNotice(preferredIndex);
+        if (notice) targetMessages.push(createMusicActionNoticeMessage(notice));
+      };
+      const appendRemainingMusicActionNotices = (targetMessages: ChatMessage[]) => {
+        while (usedMusicActionNoticeIndexes.size < musicActionNotices.length) appendMusicActionNotice(targetMessages);
+      };
       const sentImageDescriptionKeys = new Set<string>();
       const appendImageMessage = async (description: string, targetMessages: ChatMessage[]) => {
         const imageKey = normalizeDuplicateKey(description);
@@ -5494,6 +5583,10 @@ export const useAppStore = defineStore('app', () => {
               if (transferMessage) orderedCharMessages.push(transferMessage);
               break;
             }
+            case 'music_action': {
+              appendMusicActionNotice(orderedCharMessages, segment.actionIndex);
+              break;
+            }
           }
         }
       } else if (replyMessages.length) {
@@ -5522,6 +5615,7 @@ export const useAppStore = defineStore('app', () => {
       }
       appendStickerMessages(replyStickers);
       const charMessages: ChatMessage[] = orderedSegments.length ? orderedCharMessages : [...charNarrationMessages, ...charMessagesAfterNarration];
+      appendRemainingMusicActionNotices(charMessages);
       if (offlineInvitation) {
         charMessages.push({
           id: createId('msg'),
@@ -5547,20 +5641,6 @@ export const useAppStore = defineStore('app', () => {
           replyBatchId,
           ...replyVariantFields,
           createdAt: createdAt + charMessageOffset++,
-          status: 'sent' as const
-        } satisfies ChatMessage);
-      }
-      for (const notice of musicActionNotices) {
-        charMessages.push({
-          id: createId('msg'),
-          conversationId,
-          sender: 'system' as const,
-          mode: conversation.activeMode,
-          content: notice,
-          createdAt: createdAt + charMessageOffset++,
-          displayStyle: 'narration' as const,
-          replyBatchId,
-          ...replyVariantFields,
           status: 'sent' as const
         } satisfies ChatMessage);
       }

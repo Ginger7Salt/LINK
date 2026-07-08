@@ -58,7 +58,8 @@ export type RoleplayReplySegment =
   | { type: 'image'; description: string }
   | { type: 'voice'; content: string; translation?: string; duration?: number }
   | { type: 'location'; name: string; address?: string; distance: string }
-  | { type: 'transfer'; amount: string; note?: string };
+  | { type: 'transfer'; amount: string; note?: string }
+  | { type: 'music_action'; actionIndex?: number };
 
 export interface RoleplayReplyResult {
   reply: string;
@@ -1106,6 +1107,7 @@ function normalizeSegmentType(value: unknown): RoleplayReplySegment['type'] | ''
   if (['voice', 'audio', 'voice_message', 'voice-message', 'speech'].includes(type)) return 'voice';
   if (['location', 'map', 'position', 'geo', 'geolocation', '定位', '位置'].includes(type)) return 'location';
   if (['transfer', 'money', 'payment', 'redpacket', 'red_packet', '转账', '付款'].includes(type)) return 'transfer';
+  if (['music_action', 'music-action', 'music', 'music_notice', 'music-notice', 'song_action', 'song-action', '音乐动作', '切歌', '收藏音乐'].includes(type)) return 'music_action';
   return '';
 }
 
@@ -1162,6 +1164,14 @@ function normalizeRoleplaySegment(value: unknown, narrationEnabled: boolean): Ro
   if (type === 'location') return normalizeLocationSegment(record);
 
   if (type === 'transfer') return normalizeTransferSegment(record);
+
+  if (type === 'music_action') {
+    const rawIndex = Number(record.actionIndex ?? record.musicActionIndex ?? record.index);
+    return [{
+      type: 'music_action',
+      ...(Number.isFinite(rawIndex) && rawIndex >= 0 ? { actionIndex: Math.floor(rawIndex) } : {})
+    }];
+  }
 
   return [];
 }
@@ -2702,7 +2712,7 @@ function normalizeMusicComments(value: unknown, input: { user: UserProfile; char
       authorName,
       authorId: character?.id,
       authorType,
-      avatar: musicCommentAvatarUrl(authorId || authorName || draftId || content),
+      avatar: character?.avatar || musicCommentAvatarUrl(authorId || authorName || draftId || content),
       content,
       ...(contentTranslation ? { contentTranslation } : {}),
       ...(parentId && parentId !== id ? { parentId } : {}),

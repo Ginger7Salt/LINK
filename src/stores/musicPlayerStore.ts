@@ -2,6 +2,8 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type { MusicTrack } from '@/types/domain';
 
+export type PlaybackMode = 'sequence' | 'repeat-all' | 'shuffle' | 'repeat-one';
+
 export interface MusicListenTogetherPartner {
   conversationId: string;
   characterId: string;
@@ -17,6 +19,8 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
   const currentTime = ref(0);
   const duration = ref(0);
   const playbackError = ref('');
+  const playbackMode = ref<PlaybackMode>('sequence');
+  const playbackQueue = ref<MusicTrack[]>([]);
   const listeningPartner = ref<MusicListenTogetherPartner | null>(null);
   const currentLyricLine = ref('');
   const playbackEndedTick = ref(0);
@@ -93,6 +97,18 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
     loadingAudioTrackId.value = trackId;
   }
 
+  function setPlaybackMode(mode: PlaybackMode) {
+    playbackMode.value = mode;
+  }
+
+  function setPlaybackQueue(tracks: MusicTrack[]) {
+    const dedupedTracks = new Map<string, MusicTrack>();
+    tracks.forEach((track) => {
+      if (track?.id) dedupedTracks.set(track.id, track);
+    });
+    playbackQueue.value = [...dedupedTracks.values()];
+  }
+
   async function playTrack(track: MusicTrack, options: { restart?: boolean } = {}) {
     const player = ensureAudio();
     if (!player) throw new Error('当前环境无法播放音频。');
@@ -156,6 +172,8 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
     duration,
     progressValue,
     playbackError,
+    playbackMode,
+    playbackQueue,
     listeningPartner,
     currentLyricLine,
     playbackEndedTick,
@@ -163,6 +181,8 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
     setCurrentTrack,
     updateCurrentTrack,
     setLoadingAudioTrackId,
+    setPlaybackMode,
+    setPlaybackQueue,
     playTrack,
     toggleTrack,
     pause,

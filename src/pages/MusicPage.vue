@@ -258,9 +258,9 @@ import { generateMusicCommentThread, hasTextGenerationConfig } from '@/services/
 import { fetchMusicAudioUrl, fetchMusicCoverUrl, fetchMusicLyricText, mergeMusicTrack, searchMusicTracks } from '@/services/music';
 import { useAppStore } from '@/stores/appStore';
 import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
-import type { MusicComment, MusicCommentThread, MusicSource, MusicTrack } from '@/types/domain';
+import type { MusicComment, MusicCommentThread, MusicSource, MusicTrack, UserProfile, VisualProfile } from '@/types/domain';
 import { createId } from '@/utils/id';
-import { getUserAiName } from '@/utils/profile';
+import { getUserAiName, normalizeVisualProfile } from '@/utils/profile';
 
 type MusicPageMode = 'player' | 'search' | 'comments' | 'likes';
 type PlaybackMode = 'sequence' | 'repeat-all' | 'shuffle' | 'repeat-one';
@@ -300,7 +300,6 @@ const generatingCommentMode = ref<'replace' | 'expand' | ''>('');
 const commentDraft = ref('');
 const replyTargetId = ref('');
 const playerPageIndex = ref(0);
-const playbackMode = ref<PlaybackMode>('sequence');
 const commentSortMode = ref<CommentSortMode>('recommend');
 const expandedReplyIds = ref(new Set<string>());
 const showQueuePanel = ref(false);
@@ -328,7 +327,6 @@ const isPlaying = computed(() => musicPlayer.isPlaying);
 const currentTime = computed(() => musicPlayer.currentTime);
 const duration = computed(() => musicPlayer.duration);
 const progressValue = computed(() => musicPlayer.progressValue);
-const playbackEndedTick = computed(() => musicPlayer.playbackEndedTick);
 const activeTrack = computed(() => findTrack(activeTrackId.value) ?? musicPlayer.currentTrack);
 const activeThread = computed(() => {
   const track = activeTrack.value;
@@ -350,12 +348,20 @@ const durationLabel = computed(() => duration.value ? formatDuration(duration.va
 const nowPlayingTitle = computed(() => activeTrack.value?.name || '先搜索一首歌');
 const nowPlayingArtists = computed(() => activeTrack.value ? trackArtists(activeTrack.value) : 'LINK FM');
 const commentTrackTitle = computed(() => activeTrack.value?.name || '评论区');
+const playbackMode = computed<PlaybackMode>({
+  get: () => musicPlayer.playbackMode,
+  set: (mode) => musicPlayer.setPlaybackMode(mode)
+});
 const playModeLabel = computed(() => playbackModeLabels[playbackMode.value]);
 const favoriteActionLabel = computed(() => activeTrack.value && isFavorite(activeTrack.value.id) ? '已喜欢' : '喜欢');
 const playerSlideStyle = computed(() => ({ transform: `translate3d(-${playerPageIndex.value * 100}%, 0, 0)` }));
 const listenPartner = computed(() => musicPlayer.listeningPartner ? store.characterById(musicPlayer.listeningPartner.characterId) : null);
-const listenBoundUser = computed(() => musicPlayer.listeningPartner ? store.userById(musicPlayer.listeningPartner.userId) : null);
-const currentUserAvatar = computed(() => listenBoundUser.value?.avatar || store.user?.avatar || fallbackCoverUrl);
+const listenBoundUser = computed(() => {
+  const characterBoundUserId = listenPartner.value?.boundUserId || '';
+  const partnerUserId = musicPlayer.listeningPartner?.userId || '';
+  return store.userById(characterBoundUserId) ?? store.userById(partnerUserId) ?? null;
+});
+const currentUserAvatar = computed(() => homepageAvatar(listenBoundUser.value) || homepageAvatar(store.user) || fallbackCoverUrl);
 const listeningTogether = computed(() => Boolean(listenPartner.value));
 const listenPartnerAvatar = computed(() => listenPartner.value?.avatar || fallbackCoverUrl);
 const listenStatusTitle = computed(() => listenPartner.value ? `正在和 ${listenPartner.value.nickname || listenPartner.value.name} 一起听` : '一起听待机中');
@@ -407,10 +413,7 @@ watch([activeLyricIndex, playerPageIndex], () => {
   });
 });
 
-watch(playbackEndedTick, (tick, previousTick) => {
-  if (!tick || tick === previousTick) return;
-  void playAfterCurrentEnded();
-});
+watch(playbackQueue, (tracks) => musicPlayer.setPlaybackQueue(tracks), { immediate: true });
 
 function setMode(mode: MusicPageMode) {
   pageMode.value = mode;
@@ -850,8 +853,20 @@ function toggleCommentReplies(commentId: string) {
 }
 
 function commentAvatar(comment: MusicComment) {
+  if (comment.authorType === 'character') return commentCharacterAvatar(comment) || fallbackCoverUrl;
   if (comment.authorType === 'user' && comment.avatar) return comment.avatar;
   return qqAvatarUrl(comment.authorId || comment.authorName || comment.id);
+}
+
+function commentCharacterAvatar(comment: MusicComment) {
+  const character = comment.authorId ? store.characterById(comment.authorId) : store.characters.find((entry) => entry.name === comment.authorName || entry.nickname === comment.authorName);
+  return character?.avatar || '';
+}
+
+function homepageAvatar(profileOwner?: (UserProfile & { profile?: Partial<VisualProfile> }) | null) {
+  if (!profileOwner) return '';
+  const profileAvatar = typeof profileOwner.profile?.avatar === 'string' ? profileOwner.profile.avatar.trim() : '';
+  return profileAvatar || normalizeVisualProfile(profileOwner.profile, profileOwner).avatar || profileOwner.avatar || '';
 }
 
 function commentSubtitle(comment: MusicComment) {
@@ -932,9 +947,6 @@ function playNeighbor(direction: -1 | 1) {
   if (nextTrack) void playTrackNow(nextTrack, true);
 }
 
-function playAfterCurrentEnded() {
-  playNeighbor(1);
-}
 </script>
 
 <style scoped>
