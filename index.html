@@ -513,8 +513,9 @@
         const progress = loader?.querySelector('.boot-loader__progress');
         const bar = loader?.querySelector('.boot-loader__bar');
         const value = loader?.querySelector('.boot-loader__value');
+        const label = loader?.querySelector('.boot-loader__label');
 
-        if (!loader || !progress || !bar || !value) return;
+        if (!loader || !progress || !bar || !value || !label) return;
 
         let current = 0;
         let timer = 0;
@@ -546,9 +547,19 @@
           }, 40);
         };
 
+        const fail = (event) => {
+          if (isDone) return;
+          isDone = true;
+          window.clearTimeout(timer);
+          const message = event instanceof CustomEvent && event.detail?.message ? String(event.detail.message) : '加载失败，请刷新后重试';
+          label.textContent = message;
+          value.textContent = '重试';
+          progress.setAttribute('aria-valuenow', String(Math.round(current)));
+        };
+
         tick();
         window.addEventListener('link:app-mounted', finish, { once: true });
-        window.setTimeout(finish, 8000);
+        window.addEventListener('link:app-load-failed', fail, { once: true });
       })();
     </script>
     <script type="module" src="/src/main.ts"></script>

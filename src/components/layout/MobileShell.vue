@@ -8,19 +8,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import BottomTabs from './BottomTabs.vue';
-import { useAppStore } from '@/stores/appStore';
 
 const route = useRoute();
-const store = useAppStore();
 
 const showTabs = computed(() => !['chat-room', 'chat-search', 'small-theater', 'small-theater-detail', 'offline-room', 'chat-settings', 'offline-chat-settings', 'account', 'add-friend', 'services', 'settings', 'image-module-settings', 'stickers', 'stickers-manage', 'favorites', 'ringtones', 'themes', 'world-book', 'world-book-new', 'world-book-edit'].includes(String(route.name)));
-
-onMounted(() => {
-  void store.hydrate();
-});
 </script>
 
 <style scoped>

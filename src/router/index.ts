@@ -25,6 +25,37 @@ const FavoritesPage = () => import('@/pages/FavoritesPage.vue');
 const RingtoneSettingsPage = () => import('@/pages/RingtoneSettingsPage.vue');
 const ThemesPage = () => import('@/pages/ThemesPage.vue');
 
+const routePageLoaders = [
+  HomePage,
+  ChatsPage,
+  ChatSettingsPage,
+  ChatSearchPage,
+  ChatRoomPage,
+  SmallTheaterPage,
+  SmallTheaterDetailPage,
+  OfflineSettingsPage,
+  OfflineRoomPage,
+  VoomPage,
+  MusicPage,
+  FanficPage,
+  ProfilePage,
+  AddFriendPage,
+  ServicesPage,
+  ImageModuleSettingsPage,
+  SettingsPage,
+  StickersPage,
+  StickerManagePage,
+  WorldBookPage,
+  WorldBookEditorPage,
+  FavoritesPage,
+  RingtoneSettingsPage,
+  ThemesPage
+] as const;
+
+export async function preloadRoutePages() {
+  await Promise.all(routePageLoaders.map((loadPage) => loadPage()));
+}
+
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
