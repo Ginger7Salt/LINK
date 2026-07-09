@@ -136,7 +136,7 @@
           <div>
             <span>Profile Theme</span>
             <strong>{{ creatorTab === 'theme' ? '新增主页主题' : 'PNG 导入' }}</strong>
-            <p>{{ creatorTab === 'theme' ? '填写提示词、正则和完整主页代码，保存为这个角色的主页主题。' : '选择别人分享的 LINK 主页主题 PNG。' }}</p>
+            <p>{{ creatorTab === 'theme' ? '填写提示词、正则和完整主页代码，保存为全局共用主页主题。' : '选择别人分享的 LINK 主页主题 PNG。' }}</p>
           </div>
         </section>
 
@@ -662,19 +662,19 @@ async function saveThemeDraft(options: { closeCreator?: boolean } = {}) {
       prompt,
       regex: themeDraft.regex.trim(),
       template: profileThemeCode.html,
-      css: profileThemeCode.css,
-      enabled: themeDraft.enabled
+      css: profileThemeCode.css
     });
+    await store.setProfileThemeEnabledForCharacter(currentCharacter.id, existingTheme.id, themeDraft.enabled);
   } else {
-    await store.createProfileTheme({
+    const createdTheme = await store.createProfileTheme({
       charId: currentCharacter.id,
       name,
       prompt,
       regex: themeDraft.regex.trim(),
       template: profileThemeCode.html,
-      css: profileThemeCode.css,
-      enabled: themeDraft.enabled
+      css: profileThemeCode.css
     });
+    if (createdTheme) await store.setProfileThemeEnabledForCharacter(currentCharacter.id, createdTheme.id, themeDraft.enabled);
   }
   if (options.closeCreator) showCreator.value = false;
   else showEditor.value = false;
@@ -685,7 +685,9 @@ async function submitEditor() {
 }
 
 async function toggleTheme(theme: ProfileTheme) {
-  await store.saveProfileTheme({ ...theme, enabled: !theme.enabled });
+  const currentCharacter = character.value;
+  if (!currentCharacter) return;
+  await store.setProfileThemeEnabledForCharacter(currentCharacter.id, theme.id, !theme.enabled);
 }
 
 async function deleteEditingTheme() {

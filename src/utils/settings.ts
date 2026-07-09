@@ -312,6 +312,8 @@ export const defaultAppSettings: AppSettings = {
   voomAutoCleanup: {},
   smallTheaterAutoCleanup: {},
   profileHomepageAutoCleanup: {},
+  smallTheaterTopicEnabledByCharacter: {},
+  profileThemeEnabledByCharacter: {},
   smallTheaterTopicDefaultsInitialized: {},
   keepAlive: createDefaultKeepAliveSettings(),
   ringtoneSettings: createDefaultRingtoneSettings(),
@@ -504,6 +506,25 @@ function normalizeTimestampRecord(input: unknown): Record<string, number> {
     const timestamp = Math.max(0, Number(value) || 0);
     if (normalizedKey && timestamp > 0) normalized[normalizedKey] = timestamp;
   }
+  return normalized;
+}
+
+function normalizeBooleanRecordMap(input: unknown): Record<string, Record<string, boolean>> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+
+  const normalized: Record<string, Record<string, boolean>> = {};
+  for (const [outerKey, rawEntry] of Object.entries(input)) {
+    const normalizedOuterKey = outerKey.trim();
+    if (!normalizedOuterKey || !rawEntry || typeof rawEntry !== 'object' || Array.isArray(rawEntry)) continue;
+
+    const normalizedEntry: Record<string, boolean> = {};
+    for (const [innerKey, value] of Object.entries(rawEntry)) {
+      const normalizedInnerKey = innerKey.trim();
+      if (normalizedInnerKey && typeof value === 'boolean') normalizedEntry[normalizedInnerKey] = value;
+    }
+    if (Object.keys(normalizedEntry).length) normalized[normalizedOuterKey] = normalizedEntry;
+  }
+
   return normalized;
 }
 
@@ -1481,6 +1502,8 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
     voomAutoCleanup: normalizeVoomAutoCleanup(settings?.voomAutoCleanup),
     smallTheaterAutoCleanup: normalizeSmallTheaterAutoCleanup(settings?.smallTheaterAutoCleanup),
     profileHomepageAutoCleanup: normalizeProfileHomepageAutoCleanup(settings?.profileHomepageAutoCleanup),
+    smallTheaterTopicEnabledByCharacter: normalizeBooleanRecordMap(settings?.smallTheaterTopicEnabledByCharacter),
+    profileThemeEnabledByCharacter: normalizeBooleanRecordMap(settings?.profileThemeEnabledByCharacter),
     smallTheaterTopicDefaultsInitialized: normalizeTimestampRecord(settings?.smallTheaterTopicDefaultsInitialized),
     keepAlive: normalizeKeepAliveSettings(settings?.keepAlive),
     ringtoneSettings: normalizeRingtoneSettings(settings?.ringtoneSettings),

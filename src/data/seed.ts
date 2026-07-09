@@ -175,6 +175,8 @@ export const defaultSettings: AppSettings = {
   voomAutoCleanup: {},
   smallTheaterAutoCleanup: {},
   profileHomepageAutoCleanup: {},
+  smallTheaterTopicEnabledByCharacter: {},
+  profileThemeEnabledByCharacter: {},
   smallTheaterTopicDefaultsInitialized: {},
   keepAlive: createDefaultKeepAliveSettings(),
   ringtoneSettings: createDefaultRingtoneSettings(),

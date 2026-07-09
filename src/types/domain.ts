@@ -1071,6 +1071,8 @@ export interface AppSettings {
   voomAutoCleanup: Record<string, CharacterVoomAutoCleanupSettings>;
   smallTheaterAutoCleanup: Record<string, CharacterSmallTheaterAutoCleanupSettings>;
   profileHomepageAutoCleanup: Record<string, CharacterProfileHomepageAutoCleanupSettings>;
+  smallTheaterTopicEnabledByCharacter: Record<string, Record<string, boolean>>;
+  profileThemeEnabledByCharacter: Record<string, Record<string, boolean>>;
   smallTheaterTopicDefaultsInitialized: Record<string, number>;
   keepAlive: AppKeepAliveSettings;
   ringtoneSettings: AppRingtoneSettings;

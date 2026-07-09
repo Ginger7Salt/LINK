@@ -83,6 +83,8 @@ type ConversationSummaryResult =
   | { record: ConversationMemoryRecord; status: Exclude<ConversationSummaryResultStatus, 'busy'> }
   | { record?: ConversationMemoryRecord; status: 'busy' };
 
+const globalSharedLibraryOwnerId = '__global__';
+
 interface ProfileHistorySource {
   sourceConversationId?: string;
   sourceReplyBatchId?: string;
@@ -493,6 +495,16 @@ export const useAppStore = defineStore('app', () => {
       entries: normalizeMemoryRecordEntries(memory)
     }))).memories;
     const normalizedMemoryAtoms = normalizeConversationMemoryAtoms(snapshot.conversationMemoryAtoms ?? [], normalizedConversationMemories);
+    const normalizedSettings = normalizeAppSettings({
+      ...defaultSettings,
+      ...snapshot.settings,
+      activeUserId: snapshot.settings.activeUserId || normalizedUsers[0].id
+    });
+    const sharedLibraryData = normalizeSharedLibraryData({
+      profileThemes: snapshot.profileThemes ?? [],
+      smallTheaterTopics: snapshot.smallTheaterTopics ?? [],
+      settings: normalizedSettings
+    });
 
     return {
       users: normalizedUsers,
@@ -500,9 +512,9 @@ export const useAppStore = defineStore('app', () => {
       conversations: snapshot.conversations,
       messages: snapshot.messages,
       voomPosts: snapshot.voomPosts,
-      profileThemes: normalizeStoredProfileThemes(snapshot.profileThemes ?? []),
+      profileThemes: sharedLibraryData.profileThemes,
       profileHomepages: normalizeStoredProfileHomepages(snapshot.profileHomepages ?? []),
-      smallTheaterTopics: snapshot.smallTheaterTopics ?? [],
+      smallTheaterTopics: sharedLibraryData.smallTheaterTopics,
       smallTheaters: snapshot.smallTheaters ?? [],
       musicFavoriteTracks: snapshot.musicFavoriteTracks ?? [],
       musicCommentThreads: snapshot.musicCommentThreads ?? [],
@@ -517,11 +529,7 @@ export const useAppStore = defineStore('app', () => {
       conversationMemoryAtoms: normalizedMemoryAtoms,
       generatedImages: normalizeGeneratedImages(snapshot.generatedImages ?? []),
       favorites: normalizeFavorites(snapshot.favorites ?? []),
-      settings: normalizeAppSettings({
-        ...defaultSettings,
-        ...snapshot.settings,
-        activeUserId: snapshot.settings.activeUserId || normalizedUsers[0].id
-      })
+      settings: sharedLibraryData.settings
     };
   }
 
@@ -596,14 +604,19 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function applySnapshotToStore(snapshot: AppSnapshot) {
+    const sharedLibraryData = normalizeSharedLibraryData({
+      profileThemes: snapshot.profileThemes ?? [],
+      smallTheaterTopics: snapshot.smallTheaterTopics ?? [],
+      settings: snapshot.settings
+    });
     users.value = snapshot.users;
     characters.value = snapshot.characters;
     conversations.value = snapshot.conversations;
     messages.value = snapshot.messages.map((message) => normalizeStoredMessageIdentityReferences(message));
     voomPosts.value = snapshot.voomPosts.map((post) => normalizeStoredVoomPostIdentityReferences(post));
-    profileThemes.value = normalizeStoredProfileThemes(snapshot.profileThemes ?? []);
+    profileThemes.value = sharedLibraryData.profileThemes;
     profileHomepages.value = normalizeStoredProfileHomepages(snapshot.profileHomepages ?? []);
-    smallTheaterTopics.value = snapshot.smallTheaterTopics ?? [];
+    smallTheaterTopics.value = sharedLibraryData.smallTheaterTopics;
     smallTheaters.value = normalizeStoredSmallTheaters(snapshot.smallTheaters ?? []);
     musicFavoriteTracks.value = snapshot.musicFavoriteTracks ?? [];
     musicCommentThreads.value = normalizeStoredMusicCommentThreads(snapshot.musicCommentThreads ?? []);
@@ -615,15 +628,22 @@ export const useAppStore = defineStore('app', () => {
     conversationMemoryAtoms.value = normalizeConversationMemoryAtoms(snapshot.conversationMemoryAtoms ?? [], conversationMemories.value);
     generatedImages.value = snapshot.generatedImages;
     favorites.value = normalizeFavorites(snapshot.favorites ?? []);
-    settings.value = snapshot.settings;
+    settings.value = sharedLibraryData.settings;
     activeConversationId.value = null;
     ready.value = true;
   }
 
   function prepareSnapshotForStore(snapshot: AppSnapshot): AppSnapshot {
     const normalizedMemories = dedupeConversationMemories(snapshot.conversationMemories).memories;
+    const sharedLibraryData = normalizeSharedLibraryData({
+      profileThemes: snapshot.profileThemes ?? [],
+      smallTheaterTopics: snapshot.smallTheaterTopics ?? [],
+      settings: snapshot.settings
+    });
     return {
       ...snapshot,
+      profileThemes: sharedLibraryData.profileThemes,
+      smallTheaterTopics: sharedLibraryData.smallTheaterTopics,
       messages: snapshot.messages.map((message) => normalizeStoredMessageIdentityReferences(message)),
       voomPosts: snapshot.voomPosts.map((post) => normalizeStoredVoomPostIdentityReferences(post)),
       profileHomepages: normalizeStoredProfileHomepages(snapshot.profileHomepages ?? []),
@@ -631,7 +651,8 @@ export const useAppStore = defineStore('app', () => {
       musicCommentThreads: normalizeStoredMusicCommentThreads(snapshot.musicCommentThreads ?? []),
       conversationMemories: normalizedMemories,
       conversationMemoryAtoms: normalizeConversationMemoryAtoms(snapshot.conversationMemoryAtoms ?? [], normalizedMemories),
-      favorites: normalizeFavorites(snapshot.favorites ?? [])
+      favorites: normalizeFavorites(snapshot.favorites ?? []),
+      settings: sharedLibraryData.settings
     };
   }
 
@@ -813,6 +834,34 @@ export const useAppStore = defineStore('app', () => {
       ...snapshot.settings,
       activeUserId: snapshot.settings.activeUserId || snapshot.users[0]?.id || ''
     });
+    const rawProfileThemes = profileThemes.value;
+    const rawSmallTheaterTopics = smallTheaterTopics.value;
+    const rawSettings = settings.value;
+    const sharedLibraryData = normalizeSharedLibraryData({
+      profileThemes: rawProfileThemes,
+      smallTheaterTopics: rawSmallTheaterTopics,
+      settings: rawSettings
+    });
+    const sharedLibraryChanged = sharedLibraryData.removedProfileThemeIds.length > 0
+      || sharedLibraryData.removedSmallTheaterTopicIds.length > 0
+      || rawProfileThemes.length !== sharedLibraryData.profileThemes.length
+      || rawSmallTheaterTopics.length !== sharedLibraryData.smallTheaterTopics.length
+      || rawProfileThemes.some((theme, index) => theme.id !== sharedLibraryData.profileThemes[index]?.id || theme.charId !== sharedLibraryData.profileThemes[index]?.charId || theme.enabled !== sharedLibraryData.profileThemes[index]?.enabled)
+      || rawSmallTheaterTopics.some((topic, index) => topic.id !== sharedLibraryData.smallTheaterTopics[index]?.id || topic.charId !== sharedLibraryData.smallTheaterTopics[index]?.charId || topic.enabled !== sharedLibraryData.smallTheaterTopics[index]?.enabled)
+      || JSON.stringify(rawSettings.profileThemeEnabledByCharacter) !== JSON.stringify(sharedLibraryData.settings.profileThemeEnabledByCharacter)
+      || JSON.stringify(rawSettings.smallTheaterTopicEnabledByCharacter) !== JSON.stringify(sharedLibraryData.settings.smallTheaterTopicEnabledByCharacter);
+    profileThemes.value = sharedLibraryData.profileThemes;
+    smallTheaterTopics.value = sharedLibraryData.smallTheaterTopics;
+    settings.value = sharedLibraryData.settings;
+    if (sharedLibraryChanged) {
+      await Promise.all([
+        ...profileThemes.value.map((theme) => putEntity('profileThemes', theme)),
+        ...smallTheaterTopics.value.map((topic) => putEntity('smallTheaterTopics', topic)),
+        ...sharedLibraryData.removedProfileThemeIds.map((themeId) => deleteEntity('profileThemes', themeId)),
+        ...sharedLibraryData.removedSmallTheaterTopicIds.map((topicId) => deleteEntity('smallTheaterTopics', topicId)),
+        putEntity('settings', settings.value, 'main')
+      ]);
+    }
     ready.value = true;
     if (legacyMemoryAtomIds.length || shouldPersistMemoryVectorCleanup) {
       void purgeLegacyMemoryVectorData(legacyMemoryAtomIds, shouldPersistMemoryVectorCleanup).catch(() => undefined);
@@ -1410,6 +1459,148 @@ export const useAppStore = defineStore('app', () => {
     return themes
       .map((theme) => normalizeProfileTheme(theme, theme.charId))
       .filter((theme): theme is ProfileTheme => Boolean(theme));
+  }
+
+  function normalizeStoredSmallTheaterTopics(topics: SmallTheaterTopic[]) {
+    return topics
+      .map((topic) => normalizeSmallTheaterTopic(topic, topic.charId))
+      .filter((topic): topic is SmallTheaterTopic => Boolean(topic));
+  }
+
+  function normalizeSharedLibraryText(value: unknown) {
+    return String(value ?? '').replace(/\r\n/g, '\n').trim();
+  }
+
+  function profileThemeSharedKey(theme: ProfileTheme) {
+    return [
+      theme.builtIn || theme.source === 'built-in' ? 'built-in' : theme.source,
+      normalizeSharedLibraryText(theme.name).toLocaleLowerCase(),
+      normalizeSharedLibraryText(theme.prompt),
+      normalizeSharedLibraryText(theme.regex),
+      normalizeSharedLibraryText(theme.template),
+      normalizeSharedLibraryText(theme.css)
+    ].join('\u001f');
+  }
+
+  function smallTheaterTopicSharedKey(topic: SmallTheaterTopic) {
+    return [
+      topic.builtIn ? 'built-in' : 'custom',
+      normalizeSharedLibraryText(topic.title).toLocaleLowerCase(),
+      normalizeSharedLibraryText(topic.prompt)
+    ].join('\u001f');
+  }
+
+  function selectSharedLibraryRecord<T extends { id: string; charId: string; createdAt: number }>(items: T[]) {
+    return [...items].sort((first, second) => {
+      const firstIsGlobal = first.charId === globalSharedLibraryOwnerId ? 0 : 1;
+      const secondIsGlobal = second.charId === globalSharedLibraryOwnerId ? 0 : 1;
+      if (firstIsGlobal !== secondIsGlobal) return firstIsGlobal - secondIsGlobal;
+      if (first.createdAt !== second.createdAt) return first.createdAt - second.createdAt;
+      return first.id.localeCompare(second.id);
+    })[0];
+  }
+
+  function cloneEnabledByCharacter(input: Record<string, Record<string, boolean>> | undefined) {
+    return Object.fromEntries(
+      Object.entries(input ?? {}).map(([characterId, entry]) => [characterId, { ...entry }])
+    ) as Record<string, Record<string, boolean>>;
+  }
+
+  function setEnabledOverrideInPlace(enabledByCharacter: Record<string, Record<string, boolean>>, characterId: string, itemId: string, enabled: boolean) {
+    const normalizedCharacterId = characterId.trim();
+    const normalizedItemId = itemId.trim();
+    if (!normalizedCharacterId || !normalizedItemId) return;
+    enabledByCharacter[normalizedCharacterId] = {
+      ...(enabledByCharacter[normalizedCharacterId] ?? {}),
+      [normalizedItemId]: enabled
+    };
+  }
+
+  function remapEnabledOverrideInPlace(enabledByCharacter: Record<string, Record<string, boolean>>, fromItemId: string, toItemId: string) {
+    if (fromItemId === toItemId) return;
+    Object.values(enabledByCharacter).forEach((entry) => {
+      if (!(fromItemId in entry)) return;
+      entry[toItemId] = entry[fromItemId];
+      delete entry[fromItemId];
+    });
+  }
+
+  function removeEnabledOverrideIds(enabledByCharacter: Record<string, Record<string, boolean>>, itemIds: string[]) {
+    const itemIdSet = new Set(itemIds);
+    const normalized: Record<string, Record<string, boolean>> = {};
+    Object.entries(enabledByCharacter).forEach(([characterId, entry]) => {
+      const nextEntry = Object.fromEntries(Object.entries(entry).filter(([itemId]) => !itemIdSet.has(itemId))) as Record<string, boolean>;
+      if (Object.keys(nextEntry).length) normalized[characterId] = nextEntry;
+    });
+    return normalized;
+  }
+
+  function discardCharacterEnabledOverrides(settingsEntry: AppSettings, characterId: string) {
+    const normalizedCharacterId = characterId.trim();
+    if (!normalizedCharacterId) return settingsEntry;
+    const { [normalizedCharacterId]: _topicEntry, ...smallTheaterTopicEnabledByCharacter } = settingsEntry.smallTheaterTopicEnabledByCharacter;
+    const { [normalizedCharacterId]: _themeEntry, ...profileThemeEnabledByCharacter } = settingsEntry.profileThemeEnabledByCharacter;
+    return normalizeAppSettings({
+      ...settingsEntry,
+      smallTheaterTopicEnabledByCharacter,
+      profileThemeEnabledByCharacter
+    });
+  }
+
+  function normalizeSharedLibraryData(input: Pick<AppSnapshot, 'profileThemes' | 'smallTheaterTopics' | 'settings'>) {
+    const normalizedSettings = normalizeAppSettings(input.settings);
+    let profileThemeEnabledByCharacter = cloneEnabledByCharacter(normalizedSettings.profileThemeEnabledByCharacter);
+    let smallTheaterTopicEnabledByCharacter = cloneEnabledByCharacter(normalizedSettings.smallTheaterTopicEnabledByCharacter);
+    const removedProfileThemeIds: string[] = [];
+    const removedSmallTheaterTopicIds: string[] = [];
+
+    const profileThemeGroups = new Map<string, ProfileTheme[]>();
+    normalizeStoredProfileThemes(input.profileThemes ?? []).forEach((theme) => {
+      const key = profileThemeSharedKey(theme);
+      profileThemeGroups.set(key, [...(profileThemeGroups.get(key) ?? []), theme]);
+    });
+    const profileThemes = [...profileThemeGroups.values()].map((group) => {
+      const representative = selectSharedLibraryRecord(group);
+      group.forEach((theme) => {
+        if (theme.charId && theme.charId !== globalSharedLibraryOwnerId) {
+          setEnabledOverrideInPlace(profileThemeEnabledByCharacter, theme.charId, representative.id, theme.enabled);
+        }
+        remapEnabledOverrideInPlace(profileThemeEnabledByCharacter, theme.id, representative.id);
+        if (theme.id !== representative.id) removedProfileThemeIds.push(theme.id);
+      });
+      return { ...representative, charId: globalSharedLibraryOwnerId, enabled: true } satisfies ProfileTheme;
+    }).sort((first, second) => first.createdAt - second.createdAt);
+
+    const smallTheaterTopicGroups = new Map<string, SmallTheaterTopic[]>();
+    normalizeStoredSmallTheaterTopics(input.smallTheaterTopics ?? []).forEach((topic) => {
+      const key = smallTheaterTopicSharedKey(topic);
+      smallTheaterTopicGroups.set(key, [...(smallTheaterTopicGroups.get(key) ?? []), topic]);
+    });
+    const smallTheaterTopics = [...smallTheaterTopicGroups.values()].map((group) => {
+      const representative = selectSharedLibraryRecord(group);
+      group.forEach((topic) => {
+        if (topic.charId && topic.charId !== globalSharedLibraryOwnerId) {
+          setEnabledOverrideInPlace(smallTheaterTopicEnabledByCharacter, topic.charId, representative.id, topic.enabled);
+        }
+        remapEnabledOverrideInPlace(smallTheaterTopicEnabledByCharacter, topic.id, representative.id);
+        if (topic.id !== representative.id) removedSmallTheaterTopicIds.push(topic.id);
+      });
+      return { ...representative, charId: globalSharedLibraryOwnerId, enabled: true } satisfies SmallTheaterTopic;
+    }).sort((first, second) => first.createdAt - second.createdAt);
+
+    const settingsEntry = normalizeAppSettings({
+      ...normalizedSettings,
+      profileThemeEnabledByCharacter,
+      smallTheaterTopicEnabledByCharacter
+    });
+
+    return {
+      profileThemes,
+      smallTheaterTopics,
+      settings: settingsEntry,
+      removedProfileThemeIds,
+      removedSmallTheaterTopicIds
+    };
   }
 
   function normalizeStoredProfileHomepages(homepages: ProfileHomepageRecord[]) {
@@ -3249,11 +3440,11 @@ export const useAppStore = defineStore('app', () => {
 
     const conversation = conversations.value.find((entry) => entry.charId === characterId);
     const relatedPosts = voomPosts.value.filter((post) => post.charId === characterId || post.conversationId === conversation?.id);
-    const relatedTheaterTopics = smallTheaterTopics.value.filter((topic) => topic.charId === characterId);
     const relatedTheaters = smallTheaters.value.filter((theater) => theater.charId === characterId || theater.conversationId === conversation?.id);
     const relatedMessages = conversation ? messages.value.filter((message) => message.conversationId === conversation.id) : [];
     const relatedLocalWorldBooks = worldBooks.value.filter((book) => book.scope === 'local' && character.localWorldBookIds.includes(book.id));
     const owner = userById(character.boundUserId);
+    const nextSettings = settings.value ? discardCharacterEnabledOverrides(settings.value, characterId) : null;
 
     characters.value = characters.value.filter((entry) => entry.id !== characterId);
     if (conversation) {
@@ -3261,9 +3452,9 @@ export const useAppStore = defineStore('app', () => {
       messages.value = messages.value.filter((message) => message.conversationId !== conversation.id);
     }
     voomPosts.value = voomPosts.value.filter((post) => post.charId !== characterId && post.conversationId !== conversation?.id);
-    smallTheaterTopics.value = smallTheaterTopics.value.filter((topic) => topic.charId !== characterId);
     smallTheaters.value = smallTheaters.value.filter((theater) => theater.charId !== characterId && theater.conversationId !== conversation?.id);
     worldBooks.value = worldBooks.value.filter((book) => !relatedLocalWorldBooks.some((relatedBook) => relatedBook.id === book.id));
+    if (nextSettings) settings.value = nextSettings;
 
     if (relatedLocalWorldBooks.length) {
       const relatedLocalWorldBookIds = new Set(relatedLocalWorldBooks.map((book) => book.id));
@@ -3296,9 +3487,9 @@ export const useAppStore = defineStore('app', () => {
       ...(conversation ? [deleteEntity('conversations', conversation.id)] : []),
       ...relatedMessages.map((message) => deleteEntity('messages', message.id)),
       ...relatedPosts.map((post) => deleteEntity('voomPosts', post.id)),
-      ...relatedTheaterTopics.map((topic) => deleteEntity('smallTheaterTopics', topic.id)),
       ...relatedTheaters.map((theater) => deleteEntity('smallTheaters', theater.id)),
-      ...relatedLocalWorldBooks.map((book) => deleteEntity('worldBooks', book.id))
+      ...relatedLocalWorldBooks.map((book) => deleteEntity('worldBooks', book.id)),
+      ...(nextSettings ? [putEntity('settings', nextSettings, 'main')] : [])
     ]);
   }
 
@@ -6102,14 +6293,24 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function smallTheaterTopicsForCharacter(characterId: string) {
+    const normalizedCharacterId = characterId.trim();
+    const localEnabled = settings.value?.smallTheaterTopicEnabledByCharacter?.[normalizedCharacterId] ?? {};
     return smallTheaterTopics.value
-      .filter((topic) => topic.charId === characterId)
+      .map((topic) => ({
+        ...topic,
+        enabled: localEnabled[topic.id] ?? topic.enabled
+      }))
       .sort((first, second) => first.createdAt - second.createdAt);
   }
 
   function profileThemesForCharacter(characterId: string) {
+    const normalizedCharacterId = characterId.trim();
+    const localEnabled = settings.value?.profileThemeEnabledByCharacter?.[normalizedCharacterId] ?? {};
     return profileThemes.value
-      .filter((theme) => theme.charId === characterId)
+      .map((theme) => ({
+        ...theme,
+        enabled: localEnabled[theme.id] ?? theme.enabled
+      }))
       .sort((first, second) => first.createdAt - second.createdAt);
   }
 
@@ -6157,22 +6358,41 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function refreshBuiltInSmallTheaterTopics(characterId: string, existingTopics: SmallTheaterTopic[]) {
-    const builtInTopics = existingTopics.filter((topic) => topic.builtIn);
-    const enabledByTitle = new Map(builtInTopics.map((topic) => [topic.title, topic.enabled]));
+    const builtInTopics = smallTheaterTopics.value.filter((topic) => topic.builtIn);
+    const currentEnabledByTitle = new Map(existingTopics.filter((topic) => topic.builtIn).map((topic) => [topic.title, topic.enabled]));
     const timestamp = Math.min(...builtInTopics.map((topic) => topic.createdAt), Date.now());
-    const defaultTopics = createDefaultSmallTheaterTopics(characterId, timestamp).map((topic) => ({
+    const defaultTopics = createDefaultSmallTheaterTopics(globalSharedLibraryOwnerId, timestamp).map((topic) => ({
       ...topic,
-      enabled: enabledByTitle.get(topic.title) ?? topic.enabled,
+      enabled: true,
       updatedAt: Date.now()
     }));
+    let smallTheaterTopicEnabledByCharacter = cloneEnabledByCharacter(settings.value?.smallTheaterTopicEnabledByCharacter);
+    builtInTopics.forEach((topic) => {
+      const replacementTopic = defaultTopics.find((entry) => entry.title === topic.title);
+      if (!replacementTopic) return;
+      if (topic.charId && topic.charId !== globalSharedLibraryOwnerId) {
+        setEnabledOverrideInPlace(smallTheaterTopicEnabledByCharacter, topic.charId, replacementTopic.id, topic.enabled);
+      }
+      remapEnabledOverrideInPlace(smallTheaterTopicEnabledByCharacter, topic.id, replacementTopic.id);
+    });
+    defaultTopics.forEach((topic) => {
+      const enabled = currentEnabledByTitle.get(topic.title);
+      if (enabled !== undefined) setEnabledOverrideInPlace(smallTheaterTopicEnabledByCharacter, characterId, topic.id, enabled);
+    });
 
     smallTheaterTopics.value = [
-      ...smallTheaterTopics.value.filter((topic) => topic.charId !== characterId || !topic.builtIn),
+      ...smallTheaterTopics.value.filter((topic) => !topic.builtIn),
       ...defaultTopics
     ];
+    const nextSettings = settings.value ? normalizeAppSettings({
+      ...settings.value,
+      smallTheaterTopicEnabledByCharacter
+    }) : null;
+    if (nextSettings) settings.value = nextSettings;
     await Promise.all([
       ...builtInTopics.map((topic) => deleteEntity('smallTheaterTopics', topic.id)),
-      ...defaultTopics.map((topic) => putEntity('smallTheaterTopics', topic))
+      ...defaultTopics.map((topic) => putEntity('smallTheaterTopics', topic)),
+      ...(nextSettings ? [putEntity('settings', nextSettings, 'main')] : [])
     ]);
     return smallTheaterTopicsForCharacter(characterId);
   }
@@ -6184,13 +6404,13 @@ export const useAppStore = defineStore('app', () => {
     if (shouldRefreshBuiltInSmallTheaterTopics(existingTopics)) {
       return refreshBuiltInSmallTheaterTopics(normalizedCharacterId, existingTopics);
     }
-    if (existingTopics.length || settings.value?.smallTheaterTopicDefaultsInitialized?.[normalizedCharacterId]) return existingTopics;
+    if (existingTopics.length || settings.value?.smallTheaterTopicDefaultsInitialized?.[globalSharedLibraryOwnerId]) return existingTopics;
 
     const timestamp = Date.now();
-    const defaultTopics = createDefaultSmallTheaterTopics(normalizedCharacterId, timestamp);
+    const defaultTopics = createDefaultSmallTheaterTopics(globalSharedLibraryOwnerId, timestamp);
     smallTheaterTopics.value.push(...defaultTopics);
     await Promise.all(defaultTopics.map((topic) => putEntity('smallTheaterTopics', topic)));
-    await markSmallTheaterDefaultsInitialized(normalizedCharacterId, timestamp);
+    await markSmallTheaterDefaultsInitialized(globalSharedLibraryOwnerId, timestamp);
     return smallTheaterTopicsForCharacter(normalizedCharacterId);
   }
 
@@ -6200,21 +6420,22 @@ export const useAppStore = defineStore('app', () => {
     const existingThemes = profileThemesForCharacter(normalizedCharacterId);
     if (existingThemes.length) return existingThemes;
 
-    const defaultTheme = createDefaultProfileTheme(normalizedCharacterId, Date.now());
+    const defaultTheme = createDefaultProfileTheme(globalSharedLibraryOwnerId, Date.now());
     profileThemes.value.push(defaultTheme);
     await putEntity('profileThemes', defaultTheme);
     return profileThemesForCharacter(normalizedCharacterId);
   }
 
-  async function createProfileTheme(payload: Pick<ProfileTheme, 'charId' | 'name' | 'prompt'> & Partial<Pick<ProfileTheme, 'regex' | 'template' | 'css' | 'enabled'>>) {
+  async function createProfileTheme(payload: Pick<ProfileTheme, 'name' | 'prompt'> & Partial<Pick<ProfileTheme, 'charId' | 'regex' | 'template' | 'css' | 'enabled'>>) {
     const now = Date.now();
     const theme = normalizeProfileTheme({
       ...payload,
-      enabled: payload.enabled !== false,
+      charId: globalSharedLibraryOwnerId,
+      enabled: true,
       source: 'custom',
       createdAt: now,
       updatedAt: now
-    }, payload.charId);
+    }, globalSharedLibraryOwnerId);
     if (!theme) {
       showConfigAlert('请填写主页主题名称和提示词。', '无法保存主页主题');
       return null;
@@ -6227,18 +6448,21 @@ export const useAppStore = defineStore('app', () => {
 
   async function refreshActiveProfileThemeSnapshot(theme: ProfileTheme) {
     if (isDefaultProfileTheme(theme)) return;
-    const character = characterById(theme.charId);
-    if (!character?.mindState || character.mindState.profileThemeId !== theme.id) return;
-    const profileThemeContent = character.mindState.profileThemeContent ?? '';
-    await saveCharacter({
-      ...character,
-      mindState: {
-        ...character.mindState,
-        profileThemeName: theme.name,
-        profileThemeHtml: renderProfileThemeHtml(profileThemeContent, theme.template) || undefined,
-        profileThemeCss: theme.css || undefined
-      }
-    });
+    const affectedCharacters = characters.value.filter((character) => character.mindState?.profileThemeId === theme.id);
+    for (const character of affectedCharacters) {
+      const mindState = character.mindState;
+      if (!mindState) continue;
+      const profileThemeContent = mindState.profileThemeContent ?? '';
+      await saveCharacter({
+        ...character,
+        mindState: {
+          ...mindState,
+          profileThemeName: theme.name,
+          profileThemeHtml: renderProfileThemeHtml(profileThemeContent, theme.template) || undefined,
+          profileThemeCss: theme.css || undefined
+        }
+      });
+    }
   }
 
   async function createProfileHomepageRecord(payload: Omit<ProfileHomepageRecord, 'id' | 'createdAt' | 'updatedAt'>) {
@@ -6303,10 +6527,13 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function saveProfileTheme(theme: ProfileTheme) {
+    const existingTheme = profileThemes.value.find((entry) => entry.id === theme.id);
     const normalizedTheme = normalizeProfileTheme({
       ...theme,
+      charId: existingTheme?.charId ?? globalSharedLibraryOwnerId,
+      enabled: existingTheme?.enabled ?? true,
       updatedAt: Date.now()
-    }, theme.charId);
+    }, existingTheme?.charId ?? globalSharedLibraryOwnerId);
     if (!normalizedTheme) {
       showConfigAlert('请填写主页主题名称和提示词。', '无法保存主页主题');
       return null;
@@ -6321,10 +6548,13 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function importProfileThemes(characterId: string, themes: ProfileTheme[]) {
-    const normalizedThemes = normalizeProfileThemesForCharacter(themes, characterId).map((theme) => ({
+    const normalizedCharacterId = characterId.trim();
+    const importedThemeDrafts = normalizeProfileThemesForCharacter(themes, globalSharedLibraryOwnerId);
+    const normalizedThemes = importedThemeDrafts.map((theme) => ({
       ...theme,
       id: createId('profile-theme'),
-      charId: characterId,
+      charId: globalSharedLibraryOwnerId,
+      enabled: true,
       source: 'imported' as const,
       builtIn: false,
       createdAt: Date.now(),
@@ -6332,27 +6562,54 @@ export const useAppStore = defineStore('app', () => {
     }));
     if (!normalizedThemes.length) return [];
     profileThemes.value.push(...normalizedThemes);
-    await Promise.all(normalizedThemes.map((theme) => putEntity('profileThemes', theme)));
+    let nextSettings = settings.value;
+    let settingsToPersist: AppSettings | null = null;
+    if (nextSettings && normalizedCharacterId) {
+      const profileThemeEnabledByCharacter = cloneEnabledByCharacter(nextSettings.profileThemeEnabledByCharacter);
+      importedThemeDrafts.forEach((theme, index) => {
+        if (theme.enabled !== false) return;
+        const savedTheme = normalizedThemes[index];
+        if (savedTheme) setEnabledOverrideInPlace(profileThemeEnabledByCharacter, normalizedCharacterId, savedTheme.id, false);
+      });
+      nextSettings = normalizeAppSettings({ ...nextSettings, profileThemeEnabledByCharacter });
+      settings.value = nextSettings;
+      settingsToPersist = nextSettings;
+    }
+    await Promise.all([
+      ...normalizedThemes.map((theme) => putEntity('profileThemes', theme)),
+      ...(settingsToPersist ? [putEntity('settings', settingsToPersist, 'main')] : [])
+    ]);
     return normalizedThemes;
   }
 
   async function deleteProfileTheme(themeId: string) {
     const theme = profileThemes.value.find((entry) => entry.id === themeId);
     if (!theme || theme.builtIn) return false;
-    profileThemes.value = profileThemes.value.filter((entry) => entry.id !== themeId);
-    await deleteEntity('profileThemes', themeId);
+    const targetKey = profileThemeSharedKey(theme);
+    const deletedIds = profileThemes.value.filter((entry) => profileThemeSharedKey(entry) === targetKey).map((entry) => entry.id);
+    profileThemes.value = profileThemes.value.filter((entry) => !deletedIds.includes(entry.id));
+    const nextSettings = settings.value ? normalizeAppSettings({
+      ...settings.value,
+      profileThemeEnabledByCharacter: removeEnabledOverrideIds(settings.value.profileThemeEnabledByCharacter, deletedIds)
+    }) : null;
+    if (nextSettings) settings.value = nextSettings;
+    await Promise.all([
+      ...deletedIds.map((id) => deleteEntity('profileThemes', id)),
+      ...(nextSettings ? [putEntity('settings', nextSettings, 'main')] : [])
+    ]);
     return true;
   }
 
-  async function createSmallTheaterTopic(payload: Pick<SmallTheaterTopic, 'charId' | 'title' | 'prompt'> & Partial<Pick<SmallTheaterTopic, 'enabled'>>) {
+  async function createSmallTheaterTopic(payload: Pick<SmallTheaterTopic, 'title' | 'prompt'> & Partial<Pick<SmallTheaterTopic, 'charId' | 'enabled'>>) {
     const now = Date.now();
     const topic = normalizeSmallTheaterTopic({
       ...payload,
-      enabled: payload.enabled !== false,
+      charId: globalSharedLibraryOwnerId,
+      enabled: true,
       builtIn: false,
       createdAt: now,
       updatedAt: now
-    }, payload.charId);
+    }, globalSharedLibraryOwnerId);
     if (!topic) {
       showConfigAlert('请填写小剧场题材标题。', '无法保存题材');
       return null;
@@ -6364,10 +6621,13 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function saveSmallTheaterTopic(topic: SmallTheaterTopic) {
+    const existingTopic = smallTheaterTopics.value.find((entry) => entry.id === topic.id);
     const normalizedTopic = normalizeSmallTheaterTopic({
       ...topic,
+      charId: existingTopic?.charId ?? globalSharedLibraryOwnerId,
+      enabled: existingTopic?.enabled ?? true,
       updatedAt: Date.now()
-    }, topic.charId);
+    }, existingTopic?.charId ?? globalSharedLibraryOwnerId);
     if (!normalizedTopic) {
       showConfigAlert('请填写小剧场题材标题。', '无法保存题材');
       return null;
@@ -6383,8 +6643,38 @@ export const useAppStore = defineStore('app', () => {
   async function deleteSmallTheaterTopic(topicId: string) {
     const topic = smallTheaterTopics.value.find((entry) => entry.id === topicId);
     if (!topic) return false;
-    smallTheaterTopics.value = smallTheaterTopics.value.filter((entry) => entry.id !== topicId);
-    await deleteEntity('smallTheaterTopics', topicId);
+    const targetKey = smallTheaterTopicSharedKey(topic);
+    const deletedIds = smallTheaterTopics.value.filter((entry) => smallTheaterTopicSharedKey(entry) === targetKey).map((entry) => entry.id);
+    smallTheaterTopics.value = smallTheaterTopics.value.filter((entry) => !deletedIds.includes(entry.id));
+    const nextSettings = settings.value ? normalizeAppSettings({
+      ...settings.value,
+      smallTheaterTopicEnabledByCharacter: removeEnabledOverrideIds(settings.value.smallTheaterTopicEnabledByCharacter, deletedIds)
+    }) : null;
+    if (nextSettings) settings.value = nextSettings;
+    await Promise.all([
+      ...deletedIds.map((id) => deleteEntity('smallTheaterTopics', id)),
+      ...(nextSettings ? [putEntity('settings', nextSettings, 'main')] : [])
+    ]);
+    return true;
+  }
+
+  async function setProfileThemeEnabledForCharacter(characterId: string, themeId: string, enabled: boolean) {
+    const normalizedCharacterId = characterId.trim();
+    const normalizedThemeId = themeId.trim();
+    if (!settings.value || !normalizedCharacterId || !normalizedThemeId || !profileThemes.value.some((theme) => theme.id === normalizedThemeId)) return false;
+    const profileThemeEnabledByCharacter = cloneEnabledByCharacter(settings.value.profileThemeEnabledByCharacter);
+    setEnabledOverrideInPlace(profileThemeEnabledByCharacter, normalizedCharacterId, normalizedThemeId, enabled);
+    await saveSettings({ ...settings.value, profileThemeEnabledByCharacter });
+    return true;
+  }
+
+  async function setSmallTheaterTopicEnabledForCharacter(characterId: string, topicId: string, enabled: boolean) {
+    const normalizedCharacterId = characterId.trim();
+    const normalizedTopicId = topicId.trim();
+    if (!settings.value || !normalizedCharacterId || !normalizedTopicId || !smallTheaterTopics.value.some((topic) => topic.id === normalizedTopicId)) return false;
+    const smallTheaterTopicEnabledByCharacter = cloneEnabledByCharacter(settings.value.smallTheaterTopicEnabledByCharacter);
+    setEnabledOverrideInPlace(smallTheaterTopicEnabledByCharacter, normalizedCharacterId, normalizedTopicId, enabled);
+    await saveSettings({ ...settings.value, smallTheaterTopicEnabledByCharacter });
     return true;
   }
 
@@ -7571,6 +7861,7 @@ export const useAppStore = defineStore('app', () => {
     ensureProfileThemesForCharacter,
     createProfileTheme,
     saveProfileTheme,
+    setProfileThemeEnabledForCharacter,
     importProfileThemes,
     deleteProfileTheme,
     deleteProfileHomepage,
@@ -7579,6 +7870,7 @@ export const useAppStore = defineStore('app', () => {
     ensureSmallTheaterTopicsForCharacter,
     createSmallTheaterTopic,
     saveSmallTheaterTopic,
+    setSmallTheaterTopicEnabledForCharacter,
     deleteSmallTheaterTopic,
     createSmallTheaterFromConversation,
     continueSmallTheater,

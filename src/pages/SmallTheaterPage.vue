@@ -389,15 +389,19 @@ async function saveTopicDraft() {
 
   const existingTopic = editingTopicId.value ? topics.value.find((topic) => topic.id === editingTopicId.value) : null;
   if (existingTopic) {
-    await store.saveSmallTheaterTopic({ ...existingTopic, title, prompt, enabled: topicDraft.enabled });
+    await store.saveSmallTheaterTopic({ ...existingTopic, title, prompt });
+    await store.setSmallTheaterTopicEnabledForCharacter(currentCharacter.id, existingTopic.id, topicDraft.enabled);
   } else {
-    await store.createSmallTheaterTopic({ charId: currentCharacter.id, title, prompt, enabled: topicDraft.enabled });
+    const createdTopic = await store.createSmallTheaterTopic({ charId: currentCharacter.id, title, prompt });
+    if (createdTopic) await store.setSmallTheaterTopicEnabledForCharacter(currentCharacter.id, createdTopic.id, topicDraft.enabled);
   }
   showTopicEditor.value = false;
 }
 
 async function toggleTopic(topic: SmallTheaterTopic) {
-  await store.saveSmallTheaterTopic({ ...topic, enabled: !topic.enabled });
+  const currentCharacter = character.value;
+  if (!currentCharacter) return;
+  await store.setSmallTheaterTopicEnabledForCharacter(currentCharacter.id, topic.id, !topic.enabled);
 }
 
 async function deleteTopic(topic: SmallTheaterTopic) {
