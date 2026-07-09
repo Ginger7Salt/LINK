@@ -2155,28 +2155,28 @@ onBeforeUnmount(() => {
 
 .listen-compose-preview {
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
+  grid-template-columns: 50px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
-  min-height: 86px;
+  gap: 10px;
+  min-height: 74px;
   overflow: hidden;
-  border-radius: 14px;
+  border-radius: 12px;
   background:
-    radial-gradient(circle at 38px 43px, rgba(226, 59, 88, 0.13), transparent 54px),
+    radial-gradient(circle at 33px 37px, rgba(226, 59, 88, 0.13), transparent 46px),
     linear-gradient(135deg, #ffffff 0%, #fff8fa 58%, #f7fbf9 100%);
-  padding: 14px;
+  padding: 12px;
   box-shadow: inset 0 0 0 1px rgba(226, 59, 88, 0.12), 0 10px 24px rgba(226, 59, 88, 0.06);
 }
 
 .listen-preview-disc {
   display: grid;
   place-items: center;
-  width: 58px;
-  height: 58px;
+  width: 50px;
+  height: 50px;
   overflow: hidden;
   border-radius: 50%;
   background:
-    radial-gradient(circle at center, #ffffff 0 14px, transparent 15px),
+    radial-gradient(circle at center, #ffffff 0 12px, transparent 13px),
     repeating-radial-gradient(circle, rgba(226, 59, 88, 0.10) 0 1px, rgba(255, 255, 255, 0.82) 2px 6px),
     linear-gradient(135deg, #fff3f6, #edf9f3);
   box-shadow: inset 0 0 0 1px rgba(226, 59, 88, 0.16), 0 10px 20px rgba(226, 59, 88, 0.10);
@@ -2192,7 +2192,7 @@ onBeforeUnmount(() => {
 
 .listen-preview-copy {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 
@@ -2200,7 +2200,7 @@ onBeforeUnmount(() => {
 .listen-preview-copy span {
   overflow: hidden;
   color: #737983;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 760;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2209,7 +2209,7 @@ onBeforeUnmount(() => {
 .listen-preview-copy strong {
   overflow: hidden;
   color: #202329;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 930;
   text-overflow: ellipsis;
   white-space: nowrap;

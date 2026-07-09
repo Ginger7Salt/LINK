@@ -1222,8 +1222,8 @@ onBeforeUnmount(() => {
 }
 
 .bubble.musicListenInvite {
-  width: min(224px, 66vw);
-  min-width: min(194px, 56vw);
+  width: min(196px, 58vw);
+  min-width: min(172px, 50vw);
   background: #ffffff;
   border: 0;
   box-shadow: 0 9px 22px rgba(22, 27, 33, 0.08);
@@ -1279,15 +1279,15 @@ onBeforeUnmount(() => {
 .listen-invite-card {
   position: relative;
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) auto;
-  gap: 9px;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  gap: 7px;
   min-width: 0;
   overflow: hidden;
   border: 1px solid rgba(226, 59, 88, 0.12);
   border-radius: inherit;
   background: linear-gradient(135deg, #ffffff 0%, #fff8fa 58%, #f7fbf9 100%);
   color: #111111;
-  padding: 9px;
+  padding: 8px;
   box-shadow: 0 8px 18px rgba(226, 59, 88, 0.06);
 }
 
@@ -1295,7 +1295,7 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 24px 24px, rgba(226, 59, 88, 0.13), transparent 42px),
+    radial-gradient(circle at 21px 21px, rgba(226, 59, 88, 0.13), transparent 36px),
     linear-gradient(135deg, rgba(255, 255, 255, 0.58), transparent 58%);
   content: '';
   pointer-events: none;
@@ -1312,12 +1312,12 @@ onBeforeUnmount(() => {
 .listen-invite-disc {
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
+  width: 40px;
+  height: 40px;
   overflow: hidden;
   border-radius: 50%;
   background:
-    radial-gradient(circle at center, #ffffff 0 11px, transparent 12px),
+    radial-gradient(circle at center, #ffffff 0 9px, transparent 10px),
     repeating-radial-gradient(circle, rgba(226, 59, 88, 0.10) 0 1px, rgba(255, 255, 255, 0.78) 2px 5px),
     linear-gradient(135deg, #fff3f6, #eef9f3);
   color: #e23b58;
@@ -1333,8 +1333,8 @@ onBeforeUnmount(() => {
 }
 
 .listen-invite-disc svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   color: #c58a98;
   stroke-width: 1.8;
 }
@@ -1342,7 +1342,7 @@ onBeforeUnmount(() => {
 .listen-invite-copy {
   display: grid;
   align-content: center;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -1351,7 +1351,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   overflow: hidden;
   color: #737983;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 760;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -1362,7 +1362,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   overflow: hidden;
   color: #101010;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 930;
   line-height: 1.18;
   text-overflow: ellipsis;
@@ -1371,11 +1371,11 @@ onBeforeUnmount(() => {
 
 .listen-invite-chip {
   align-self: start;
-  padding: 3px 6px;
+  padding: 3px 5px;
   border-radius: 999px;
   background: #fff0f2;
   color: #d72f4e;
-  font-size: 8px;
+  font-size: 7px;
   font-weight: 920;
   line-height: 1;
   white-space: nowrap;
@@ -1395,16 +1395,16 @@ onBeforeUnmount(() => {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: 1fr 1fr;
-  gap: 7px;
+  gap: 6px;
 }
 
 .listen-invite-actions button {
-  min-height: 28px;
+  min-height: 25px;
   border: 0;
-  border-radius: 9px;
+  border-radius: 8px;
   background: #f0f1f3;
   color: #24272d;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 930;
 }
 
