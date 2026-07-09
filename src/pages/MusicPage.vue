@@ -356,12 +356,15 @@ const playModeLabel = computed(() => playbackModeLabels[playbackMode.value]);
 const favoriteActionLabel = computed(() => activeTrack.value && isFavorite(activeTrack.value.id) ? '已喜欢' : '喜欢');
 const playerSlideStyle = computed(() => ({ transform: `translate3d(-${playerPageIndex.value * 100}%, 0, 0)` }));
 const listenPartner = computed(() => musicPlayer.listeningPartner ? store.characterById(musicPlayer.listeningPartner.characterId) : null);
+const listenConversation = computed(() => musicPlayer.listeningPartner ? store.conversationById(musicPlayer.listeningPartner.conversationId) : null);
 const listenBoundUser = computed(() => {
+  const conversationUserId = listenConversation.value?.userId || '';
   const characterBoundUserId = listenPartner.value?.boundUserId || '';
   const partnerUserId = musicPlayer.listeningPartner?.userId || '';
-  return store.userById(characterBoundUserId) ?? store.userById(partnerUserId) ?? null;
+  return store.userById(conversationUserId) ?? store.userById(characterBoundUserId) ?? store.userById(partnerUserId) ?? null;
 });
-const currentUserAvatar = computed(() => homepageAvatar(listenBoundUser.value) || homepageAvatar(store.user) || fallbackCoverUrl);
+const listenConversationUserProfile = computed(() => listenBoundUser.value ? normalizeVisualProfile(listenPartner.value?.boundUserProfile, listenBoundUser.value) : null);
+const currentUserAvatar = computed(() => listenConversationUserProfile.value?.avatar || homepageAvatar(listenBoundUser.value) || homepageAvatar(store.user) || fallbackCoverUrl);
 const listeningTogether = computed(() => Boolean(listenPartner.value));
 const listenPartnerAvatar = computed(() => listenPartner.value?.avatar || fallbackCoverUrl);
 const listenStatusTitle = computed(() => listenPartner.value ? `正在和 ${listenPartner.value.nickname || listenPartner.value.name} 一起听` : '一起听待机中');
