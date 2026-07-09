@@ -1,4 +1,4 @@
-import type { VoomFrequency } from '@/types/domain';
+import type { VoomFrequency, VoomImageMode } from '@/types/domain';
 
 export const voomFrequencyOptions: Array<{ value: VoomFrequency; label: string; chance: number }> = [
   { value: 'very-low', label: '极低', chance: 0.05 },
@@ -19,6 +19,11 @@ export function normalizeVoomFrequency(value: unknown, fallback: VoomFrequency =
 export function getVoomFrequencyChance(frequency: VoomFrequency) {
   return voomFrequencyOptions.find((option) => option.value === frequency)?.chance ?? 0.25;
 }
+
+export const voomImageModeOptions: Array<{ value: VoomImageMode; label: string; description: string }> = [
+  { value: 'character-choice', label: '角色自主判断', description: '由角色按当前心情和内容决定是否配图。' },
+  { value: 'manual', label: '手动配图策略', description: '由你决定是否配图，并设置出现频率。' }
+];
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

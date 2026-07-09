@@ -6071,6 +6071,7 @@ export const useAppStore = defineStore('app', () => {
           }),
           stickerVisionEnabled: chatSettings.stickerVisionEnabled,
           timeAwareness: chatSettings.timeAwareness,
+          voomImageMode: chatSettings.voomImageMode,
           musicListening: musicListeningContextForConversation(conversationId)
         },
         settings.value ?? undefined,
@@ -6088,7 +6089,7 @@ export const useAppStore = defineStore('app', () => {
         authorId: characterAuthorAliases.has(comment.authorName.trim().toLocaleLowerCase()) ? character.id : comment.authorId,
         createdAt: post.createdAt + post.likes.length + index + 1
       }));
-      const resolvedPost = await generateVoomPostImageBeforePublish(post);
+      const resolvedPost = await generateVoomPostImageBeforePublish(post, chatSettings);
       voomPosts.value.unshift(resolvedPost);
       await putEntity('voomPosts', createPersistableVoomPost(resolvedPost));
       const latestConversation = conversationById(conversationId) ?? conversation;
@@ -6995,9 +6996,29 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  async function generateVoomPostImageBeforePublish(post: VoomPost) {
-    const selectedModel = getSelectedImageModelOption(settings.value, 'voom');
+  function stripVoomPostImageIntent(post: VoomPost): VoomPost {
+    return {
+      ...post,
+      image: undefined,
+      imageDescription: undefined,
+      imageGenerationPrompt: undefined,
+      imageNegativePrompt: undefined,
+      imageReferenceImage: undefined,
+      imageSeed: undefined,
+      imageProvider: undefined,
+      imageCandidates: undefined
+    };
+  }
+
+  function shouldGenerateVoomPostImage(chatSettings: ConversationSettings) {
+    if (chatSettings.voomImageMode === 'character-choice') return true;
+    return chatSettings.voomImageEnabled && shouldAutoGenerateMoment(chatSettings.voomImageFrequency);
+  }
+
+  async function generateVoomPostImageBeforePublish(post: VoomPost, chatSettings: ConversationSettings) {
     const imageDescription = post.imageDescription?.trim() ?? '';
+    if (!imageDescription || !shouldGenerateVoomPostImage(chatSettings)) return stripVoomPostImageIntent(post);
+    const selectedModel = getSelectedImageModelOption(settings.value, 'voom');
     if (!settings.value || !selectedModel || !imageDescription) return post;
 
     regeneratingVoomImagePostIds.add(post.id);

@@ -162,6 +162,8 @@ export interface CharacterProfile {
 
 export type VoomFrequency = 'very-low' | 'low' | 'medium' | 'high' | 'very-high' | 'always';
 
+export type VoomImageMode = 'character-choice' | 'manual';
+
 export type VoomAutoCleanupPreset = '3' | '7' | '30' | 'custom';
 
 export type SmallTheaterAutoCleanupPreset = VoomAutoCleanupPreset;
@@ -290,6 +292,9 @@ export interface ConversationSettings {
   narrationModeEnabled: boolean;
   autoGenerateVoom: boolean;
   voomFrequency: VoomFrequency;
+  voomImageMode: VoomImageMode;
+  voomImageEnabled: boolean;
+  voomImageFrequency: VoomFrequency;
   autoGenerateTheater: boolean;
   theaterFrequency: VoomFrequency;
   stickerVisionEnabled: boolean;
@@ -1114,6 +1119,7 @@ export interface PromptContext {
   offlineInvitationEnabled?: boolean;
   availableStickers?: ChatStickerAttachment[];
   timeAwareness?: ConversationTimeAwarenessSettings;
+  voomImageMode?: VoomImageMode;
   timeAwarenessNow?: number;
   offlineSettings?: ConversationOfflineSettings;
   replyInstruction?: string;

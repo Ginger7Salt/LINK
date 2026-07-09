@@ -726,12 +726,33 @@
             <input :checked="draft.autoGenerateVoom" type="checkbox" @change="updateAutoGenerateVoom" />
             <span class="switch-track"></span>
             <div>
-              <strong>允许 AI 回复时自动发布 VOOM</strong>
+              <strong>允许主动发布VOOM</strong>
             </div>
           </label>
           <label class="field frequency-field">
             <span>发布动态频率</span>
             <select :value="draft.voomFrequency" @change="updateVoomFrequency">
+              <option v-for="option in voomFrequencyOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </label>
+          <label class="field frequency-field">
+            <span>VOOM 配图方案</span>
+            <select :value="draft.voomImageMode" @change="updateVoomImageMode">
+              <option v-for="option in voomImageModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </label>
+          <section class="time-awareness-note voom-image-mode-note">{{ voomImageModeDescription }}</section>
+          <label v-if="draft.voomImageMode === 'manual'" class="switch-card wide">
+            <input :checked="draft.voomImageEnabled" type="checkbox" @change="updateVoomImageEnabled" />
+            <span class="switch-track"></span>
+            <div>
+              <strong>开启 VOOM 配图</strong>
+              <span>关闭后，角色发布动态时只生成文字和评论区。</span>
+            </div>
+          </label>
+          <label v-if="draft.voomImageMode === 'manual'" class="field frequency-field">
+            <span>配图出现频率</span>
+            <select :value="draft.voomImageFrequency" :disabled="!draft.voomImageEnabled" @change="updateVoomImageFrequency">
               <option v-for="option in voomFrequencyOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
           </label>
@@ -835,13 +856,13 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import AppModal from '@/components/common/AppModal.vue';
 import AvatarCropperModal from '@/components/image/AvatarCropperModal.vue';
 import { useAppStore } from '@/stores/appStore';
-import type { CharacterImageProfile, CharacterProfile, ChatAppearanceSettings, ConversationMemoryRecord, ConversationSettings, ThemeStylePreset } from '@/types/domain';
+import type { CharacterImageProfile, CharacterProfile, ChatAppearanceSettings, ConversationMemoryRecord, ConversationSettings, ThemeStylePreset, VoomImageMode } from '@/types/domain';
 import { readImageFileFromInput } from '@/utils/imageFile';
 import { collectIncrementalGrandSummaries, estimateTokenCount, getConversationActiveMessages, getConversationFloorCount, getEffectiveHiddenFloorRanges, getGrandSummaryHiddenRange, isIncrementalGrandSummary, normalizeConversationSettings } from '@/utils/memory';
 import { parseMemorySummaryBlocks, type MemorySummaryBlock } from '@/utils/memorySummary';
 import { defaultProfileAvatar } from '@/utils/profile';
 import { defaultOfflineThemePresetId, defaultOnlineThemePresetId } from '@/utils/themeStyles';
-import { normalizeVoomFrequency, voomFrequencyOptions } from '@/utils/voom';
+import { normalizeVoomFrequency, voomFrequencyOptions, voomImageModeOptions } from '@/utils/voom';
 
 type ColorField = 'userBubbleColor' | 'userTextColor' | 'characterBubbleColor' | 'characterTextColor' | 'narrationBubbleColor' | 'narrationTextColor';
 type RgbChannel = 'red' | 'green' | 'blue';
@@ -1071,6 +1092,7 @@ const characterStickerBindingSummary = computed(() => {
   if (names.length === 1) return names[0] ?? '已绑定 1 个 Stickers 分组';
   return `已绑定 ${names.length} 个 Stickers 分组`;
 });
+const voomImageModeDescription = computed(() => voomImageModeOptions.find((option) => option.value === draft.voomImageMode)?.description ?? '');
 const canManualSummarize = computed(() => {
   const start = Number(manualSummary.startFloor);
   const end = Number(manualSummary.endFloor);
@@ -1443,6 +1465,23 @@ function updateAutoGenerateVoom(event: Event) {
 
 function updateVoomFrequency(event: Event) {
   draft.voomFrequency = normalizeVoomFrequency((event.target as HTMLSelectElement).value, draft.voomFrequency);
+  saveDraft();
+}
+
+function updateVoomImageMode(event: Event) {
+  const mode = (event.target as HTMLSelectElement).value as VoomImageMode;
+  if (!voomImageModeOptions.some((option) => option.value === mode)) return;
+  draft.voomImageMode = mode;
+  saveDraft();
+}
+
+function updateVoomImageEnabled(event: Event) {
+  draft.voomImageEnabled = (event.target as HTMLInputElement).checked;
+  saveDraft();
+}
+
+function updateVoomImageFrequency(event: Event) {
+  draft.voomImageFrequency = normalizeVoomFrequency((event.target as HTMLSelectElement).value, draft.voomImageFrequency);
   saveDraft();
 }
 

@@ -7,7 +7,7 @@
       <span>VOOM notice</span>
       <h2>{{ voomNoticeTitle }}</h2>
       <p class="voom-notice-body">{{ voomNoticeBody }}</p>
-      <figure class="voom-notice-visual" :class="{ mock: !voomNoticeImage }">
+      <figure v-if="hasVoomNoticeVisualContent" class="voom-notice-visual" :class="{ mock: !voomNoticeImage }">
         <img v-if="voomNoticeImage" :src="voomNoticeImage" :alt="voomNoticeImageDescription" />
         <figcaption v-else>{{ voomNoticeImageDescription }}</figcaption>
       </figure>
@@ -61,6 +61,7 @@ const voomNoticeBody = computed(() => {
 });
 const voomNoticeImage = computed(() => activePost.value?.image?.trim() || '');
 const voomNoticeImageDescription = computed(() => activePost.value?.imageDescription?.trim() || '配图描述暂未保存。');
+const hasVoomNoticeVisualContent = computed(() => Boolean(voomNoticeImage.value || activePost.value?.imageDescription?.trim()));
 const voomNoticeComments = computed(() => activePost.value?.comments ?? []);
 
 function loadSeenPostIds() {

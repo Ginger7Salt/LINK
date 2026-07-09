@@ -1,4 +1,4 @@
-import type { ChatMemorySettings, ChatMessage, ChatMode, ConversationMemoryEntry, ConversationMemoryEntryStatus, ConversationMemoryEntryType, ConversationMemoryRecord, ConversationMemoryTimeBasis, ConversationOfflineSettings, ConversationSettings, OfflineInterruptionMode, OfflineParagraphMode, OfflinePerspective, OfflinePromptPreset, OfflineRetellMode, OfflineTonePreset } from '@/types/domain';
+import type { ChatMemorySettings, ChatMessage, ChatMode, ConversationMemoryEntry, ConversationMemoryEntryStatus, ConversationMemoryEntryType, ConversationMemoryRecord, ConversationMemoryTimeBasis, ConversationOfflineSettings, ConversationSettings, OfflineInterruptionMode, OfflineParagraphMode, OfflinePerspective, OfflinePromptPreset, OfflineRetellMode, OfflineTonePreset, VoomImageMode } from '@/types/domain';
 import { createId } from './id';
 import { normalizeChatModelOverrides } from './settings';
 import { defaultTimeAwarenessSettings, normalizeTimeAwarenessSettings } from './timeAwareness';
@@ -193,6 +193,7 @@ const offlinePerspectives: OfflinePerspective[] = ['omniscient-third', 'characte
 const offlineInterruptionModes: OfflineInterruptionMode[] = ['advance', 'strict'];
 const offlineRetellModes: OfflineRetellMode[] = ['retell', 'direct'];
 const offlineTonePresets: OfflineTonePreset[] = ['daily', 'push-pull', 'ambiguous', 'romance', 'bittersweet', 'custom'];
+const voomImageModes: VoomImageMode[] = ['character-choice', 'manual'];
 
 function normalizeStringOption<T extends string>(value: unknown, allowed: readonly T[], fallback: T) {
   const normalizedValue = String(value ?? '').trim() as T;
@@ -314,6 +315,9 @@ export const defaultConversationSettings: Omit<ConversationSettings, 'conversati
   narrationModeEnabled: true,
   autoGenerateVoom: true,
   voomFrequency: 'medium',
+  voomImageMode: 'manual',
+  voomImageEnabled: true,
+  voomImageFrequency: 'always',
   autoGenerateTheater: true,
   theaterFrequency: 'medium',
   stickerVisionEnabled: true,
@@ -350,6 +354,8 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
     ...(Array.isArray(appearance.backgroundImages) ? appearance.backgroundImages : [])
   ].map((image) => String(image ?? '').trim()).filter(Boolean);
   const voomFrequency = normalizeVoomFrequency(settings?.voomFrequency, defaultConversationSettings.voomFrequency);
+  const voomImageMode = normalizeStringOption(settings?.voomImageMode, voomImageModes, defaultConversationSettings.voomImageMode);
+  const voomImageFrequency = normalizeVoomFrequency(settings?.voomImageFrequency, defaultConversationSettings.voomImageFrequency);
   const theaterFrequency = normalizeVoomFrequency(settings?.theaterFrequency, defaultConversationSettings.theaterFrequency);
   const proactiveReply = settings?.proactiveReply ?? defaultConversationSettings.proactiveReply;
   const rawSummarizeEvery = Math.round(Number(memory.summarizeEvery) || memoryDefaults.summarizeEvery);
@@ -403,6 +409,9 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
     narrationModeEnabled: isLegacySettings ? defaultConversationSettings.narrationModeEnabled : settings?.narrationModeEnabled ?? defaultConversationSettings.narrationModeEnabled,
     autoGenerateVoom: settings?.autoGenerateVoom ?? defaultConversationSettings.autoGenerateVoom,
     voomFrequency,
+    voomImageMode,
+    voomImageEnabled: settings?.voomImageEnabled ?? defaultConversationSettings.voomImageEnabled,
+    voomImageFrequency,
     autoGenerateTheater: settings?.autoGenerateTheater ?? defaultConversationSettings.autoGenerateTheater,
     theaterFrequency,
     stickerVisionEnabled: settings?.stickerVisionEnabled ?? defaultConversationSettings.stickerVisionEnabled,

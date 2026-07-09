@@ -896,15 +896,18 @@ function renderRecentVoomTopicReminderPrompt(context: PromptContext) {
 
 export function buildMomentPrompt(context: PromptContext) {
   const characterName = getCharacterAiName(context.character);
-  return [
-    buildPrompt(context, { includeOnlineChatPunctuation: false, includeOnlineStickerSemantics: false, includeOnlineRoutineCare: false, includeAvailableStickers: false }),
-    renderRecentVoomTopicReminderPrompt(context),
-    `现在生成角色要发布的一条 LINK VOOM（朋友圈、动态），以及这条动态自然产生的点赞和评论区。只输出 JSON，不要输出 Markdown，不要输出 JSON 以外的任何文字。
-
-本次 VOOM 作者固定是：${characterName}（角色ID：${context.character.id}）。所有点赞和评论区 NPC 都只能来自这个角色自己的社交圈。
-
-格式：
-{
+  const imageFormatPrompt = context.voomImageMode === 'character-choice'
+    ? `{
+  "content": "朋友圈正文",
+  "imageDescription": "可选；当角色认为此刻适合配图时，填写这条动态会同时发布的一张配图的中文画面描述；不适合配图时省略此字段",
+  "imageGenerationPrompt": "可选；当 imageDescription 存在时，填写 English image generation prompt for the VOOM image；不配图时省略此字段",
+  "likes": ["真实感 NPC 名"],
+  "comments": [
+    { "id": "c1", "authorName": "真实感 NPC 名", "content": "评论内容", "parentId": "被回复评论的 id，可留空" },
+    { "id": "c2", "authorName": "${characterName}", "content": "回复内容", "parentId": "c1" }
+  ]
+}`
+    : `{
   "content": "朋友圈正文",
   "imageDescription": "这条动态会同时发布的一张配图的文字描述",
   "imageGenerationPrompt": "English image generation prompt for the VOOM image",
@@ -913,18 +916,36 @@ export function buildMomentPrompt(context: PromptContext) {
     { "id": "c1", "authorName": "真实感 NPC 名", "content": "评论内容", "parentId": "被回复评论的 id，可留空" },
     { "id": "c2", "authorName": "${characterName}", "content": "回复内容", "parentId": "c1" }
   ]
-}
+}`;
+  const imageRulesPrompt = context.voomImageMode === 'character-choice'
+    ? `3. 如果最近聊天已经明确角色在某个地点、路上、房间、公司、学校或某个时间段，content 必须保持同一时空或给出合理过渡；如果本条选择配图，imageDescription 也必须保持同一时空。禁止让角色从 A 地无铺垫瞬移到 B 地。
+6. 角色需要先判断这条 VOOM 是否适合配图：有具体可拍的场景、物品、自拍、街景、餐食、房间、作业、工作现场或生活切片时可以配图；纯文字心情、短句吐槽、无法自然拍下的内容、过于私密或不适合公开画面的动态可以不配图。
+6.1 选择配图时必须同时输出 imageDescription 和 imageGenerationPrompt；选择不配图时必须同时省略 imageDescription 和 imageGenerationPrompt。
+6.2 imageDescription 是给用户和动态记录看的中文配图画面描述，不是生图提示词，不要写英文标签、相机参数、画质词或模型术语。
+6.3 imageGenerationPrompt 是真正发送给生图模型的英文提示词，必须承接 imageDescription、content、角色形象和当前时空，用自然英文写出主体、环境、光线、构图、手机照片/朋友圈质感，不要出现中文，不要写负面词，不要写具体模型名。
+7. 配图内容由角色性格、当前聊天、动态正文、最近经历和生活状态决定，不固定题材；必须与 content 的时空连续。
+8. 如果输出 imageDescription，描述“画面里有什么”和“看起来是什么氛围”，注意环境场景、时间、图片视角、角色设定形象，构图组成部分等，控制在 40-140 个中文字符。`
+    : `3. 如果最近聊天已经明确角色在某个地点、路上、房间、公司、学校或某个时间段，content 和 imageDescription 必须保持同一时空或给出合理过渡；禁止让角色从 A 地无铺垫瞬移到 B 地。
+6. imageDescription 是给用户和动态记录看的中文配图画面描述，不是生图提示词，不要写英文标签、相机参数、画质词或模型术语。
+6.1 imageGenerationPrompt 是真正发送给生图模型的英文提示词，必须承接 imageDescription、content、角色形象和当前时空，用自然英文写出主体、环境、光线、构图、手机照片/朋友圈质感，不要出现中文，不要写负面词，不要写具体模型名。
+7. 配图内容由角色性格、当前聊天、动态正文、最近经历和生活状态决定，不固定题材；可以是自拍、随手拍、物品、街景、餐食、房间、作业、工作现场等任何合理画面，但必须与 content 的时空连续。
+8. imageDescription 描述“画面里有什么”和“看起来是什么氛围”，注意环境场景、时间、图片视角、角色设定形象，构图组成部分等，控制在 40-140 个中文字符。`;
+  return [
+    buildPrompt(context, { includeOnlineChatPunctuation: false, includeOnlineStickerSemantics: false, includeOnlineRoutineCare: false, includeAvailableStickers: false }),
+    renderRecentVoomTopicReminderPrompt(context),
+    `现在生成角色要发布的一条 LINK VOOM（朋友圈、动态），以及这条动态自然产生的点赞和评论区。只输出 JSON，不要输出 Markdown，不要输出 JSON 以外的任何文字。
+
+本次 VOOM 作者固定是：${characterName}（角色ID：${context.character.id}）。所有点赞和评论区 NPC 都只能来自这个角色自己的社交圈。
+
+格式：
+${imageFormatPrompt}
 
 要求：
 1. content 是角色真正发出去的动态文字，像社交软件朋友圈正文，不要解释设定。
 2. VOOM 必须优先承接当前聊天上下文、最近对话、当前对话总结、记忆手册、现实时间感知和角色刚刚表现出的状态；不能像另一个无关支线突然插入。
-3. 如果最近聊天已经明确角色在某个地点、路上、房间、公司、学校或某个时间段，content 和 imageDescription 必须保持同一时空或给出合理过渡；禁止让角色从 A 地无铺垫瞬移到 B 地。
+${imageRulesPrompt}
 4. 除非最近对话或记忆里已经有明确依据，禁止突然写角色已经到达新地点、见了新人物、完成一整段行程、跨到第二天/深夜/清晨。需要移动时，只能写成本轮时间能合理发生的等待、收拾、路上、刚走到附近等连续过程。
 5. 如果当前聊天没有足够事件支撑 VOOM，可以写角色此刻生活里的小切片，但仍要贴合当前时间、角色职业/日程、刚才聊天情绪和已知地点，不要为了换题而强行换背景。
-6. imageDescription 是给用户和动态记录看的中文配图画面描述，不是生图提示词，不要写英文标签、相机参数、画质词或模型术语。
-6.1 imageGenerationPrompt 是真正发送给生图模型的英文提示词，必须承接 imageDescription、content、角色形象和当前时空，用自然英文写出主体、环境、光线、构图、手机照片/朋友圈质感，不要出现中文，不要写负面词，不要写具体模型名。
-7. 配图内容由角色性格、当前聊天、动态正文、最近经历和生活状态决定，不固定题材；可以是自拍、随手拍、物品、街景、餐食、房间、作业、工作现场等任何合理画面，但必须与 content 的时空连续。
-8. imageDescription 描述“画面里有什么”和“看起来是什么氛围”，注意环境场景、时间、图片视角、角色设定形象，构图组成部分等，控制在 40-140 个中文字符。
 9. likes 和 comments 来自本角色真实社交圈里的 NPC，不要包含{{user}}，也不要使用“NPC”这种占位名字。
 10. 用户和已有角色只能使用真名，严禁使用网名、昵称、备注或主页名；角色本人评论时 authorName 必须是 ${characterName}。
 11. comments 控制在 6-15 条，内容要像社交软件评论区里会出现的真实评论；id 是本次评论的临时 id，parentId 留空表示新评论，填写前面某条评论的 id 表示回复该评论。
