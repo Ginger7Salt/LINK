@@ -12,6 +12,12 @@ export interface MusicListenTogetherPartner {
   joinedAt: number;
 }
 
+const recoveryWarmupMs = 10000;
+const stallRecoveryDelayMs = 14000;
+const progressRecoveryDelayMs = 18000;
+const recoveryCooldownMs = 20000;
+const haveFutureDataReadyState = 3;
+
 export const useMusicPlayerStore = defineStore('musicPlayer', () => {
   const currentTrack = ref<MusicTrack | null>(null);
   const loadingAudioTrackId = ref('');
@@ -34,6 +40,7 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
   let lastProgressSecond = 0;
   let lastProgressAt = 0;
   let lastRecoveryRequestedAt = 0;
+  let recoverySuppressedUntil = 0;
 
   const activeTrackId = computed(() => currentTrack.value?.id || '');
   const progressValue = computed(() => duration.value ? (currentTime.value / duration.value) * 100 : 0);
@@ -80,6 +87,7 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
 
   function shouldRecoverPlayback() {
     if (!audio || !currentTrack.value || audio.paused || audio.ended) return false;
+    if (Date.now() < recoverySuppressedUntil) return false;
     const currentSecond = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
     const totalSeconds = Number.isFinite(audio.duration) ? audio.duration : 0;
     if (totalSeconds && currentSecond >= totalSeconds - 2) return false;
@@ -89,7 +97,7 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
   function requestPlaybackRecovery(reason: string) {
     if (!shouldRecoverPlayback()) return;
     const now = Date.now();
-    if (now - lastRecoveryRequestedAt < 4500) return;
+    if (now - lastRecoveryRequestedAt < recoveryCooldownMs) return;
     lastRecoveryRequestedAt = now;
     playbackRecoveryReason.value = reason;
     playbackRecoveryTick.value += 1;
@@ -99,10 +107,12 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
     clearStallTimer();
     const scheduledSecond = audio && Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
     stallTimer = setTimeout(() => {
-      const nextSecond = audio && Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+      if (!audio || !shouldRecoverPlayback()) return;
+      const nextSecond = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
       if (nextSecond > scheduledSecond + 0.5) return;
+      if (audio.readyState >= haveFutureDataReadyState) return;
       requestPlaybackRecovery(reason);
-    }, 5200);
+    }, stallRecoveryDelayMs);
   }
 
   function startProgressWatch() {
@@ -118,7 +128,7 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
         lastProgressAt = Date.now();
         return;
       }
-      if (Date.now() - lastProgressAt > 7600) requestPlaybackRecovery('播放流长时间没有推进');
+      if (Date.now() - lastProgressAt > progressRecoveryDelayMs) requestPlaybackRecovery('播放流长时间没有推进');
     }, 2500);
   }
 
@@ -201,11 +211,12 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
   }
 
   function handleAudioEmptied() {
-    scheduleStallRecovery('音频流被清空');
+    clearStallTimer();
+    syncAudioProgress();
   }
 
   function handleAudioSuspended() {
-    scheduleStallRecovery('音频加载被挂起');
+    syncAudioProgress();
   }
 
   function setAudioElement(element: HTMLAudioElement | null) {
@@ -256,9 +267,15 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
     const player = ensureAudio();
     if (!player) throw new Error('当前环境无法播放音频。');
     if (!track.audioUrl) throw new Error('歌曲暂无可播放地址。');
+    const previousTrackId = currentTrack.value?.id || '';
     currentTrack.value = track;
     playbackError.value = '';
     clearStallTimer();
+    recoverySuppressedUntil = Date.now() + recoveryWarmupMs;
+    if (previousTrackId !== track.id) {
+      lastGoodTime.value = 0;
+      lastProgressSecond = 0;
+    }
     const sourceChanged = player.src !== track.audioUrl;
     if (sourceChanged) player.src = track.audioUrl;
     if (options.restart || sourceChanged || player.ended) player.currentTime = 0;
