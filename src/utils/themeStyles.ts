@@ -13,7 +13,7 @@ const exportPosterHeight = 1350;
 export type ThemeStyleExportScope = 'online' | 'offline';
 
 export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
-  复制后可自由修改；建议所有选择器都保留 .chat-room 前缀，避免影响其他页面。
+  复制后可自由修改；聊天页建议保留 .chat-room 前缀，聊天设置保留 .chat-settings-page 前缀，Stickers 弹窗保留 .sticker-keyboard-layer 前缀，避免影响其他页面。
 
   小白改法：
   1. 想改整页底色，搜 .chat-room，改 background。
@@ -22,10 +22,22 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
   4. 想改消息里的安全 HTML（如 details/summary/p），搜 .message-html-content。
   5. 想改 5 分钟时间分割，搜 .message-time-divider。
   6. 想改底部输入栏，搜 .composer；输入框搜 .composer-input；发送按钮搜 .send-button。
-  7. 常用属性：background 改背景，color 改文字，border-radius 改圆角，padding 改内边距，box-shadow 改阴影。 */
+  7. 想改 Stickers 弹窗，搜 .sticker-keyboard-layer；贴纸卡片搜 .sticker-tile。
+  8. 想改 Chat Settings，搜 .chat-settings-page；设置卡片搜 .settings-block，开关搜 .switch-card。
+  9. 常用属性：background 改背景，color 改文字，border-radius 改圆角，padding 改内边距，box-shadow 改阴影。 */
 .chat-room {
+  --online-ink: #111111;
+  --online-muted: #727a82;
+  --online-subtle: #8a8f94;
+  --online-line: rgba(17, 17, 17, 0.06);
+  --online-card: rgba(255, 255, 255, 0.88);
+  --online-card-strong: #ffffff;
+  --online-soft: #f0f1f2;
+  --online-soft-green: #eef8f1;
+  --online-green: #06c755;
+  --online-danger: #d73850;
   background: #f4f7f2;
-  color: #111111;
+  color: var(--online-ink);
 }
 
 .chat-room .chat-header {
@@ -425,6 +437,1058 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 .chat-room .send-button {
   background: #06c755;
   color: #ffffff;
+}
+
+.chat-settings-page,
+.sticker-keyboard-layer {
+  --online-ink: #111111;
+  --online-muted: #727a82;
+  --online-subtle: #8a8f94;
+  --online-line: rgba(17, 17, 17, 0.06);
+  --online-card: rgba(255, 255, 255, 0.88);
+  --online-card-strong: #ffffff;
+  --online-soft: #f0f1f2;
+  --online-soft-green: #eef8f1;
+  --online-green: #06c755;
+  --online-danger: #d73850;
+  color: var(--online-ink);
+}
+
+.chat-settings-page {
+  background:
+    radial-gradient(circle at 8% 0%, rgba(255, 218, 227, 0.44), transparent 30%),
+    radial-gradient(circle at 96% 8%, rgba(6, 199, 85, 0.16), transparent 28%),
+    linear-gradient(180deg, #fbfcfb 0%, #f5f7f6 54%, #edf3f1 100%);
+}
+
+.chat-settings-page .chat-settings-topbar {
+  min-height: 46px;
+  background: rgba(251, 252, 251, 0.9);
+  color: var(--online-ink);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.chat-settings-page .chat-settings-title-button,
+.chat-settings-page .chat-settings-title-button .top-title {
+  color: inherit;
+}
+
+.chat-settings-page .chat-settings-main {
+  padding: 10px calc(16px + var(--safe-right)) 16px calc(16px + var(--safe-left));
+  background: transparent;
+}
+
+.chat-settings-page .chat-settings-panel,
+.chat-settings-page .control-panel,
+.chat-settings-page .panel-section {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+  color: var(--online-ink);
+}
+
+.chat-settings-page .chat-settings-tabs {
+  gap: 4px;
+  padding: 8px calc(12px + var(--safe-right)) calc(10px + var(--safe-bottom)) calc(12px + var(--safe-left));
+  border-top: 1px solid var(--online-line);
+  background: rgba(255, 255, 255, 0.96);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.chat-settings-page .chat-settings-tab {
+  min-height: 48px;
+  border-radius: 14px;
+  color: var(--online-subtle);
+  font-weight: 800;
+}
+
+.chat-settings-page .chat-settings-tab.active {
+  background: var(--online-soft-green);
+  color: var(--online-ink);
+}
+
+.chat-settings-page .settings-block,
+.chat-settings-page .memory-hero,
+.chat-settings-page .profile-preview,
+.chat-settings-page .manual-summary-card,
+.chat-settings-page .memory-records,
+.chat-settings-page .profile-section,
+.chat-settings-page .local-book-bind,
+.chat-settings-page .image-reference-card,
+.chat-settings-page .call-simple-card {
+  min-width: 0;
+  border: 1px solid rgba(17, 17, 17, 0.04);
+  border-radius: 24px;
+  background: var(--online-card);
+  box-shadow: 0 14px 36px rgba(21, 30, 26, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.chat-settings-page .settings-block,
+.chat-settings-page .manual-summary-card,
+.chat-settings-page .memory-records,
+.chat-settings-page .local-book-bind,
+.chat-settings-page .call-simple-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.chat-settings-page .section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.chat-settings-page .section-header div,
+.chat-settings-page .memory-card-head div,
+.chat-settings-page .strategy-copy,
+.chat-settings-page .switch-card div,
+.chat-settings-page .profile-preview div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.chat-settings-page .section-header span,
+.chat-settings-page .memory-card-head span,
+.chat-settings-page .strategy-copy span {
+  color: var(--online-subtle);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.chat-settings-page .section-header strong {
+  color: var(--online-ink);
+  font-size: var(--compact-heading-font-size);
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+.chat-settings-page .memory-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  min-height: 118px;
+  padding: 18px;
+  background:
+    radial-gradient(circle at 94% 6%, rgba(6, 199, 85, 0.14), transparent 34%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 248, 0.92));
+}
+
+.chat-settings-page .memory-hero strong {
+  color: var(--online-ink);
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.chat-settings-page .memory-hero p,
+.chat-settings-page .manual-summary-card p,
+.chat-settings-page .time-awareness-note,
+.chat-settings-page .empty-note,
+.chat-settings-page .switch-card span:not(.switch-track),
+.chat-settings-page .compact-field small,
+.chat-settings-page .upload-card span,
+.chat-settings-page .profile-preview span,
+.chat-settings-page .character-photo-empty {
+  margin: 0;
+  color: var(--online-muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.chat-settings-page .manual-summary-button,
+.chat-settings-page .summary-submit,
+.chat-settings-page .primary-setting-action {
+  background: var(--online-green);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(6, 199, 85, 0.16);
+}
+
+.chat-settings-page .secondary-action,
+.chat-settings-page .setting-action-button,
+.chat-settings-page .background-thumb-actions button:first-child,
+.chat-settings-page .character-photo-actions button,
+.chat-settings-page .call-text-button {
+  background: var(--online-soft-green);
+  color: #1f6b3a;
+  box-shadow: inset 0 0 0 1px rgba(6, 199, 85, 0.08);
+}
+
+.chat-settings-page .danger-action,
+.chat-settings-page .background-thumb-actions button:last-child,
+.chat-settings-page .character-photo-actions button:last-child,
+.chat-settings-page .call-clear-button {
+  background: rgba(239, 68, 90, 0.1);
+  color: var(--online-danger);
+  box-shadow: inset 0 0 0 1px rgba(239, 68, 90, 0.08);
+}
+
+.chat-settings-page .manual-summary-button,
+.chat-settings-page .summary-submit,
+.chat-settings-page .setting-action-button,
+.chat-settings-page .secondary-action,
+.chat-settings-page .danger-action,
+.chat-settings-page .background-thumb-actions button,
+.chat-settings-page .character-photo-actions button,
+.chat-settings-page .call-text-button,
+.chat-settings-page .sticker-bind-trigger,
+.chat-settings-page .local-book-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 42px;
+  padding: 0 12px;
+  overflow: hidden;
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.15;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-settings-page button:disabled,
+.chat-settings-page .manual-summary-button:disabled,
+.chat-settings-page .summary-submit:disabled,
+.chat-settings-page .secondary-action:disabled,
+.chat-settings-page .danger-action:disabled {
+  background: rgba(239, 242, 240, 0.86);
+  color: #a0aaa5;
+  box-shadow: none;
+  cursor: default;
+}
+
+.chat-settings-page .field,
+.chat-settings-page .profile-avatar-stack {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-settings-page .field > span,
+.chat-settings-page .field-stack span,
+.chat-settings-page .batch-head span,
+.chat-settings-page .memory-hidden-editor span {
+  max-width: 100%;
+  overflow: hidden;
+  color: #4c5357;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-settings-page .field input,
+.chat-settings-page .field textarea,
+.chat-settings-page .field select,
+.chat-settings-page .memory-card textarea,
+.chat-settings-page .memory-hidden-editor input,
+.chat-settings-page .character-photo-url-row input,
+.chat-settings-page .local-theme-style-field select,
+.chat-settings-page .model-select-shell,
+.chat-settings-page .sticker-bind-trigger,
+.chat-settings-page .switch-card,
+.chat-settings-page .compact-field,
+.chat-settings-page .upload-card,
+.chat-settings-page .time-awareness-note,
+.chat-settings-page .empty-note,
+.chat-settings-page .merge-picker,
+.chat-settings-page .memory-card,
+.chat-settings-page .background-url-card,
+.chat-settings-page .background-upload-card,
+.chat-settings-page .background-color-card,
+.chat-settings-page .background-thumb-card,
+.chat-settings-page .bubble-preview,
+.chat-settings-page .sticker-group-popover,
+.chat-settings-page .character-photo-card {
+  border: 1px solid rgba(42, 75, 60, 0.08);
+  border-radius: 16px;
+  background: rgba(250, 252, 250, 0.96);
+  color: var(--online-ink);
+  box-shadow: 0 8px 18px rgba(30, 55, 45, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.chat-settings-page .field input,
+.chat-settings-page .field textarea,
+.chat-settings-page .field select,
+.chat-settings-page .memory-hidden-editor input,
+.chat-settings-page .character-photo-url-row input,
+.chat-settings-page .local-theme-style-field select {
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.chat-settings-page .field textarea,
+.chat-settings-page .memory-card textarea {
+  min-height: 132px;
+  max-width: 100%;
+  resize: vertical;
+  overflow-wrap: anywhere;
+}
+
+.chat-settings-page .field:focus-within input,
+.chat-settings-page .field:focus-within textarea,
+.chat-settings-page .field:focus-within select,
+.chat-settings-page .model-select-shell:focus-within {
+  box-shadow: inset 0 0 0 1px rgba(6, 199, 85, 0.35), 0 0 0 3px rgba(6, 199, 85, 0.1);
+}
+
+.chat-settings-page .switch-card,
+.chat-settings-page .compact-field {
+  min-height: 66px;
+  padding: 12px;
+}
+
+.chat-settings-page .switch-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.chat-settings-page .switch-card strong,
+.chat-settings-page .sticker-bind-trigger strong,
+.chat-settings-page .upload-card strong,
+.chat-settings-page .profile-preview strong,
+.chat-settings-page .strategy-copy strong {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--online-ink);
+  font-weight: 900;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-settings-page .switch-card strong,
+.chat-settings-page .sticker-bind-trigger strong,
+.chat-settings-page .upload-card strong,
+.chat-settings-page .strategy-copy strong {
+  font-size: 14px;
+}
+
+.chat-settings-page .switch-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 46px;
+  height: 28px;
+  border-radius: 999px;
+  background: #dfe8e4;
+  box-shadow: inset 0 0 0 1px rgba(31, 107, 58, 0.08);
+}
+
+.chat-settings-page .switch-track::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 3px 8px rgba(31, 107, 58, 0.18);
+  transition: transform 0.18s ease;
+}
+
+.chat-settings-page .switch-card input:checked + .switch-track {
+  background: var(--online-green);
+  box-shadow: 0 8px 16px rgba(6, 199, 85, 0.18), inset 0 0 0 1px rgba(6, 199, 85, 0.18);
+}
+
+.chat-settings-page .switch-card input:checked + .switch-track::after {
+  transform: translateX(18px);
+}
+
+.chat-settings-page .memory-strategy-stack,
+.chat-settings-page .strategy-group,
+.chat-settings-page .strategy-control-grid,
+.chat-settings-page .background-manager,
+.chat-settings-page .background-library,
+.chat-settings-page .image-profile-grid,
+.chat-settings-page .character-photo-import-panel,
+.chat-settings-page .memory-records,
+.chat-settings-page .memory-timeline-list {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.chat-settings-page .strategy-group {
+  padding: 14px;
+  border: 1px solid rgba(42, 75, 60, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.chat-settings-page .memory-toggle-grid,
+.chat-settings-page .range-grid,
+.chat-settings-page .color-grid,
+.chat-settings-page .manual-summary-actions,
+.chat-settings-page .merge-actions,
+.chat-settings-page .memory-actions,
+.chat-settings-page .background-thumb-actions,
+.chat-settings-page .local-theme-style-grid,
+.chat-settings-page .profile-avatar-grid,
+.chat-settings-page .appearance-tools-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.chat-settings-page .appearance-tools-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.chat-settings-page .memory-merge-dashboard {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.chat-settings-page .memory-merge-dashboard span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(248, 251, 249, 0.9);
+  text-align: center;
+}
+
+.chat-settings-page .memory-merge-dashboard strong {
+  color: var(--online-ink);
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.chat-settings-page .memory-merge-dashboard small,
+.chat-settings-page .record-header em,
+.chat-settings-page .memory-card-head em,
+.chat-settings-page .timeline-meta em {
+  color: var(--online-muted);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.chat-settings-page .timeline-copy,
+.chat-settings-page .timeline-summary-event,
+.chat-settings-page .timeline-summary-field,
+.chat-settings-page .timeline-profile-table-shell,
+.chat-settings-page .timeline-graph-card,
+.chat-settings-page .timeline-event-details dl {
+  border: 1px solid rgba(42, 75, 60, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.chat-settings-page .timeline-copy,
+.chat-settings-page .timeline-summary-event,
+.chat-settings-page .timeline-summary-field,
+.chat-settings-page .timeline-event-details dl {
+  padding: 8px;
+}
+
+.chat-settings-page .timeline-card-heading,
+.chat-settings-page .timeline-foldout > button {
+  width: 100%;
+  min-width: 0;
+  color: inherit;
+}
+
+.chat-settings-page .timeline-card-heading em,
+.chat-settings-page .timeline-summary-field span,
+.chat-settings-page .timeline-summary-event dt,
+.chat-settings-page .timeline-summary-event header span {
+  color: #326743;
+  font-weight: 950;
+}
+
+.chat-settings-page .timeline-card-heading strong,
+.chat-settings-page .timeline-summary-heading,
+.chat-settings-page .timeline-summary-event header strong,
+.chat-settings-page .graph-node text,
+.chat-settings-page .timeline-profile-table-shell th {
+  color: var(--online-ink);
+}
+
+.chat-settings-page .timeline-summary-field p,
+.chat-settings-page .timeline-summary-paragraph,
+.chat-settings-page .timeline-summary-list,
+.chat-settings-page .timeline-summary-event dd,
+.chat-settings-page .timeline-profile-table-shell td {
+  color: #5f666b;
+  overflow-wrap: anywhere;
+}
+
+.chat-settings-page .timeline-summary-code {
+  max-height: 150px;
+  padding: 8px;
+  overflow: auto;
+  border-radius: 12px;
+  background: #202421;
+  color: #f7fff9;
+}
+
+.chat-settings-page .memory-card {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: #fffdf9;
+}
+
+.chat-settings-page .memory-card-head,
+.chat-settings-page .memory-hidden-editor,
+.chat-settings-page .character-photo-url-row,
+.chat-settings-page .call-button-row,
+.chat-settings-page .inline-input-action,
+.chat-settings-page .editor-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-settings-page .memory-hidden-editor {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+}
+
+.chat-settings-page .profile-section {
+  display: grid;
+  grid-template-columns: clamp(82px, 25vw, 104px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+}
+
+.chat-settings-page .avatar-card,
+.chat-settings-page .profile-fields,
+.chat-settings-page .identity-row,
+.chat-settings-page .local-book-list,
+.chat-settings-page .character-photo-library,
+.chat-settings-page .character-photo-card,
+.chat-settings-page .image-reference-fields {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.chat-settings-page .identity-row,
+.chat-settings-page .character-photo-library {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.chat-settings-page .avatar-preview,
+.chat-settings-page .profile-preview .avatar,
+.chat-settings-page .image-reference-preview,
+.chat-settings-page .image-reference-preview img,
+.chat-settings-page .character-photo-thumb,
+.chat-settings-page .background-thumb {
+  overflow: hidden;
+  background: #eef3f1;
+  object-fit: cover;
+}
+
+.chat-settings-page .avatar-preview,
+.chat-settings-page .profile-preview .avatar {
+  width: 62px;
+  height: 62px;
+  border-radius: 20px;
+}
+
+.chat-settings-page .image-reference-card {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+}
+
+.chat-settings-page .image-reference-preview,
+.chat-settings-page .image-reference-preview img,
+.chat-settings-page .image-reference-preview span {
+  width: 92px;
+  height: 92px;
+  border-radius: 16px;
+}
+
+.chat-settings-page .background-thumb,
+.chat-settings-page .bubble-preview {
+  background-position: center;
+  background-size: cover;
+}
+
+.chat-settings-page .background-thumb-card.active,
+.chat-settings-page .local-book-row.selected {
+  border-color: rgba(6, 199, 85, 0.32);
+  background: #f7fffa;
+  color: #146b3f;
+  box-shadow: 0 10px 24px rgba(31, 120, 74, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.chat-settings-page .preview-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-settings-page .user-preview-row {
+  justify-content: flex-end;
+}
+
+.chat-settings-page .preview-bubble {
+  max-width: min(76%, 280px);
+  padding: 9px 12px;
+  border-radius: 16px;
+  overflow-wrap: anywhere;
+}
+
+.chat-settings-page .model-select-shell,
+.chat-settings-page .provider-model-card {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-settings-page .model-select-shell {
+  grid-template-columns: auto auto minmax(0, 1fr);
+  min-height: 50px;
+  padding: 6px;
+}
+
+.chat-settings-page .model-select-shell img,
+.chat-settings-page .provider-model-card img {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.chat-settings-page .audio-preview {
+  width: 100%;
+  min-width: 0;
+}
+
+.chat-settings-page .memory-confirm-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 20px;
+  background: var(--online-card-strong);
+  color: var(--online-ink);
+}
+
+.chat-settings-page .memory-confirm-actions,
+.modal-panel .memory-confirm-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.modal-panel .memory-confirm-card {
+  color: var(--online-ink, #111111);
+}
+
+.sticker-keyboard-layer .sticker-keyboard-dismiss {
+  background: transparent;
+}
+
+.sticker-keyboard-layer .sticker-keyboard-panel {
+  border-top: 1px solid var(--online-line);
+  background: linear-gradient(180deg, rgba(255, 252, 253, 0.98), rgba(247, 249, 252, 0.98));
+  box-shadow: 0 -10px 36px rgba(39, 35, 43, 0.12);
+}
+
+.sticker-keyboard-layer .sticker-sheet,
+.sticker-keyboard-layer .sticker-sheet-modal {
+  color: #211f22;
+}
+
+.sticker-keyboard-layer .sticker-head,
+.sticker-keyboard-layer .editor-head,
+.sticker-keyboard-layer .group-editor,
+.sticker-keyboard-layer .head-actions,
+.sticker-keyboard-layer .batch-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sticker-keyboard-layer .sticker-head,
+.sticker-keyboard-layer .editor-head,
+.sticker-keyboard-layer .batch-head {
+  justify-content: space-between;
+}
+
+.sticker-keyboard-layer .sticker-head strong {
+  color: #8c848c;
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.sticker-keyboard-layer .head-search-row,
+.sticker-keyboard-layer .search-row,
+.sticker-keyboard-layer .group-editor,
+.sticker-keyboard-layer .import-row,
+.sticker-keyboard-layer .editor-fields,
+.sticker-keyboard-layer .editor-actions,
+.sticker-keyboard-layer .manage-bar,
+.sticker-keyboard-layer .manage-panel,
+.sticker-keyboard-layer .sticker-editor,
+.sticker-keyboard-layer .empty-stickers,
+.sticker-keyboard-layer .sticker-grid,
+.sticker-keyboard-layer .group-tabs {
+  display: grid;
+  min-width: 0;
+}
+
+.sticker-keyboard-layer .head-search-row,
+.sticker-keyboard-layer .search-row {
+  grid-template-columns: 20px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 0 3px 0 8px;
+  border-radius: 10px;
+  background: rgba(244, 245, 247, 0.96);
+}
+
+.sticker-keyboard-layer .group-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sticker-keyboard-layer .group-pill,
+.sticker-keyboard-layer .manage-choice,
+.sticker-keyboard-layer .text-action,
+.sticker-keyboard-layer .link-action,
+.sticker-keyboard-layer .close-button,
+.sticker-keyboard-layer .head-icon,
+.sticker-keyboard-layer .icon-action,
+.sticker-keyboard-layer .mini-action,
+.sticker-keyboard-layer .save-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  border-radius: 12px;
+  font-weight: 900;
+}
+
+.sticker-keyboard-layer .close-button,
+.sticker-keyboard-layer .head-icon,
+.sticker-keyboard-layer .icon-action {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: #211f22;
+}
+
+.sticker-keyboard-layer .group-pill {
+  flex: 0 0 auto;
+  gap: 6px;
+  max-width: min(160px, 48vw);
+  min-height: 26px;
+  padding: 0 11px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #68616b;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.sticker-keyboard-layer .group-pill.active,
+.sticker-keyboard-layer .head-icon.active,
+.sticker-keyboard-layer .manage-choice.active {
+  background: #111111;
+  color: #ffffff;
+}
+
+.sticker-keyboard-layer .group-pill span,
+.sticker-keyboard-layer .manage-choice span,
+.sticker-keyboard-layer .manage-choice small,
+.sticker-keyboard-layer .sticker-tile > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sticker-keyboard-layer .group-pill small {
+  display: none;
+}
+
+.sticker-keyboard-layer .tool-popover,
+.sticker-keyboard-layer .manage-bar,
+.sticker-keyboard-layer .manage-panel,
+.sticker-keyboard-layer .sticker-editor,
+.sticker-keyboard-layer .empty-stickers,
+.sticker-keyboard-layer .sticker-tile {
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.sticker-keyboard-layer .tool-popover,
+.sticker-keyboard-layer .sticker-editor {
+  border-radius: 14px;
+  box-shadow: 0 14px 36px rgba(37, 34, 40, 0.14);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.sticker-keyboard-layer .manage-bar,
+.sticker-keyboard-layer .manage-panel,
+.sticker-keyboard-layer .sticker-editor,
+.sticker-keyboard-layer .empty-stickers {
+  gap: 8px;
+  padding: 8px;
+  border-radius: 16px;
+}
+
+.sticker-keyboard-layer .manage-choice-row,
+.sticker-keyboard-layer .group-action-grid,
+.sticker-keyboard-layer .batch-action-row,
+.sticker-keyboard-layer .editor-actions {
+  display: grid;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sticker-keyboard-layer .manage-choice-row,
+.sticker-keyboard-layer .group-action-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sticker-keyboard-layer .batch-action-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.sticker-keyboard-layer .manage-choice,
+.sticker-keyboard-layer .text-action,
+.sticker-keyboard-layer .link-action {
+  min-height: 32px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.86);
+  color: #211f22;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.sticker-keyboard-layer .manage-choice {
+  display: grid;
+  justify-items: start;
+  gap: 3px;
+  min-height: 50px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.sticker-keyboard-layer .text-action.danger,
+.sticker-keyboard-layer .icon-action.danger {
+  color: var(--online-danger);
+}
+
+.sticker-keyboard-layer input,
+.sticker-keyboard-layer textarea,
+.sticker-keyboard-layer select {
+  min-width: 0;
+  min-height: 28px;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(244, 245, 247, 0.96);
+  color: #211f22;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  outline: none;
+  padding: 5px 8px;
+}
+
+.sticker-keyboard-layer textarea {
+  min-height: 32px;
+  resize: vertical;
+}
+
+.sticker-keyboard-layer .sticker-grid {
+  flex: 1 1 auto;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: start;
+  gap: 6px;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sticker-keyboard-layer .sticker-tile {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+  padding: 6px;
+  border-radius: 13px;
+  text-align: left;
+}
+
+.sticker-keyboard-layer .sticker-tile.selected,
+.sticker-keyboard-layer .sticker-tile.checked {
+  border-color: rgba(17, 17, 17, 0.14);
+  box-shadow: 0 10px 24px rgba(17, 17, 17, 0.08);
+}
+
+.sticker-keyboard-layer .sticker-tile img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  object-fit: contain;
+  background: transparent;
+}
+
+.sticker-keyboard-layer .sticker-tile > span {
+  display: -webkit-box;
+  min-height: 30px;
+  color: #39343a;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.sticker-keyboard-layer .tile-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+}
+
+.sticker-keyboard-layer .tile-check span {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid rgba(17, 17, 17, 0.2);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.sticker-keyboard-layer .tile-check input:checked + span {
+  border-color: #111111;
+  background: #111111;
+}
+
+.sticker-keyboard-layer .empty-stickers {
+  place-items: center;
+  min-height: 0;
+  color: #8e8890;
+}
+
+.sticker-keyboard-layer .empty-stickers strong {
+  color: #4f4850;
+  font-size: 18px;
+}
+
+.sticker-keyboard-layer button:disabled,
+.sticker-keyboard-layer .sticker-tile:disabled,
+.sticker-keyboard-layer .text-action:disabled,
+.sticker-keyboard-layer .link-action:disabled,
+.sticker-keyboard-layer .icon-action:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+@media (max-width: 380px) {
+  .chat-settings-page .settings-block,
+  .chat-settings-page .manual-summary-card,
+  .chat-settings-page .memory-records {
+    padding: 12px;
+    border-radius: 22px;
+  }
+
+  .chat-settings-page .memory-hero {
+    padding: 16px;
+  }
+
+  .chat-settings-page .switch-card,
+  .chat-settings-page .compact-field {
+    min-height: 62px;
+    padding: 10px;
+  }
+}
+
+@media (max-width: 340px) {
+  .chat-settings-page .memory-hero,
+  .chat-settings-page .inline-input-action,
+  .chat-settings-page .profile-preview,
+  .chat-settings-page .profile-section,
+  .chat-settings-page .image-reference-card {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-settings-page .memory-toggle-grid,
+  .chat-settings-page .strategy-control-grid,
+  .chat-settings-page .range-grid,
+  .chat-settings-page .color-grid,
+  .chat-settings-page .manual-summary-actions,
+  .chat-settings-page .merge-actions,
+  .chat-settings-page .memory-actions,
+  .chat-settings-page .background-thumb-actions,
+  .chat-settings-page .local-theme-style-grid,
+  .chat-settings-page .profile-avatar-grid,
+  .chat-settings-page .appearance-tools-grid,
+  .chat-settings-page .identity-row,
+  .chat-settings-page .character-photo-library,
+  .sticker-keyboard-layer .manage-choice-row,
+  .sticker-keyboard-layer .group-action-grid,
+  .sticker-keyboard-layer .batch-action-row {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-settings-page .manual-summary-button,
+  .chat-settings-page .setting-action-button {
+    width: 100%;
+  }
 }
 `;
 
