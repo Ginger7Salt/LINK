@@ -1926,6 +1926,16 @@ export const useAppStore = defineStore('app', () => {
     return `${minutes}:${String(restSeconds).padStart(2, '0')}`;
   }
 
+  function formatPromptDuration(seconds: number | undefined) {
+    const duration = Math.max(0, Math.round(Number(seconds) || 0));
+    const hours = Math.floor(duration / 3600);
+    const minutes = Math.floor((duration % 3600) / 60);
+    const restSeconds = duration % 60;
+    if (hours) return `${hours}小时${minutes}分${restSeconds}秒`;
+    if (minutes) return `${minutes}分${restSeconds}秒`;
+    return `${restSeconds}秒`;
+  }
+
   function normalizeCallAttachment(call: ChatCallAttachment): ChatCallAttachment {
     const now = Date.now();
     const status: ChatCallStatus = ['ringing', 'accepted', 'rejected', 'missed', 'busy', 'cancelled', 'ended', 'failed'].includes(call.status)
@@ -1969,6 +1979,24 @@ export const useAppStore = defineStore('app', () => {
     const directionText = `${normalizedCall.direction === 'incoming' ? names?.characterName ?? '角色' : names?.userName ?? '用户'}发起`;
     const durationText = formatCallDuration(normalizedCall.duration);
     return `[${callModeLabel(normalizedCall.mode)}] ${directionText} · ${callStatusLabel(normalizedCall.status)}${durationText ? ` · ${durationText}` : ''}`;
+  }
+
+  function callEndPromptContent(conversationId: string, call: ChatCallAttachment, actor: 'user' | 'char' = 'user') {
+    const normalizedCall = normalizeCallAttachment(call);
+    const names = callParticipantNames(conversationId);
+    const actorName = actor === 'char' ? names.characterName : names.userName;
+    const otherName = actor === 'char' ? names.userName : names.characterName;
+    const callLabel = callModeLabel(normalizedCall.mode);
+    const durationText = formatPromptDuration(normalizedCall.duration);
+    if (normalizedCall.status === 'rejected') return `${actorName}拒绝了${otherName}拨来的${callLabel}，通话时长${durationText}。`;
+    if (normalizedCall.status === 'cancelled') return `${actorName}取消了拨给${otherName}的${callLabel}，通话时长${durationText}。`;
+    return `${actorName}挂断了和${otherName}的${callLabel}，通话时长${durationText}。`;
+  }
+
+  async function appendCallEndPromptMessage(conversationId: string, call: ChatCallAttachment, actor: 'user' | 'char' = 'user') {
+    const normalizedCall = normalizeCallAttachment(call);
+    const createdAt = (normalizedCall.endedAt ?? Date.now()) + 1;
+    return appendConversationEvent(conversationId, callEndPromptContent(conversationId, normalizedCall, actor), { mode: 'online', createdAt, contextOnly: true });
   }
 
   function callMessageSender(call: ChatCallAttachment): ChatMessage['sender'] {
@@ -2442,6 +2470,28 @@ export const useAppStore = defineStore('app', () => {
     return true;
   }
 
+  async function stopMusicListenTogether(conversationId: string, actor: 'user' | 'char' = 'user') {
+    const partner = musicPlayer.listeningPartner;
+    if (!partner || partner.conversationId !== conversationId) return false;
+    const conversation = conversationById(conversationId);
+    if (!conversation) {
+      musicPlayer.stopListenTogether(partner.characterId);
+      return false;
+    }
+    const names = callParticipantNames(conversationId);
+    const actorName = actor === 'char' ? names.characterName : names.userName;
+    const otherName = actor === 'char' ? names.userName : names.characterName;
+    const durationText = formatPromptDuration(Math.max(0, Math.round((Date.now() - partner.joinedAt) / 1000)));
+    const trackName = musicPlayer.currentTrack?.name.trim();
+    await appendConversationEvent(
+      conversationId,
+      `${actorName}关闭了和${otherName}的一起听，已一起听${durationText}${trackName ? `，关闭时正在播放《${trackName}》` : ''}。`,
+      { mode: 'online', contextOnly: true }
+    );
+    musicPlayer.stopListenTogether(partner.characterId);
+    return true;
+  }
+
   async function applyCharacterMusicActions(conversationId: string, actions: Array<{ type: string; query?: string; source?: string; track?: Partial<MusicTrack> }>) {
     if (!musicPlayer.isListeningWithConversation(conversationId)) return [];
     const conversation = conversationById(conversationId);
@@ -2513,9 +2563,10 @@ export const useAppStore = defineStore('app', () => {
     };
   }
 
-  async function appendConversationEvent(conversationId: string, content: string, options: Partial<Pick<ChatMessage, 'mode' | 'voomPostId' | 'voomCommentId' | 'voomEventType' | 'replyBatchId' | 'createdAt'>> = {}) {
+  async function appendConversationEvent(conversationId: string, content: string, options: Partial<Pick<ChatMessage, 'mode' | 'voomPostId' | 'voomCommentId' | 'voomEventType' | 'replyBatchId' | 'createdAt' | 'contextOnly'>> = {}) {
     const conversation = conversationById(conversationId);
     if (!conversation || !content.trim()) return null;
+    const contextOnly = Boolean(options.contextOnly);
     const message: ChatMessage = {
       id: createId('msg'),
       conversationId,
@@ -2523,7 +2574,8 @@ export const useAppStore = defineStore('app', () => {
       mode: options.mode ?? conversation.activeMode,
       content: content.trim(),
       createdAt: options.createdAt ?? Date.now(),
-      displayStyle: 'narration',
+      displayStyle: contextOnly ? undefined : 'narration',
+      contextOnly: contextOnly || undefined,
       status: 'sent',
       voomPostId: options.voomPostId,
       voomCommentId: options.voomCommentId,
@@ -8192,6 +8244,7 @@ export const useAppStore = defineStore('app', () => {
     appendConversationEvent,
     appendCallEventMessage,
     updateCallEventMessage,
+    appendCallEndPromptMessage,
     appendUserMessage,
     appendUserCallMessage,
     appendUserCallImageMessage,
@@ -8206,6 +8259,7 @@ export const useAppStore = defineStore('app', () => {
     updateMusicListenInviteStatus,
     acceptMusicListenInvite,
     rejectMusicListenInvite,
+    stopMusicListenTogether,
     musicListeningContextForConversation,
     syncMusicFavoriteTracks,
     saveMusicFavoriteTrack,

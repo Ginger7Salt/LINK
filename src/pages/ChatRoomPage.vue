@@ -1811,9 +1811,10 @@ async function goToMusicPage() {
   await router.push({ name: 'music' });
 }
 
-function confirmStopListenTogether() {
-  if (character.value) musicPlayer.stopListenTogether(character.value.id);
+async function confirmStopListenTogether() {
+  await store.stopMusicListenTogether(props.id, 'user');
   showStopListenConfirm.value = false;
+  await scrollMessagesToBottom();
 }
 
 function openNarrationPanel() {
@@ -2682,7 +2683,8 @@ async function acceptIncomingCall() {
 async function rejectIncomingCall() {
   const call = activeCall.value;
   if (!call || call.status !== 'incoming-ringing') return;
-  await store.updateCallEventMessage(call.eventMessageId, { status: 'rejected', endedAt: Date.now() });
+  const updatedMessage = await store.updateCallEventMessage(call.eventMessageId, { status: 'rejected', endedAt: Date.now() });
+  if (updatedMessage?.call) await store.appendCallEndPromptMessage(props.id, updatedMessage.call, 'user');
   closeActiveCall();
 }
 
@@ -2709,11 +2711,12 @@ async function finishActiveCall(status: ChatCallStatus = 'ended') {
   }
   const endedAt = Date.now();
   const duration = call.connectedAt ? Math.max(1, Math.round((endedAt - call.connectedAt) / 1000)) : undefined;
-  await store.updateCallEventMessage(call.eventMessageId, {
+  const updatedMessage = await store.updateCallEventMessage(call.eventMessageId, {
     status,
     endedAt,
     duration
   });
+  if (updatedMessage?.call) await store.appendCallEndPromptMessage(props.id, updatedMessage.call, 'user');
   closeActiveCall();
 }
 
