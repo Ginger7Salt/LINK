@@ -72,6 +72,55 @@
       </div>
     </article>
 
+    <section class="module-card protection-card" :class="`tone-${protectionTone}`" aria-label="设备存储保护">
+      <header class="module-copy-top protection-head">
+        <div>
+          <p class="module-kicker">Device Guard</p>
+          <strong>设备存储保护</strong>
+        </div>
+        <span class="risk-badge" :class="protectionTone">{{ protectionRiskLabel }}</span>
+      </header>
+
+      <p class="protection-summary">{{ protectionSummary }}</p>
+
+      <div class="protection-grid" aria-label="存储保护状态">
+        <article>
+          <span>运行模式</span>
+          <strong>{{ pwaModeLabel }}</strong>
+        </article>
+        <article>
+          <span>持久化</span>
+          <strong>{{ persistenceStatusLabel }}</strong>
+        </article>
+        <article>
+          <span>浏览器环境</span>
+          <strong>{{ browserContextLabel }}</strong>
+        </article>
+      </div>
+
+      <div class="protection-actions">
+        <button class="protection-action primary" type="button" :disabled="protectionBusy === 'persist'" @click="enableStorageProtection">
+          <span v-if="protectionBusy === 'persist'" class="button-spinner" aria-hidden="true"></span>
+          <ShieldCheck v-else :size="16" />
+          <span>开启存储保护</span>
+        </button>
+        <button class="protection-action" type="button" :disabled="browserContext.installed || protectionBusy === 'install'" @click="runPwaInstallAction">
+          <span v-if="protectionBusy === 'install'" class="button-spinner" aria-hidden="true"></span>
+          <Smartphone v-else :size="16" />
+          <span>{{ installActionLabel }}</span>
+        </button>
+        <button class="protection-action icon-only" type="button" :disabled="storageRefreshing" aria-label="刷新存储保护检测" @click="refreshDataSnapshot">
+          <RefreshCw :size="16" :class="{ spinning: storageRefreshing }" />
+        </button>
+      </div>
+
+      <div v-if="installGuideOpen" class="install-guide">
+        <p><strong>建议使用：</strong>系统浏览器，或添加到主屏幕后从图标打开。</p>
+        <p><strong>避免使用：</strong>无痕/隐私模式，以及微信、QQ、微博、抖音等内置浏览器。</p>
+        <p><strong>空间不足时：</strong>优先清理生成图候选、贴纸缓存和用户发送图片。</p>
+      </div>
+    </section>
+
     <p v-if="dataBusy" class="busy-notice" role="status" aria-live="polite">
       <span class="busy-spinner" aria-hidden="true"></span>
       <span>{{ dataBusyLabel }}</span>
@@ -109,9 +158,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, type Component } from 'vue';
-import { Camera, ImageOff, Images, RefreshCw } from 'lucide-vue-next';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, type Component } from 'vue';
+import { Camera, ImageOff, Images, RefreshCw, ShieldCheck, Smartphone } from 'lucide-vue-next';
 import { useAppStore, type DataCleanupAction } from '@/stores/appStore';
+import { getBrowserStorageContext, promptPwaInstall, pwaInstallPromptChangeEvent, queryPersistentStorage, requestPersistentStorage, type BrowserStorageContext, type StoragePersistenceResult } from '@/utils/storageProtection';
 
 interface BrowserStorageSnapshot {
   usage: number;
@@ -119,6 +169,7 @@ interface BrowserStorageSnapshot {
 }
 
 type CleanupTone = 'photo' | 'candidate' | 'sticker';
+type ProtectionTone = 'safe' | 'warn' | 'danger';
 
 interface CleanupActionConfig {
   id: DataCleanupAction;
@@ -138,6 +189,10 @@ const dataFeedbackKind = ref<'success' | 'error'>('success');
 const storageRefreshing = ref(false);
 const storageSnapshotReady = ref(false);
 const browserStorage = ref<BrowserStorageSnapshot>({ usage: 0, quota: 0 });
+const browserContext = ref<BrowserStorageContext>(getBrowserStorageContext());
+const persistence = ref<StoragePersistenceResult>({ status: 'unknown', persisted: false, supported: false });
+const protectionBusy = ref<'persist' | 'install' | ''>('');
+const installGuideOpen = ref(false);
 const dataInventory = ref<DataInventorySnapshot | null>(null);
 const cleanupEstimates = ref<CleanupEstimateMap>({});
 
@@ -176,6 +231,37 @@ const storagePercent = computed(() => storageSnapshotReady.value && browserStora
 const meterStyle = computed(() => ({ width: storageSnapshotReady.value ? `${Math.max(1.5, storagePercent.value)}%` : '0%' }));
 const managedStoragePercent = computed(() => storageSnapshotReady.value && browserStorage.value.quota > 0 ? Math.min(100, managedBytes.value / browserStorage.value.quota * 100) : 0);
 const managedStoragePercentLabel = computed(() => storageSnapshotReady.value ? (browserStorage.value.quota > 0 ? `${managedStoragePercent.value.toFixed(managedStoragePercent.value >= 10 ? 0 : 1)}%` : '未知') : '未刷新');
+const persistenceStatusLabel = computed(() => {
+  if (persistence.value.status === 'granted') return '已开启';
+  if (persistence.value.status === 'denied') return '未开启';
+  if (persistence.value.status === 'unsupported') return '不支持';
+  return '检测中';
+});
+const pwaModeLabel = computed(() => browserContext.value.installed ? 'PWA 已安装' : '浏览器打开');
+const browserContextLabel = computed(() => browserContext.value.embeddedBrowser ? browserContext.value.embeddedBrowserLabel : '常规浏览器');
+const storageUsageHighRisk = computed(() => storageSnapshotReady.value && storagePercent.value >= 85);
+const protectionTone = computed<ProtectionTone>(() => {
+  if (browserContext.value.embeddedBrowser || storagePercent.value >= 95) return 'danger';
+  if (!browserContext.value.installed || persistence.value.status !== 'granted' || storageUsageHighRisk.value) return 'warn';
+  return 'safe';
+});
+const protectionRiskLabel = computed(() => {
+  if (protectionTone.value === 'safe') return '较稳';
+  if (protectionTone.value === 'danger') return '高风险';
+  return '需加固';
+});
+const protectionSummary = computed(() => {
+  if (browserContext.value.embeddedBrowser) return `${browserContext.value.embeddedBrowserLabel} 更容易清理站点数据，建议换系统浏览器或 PWA。`;
+  if (storageSnapshotReady.value && storagePercent.value >= 95) return '浏览器缓存接近上限，手机系统清理站点数据的概率会升高。';
+  if (persistence.value.status === 'unsupported') return '当前浏览器不支持持久化存储保护，建议安装 PWA 或换用系统浏览器。';
+  if (persistence.value.status !== 'granted') return '浏览器尚未授予持久化存储保护，开启后可降低本地数据被清理的概率。';
+  if (!browserContext.value.installed) return '持久化保护已开启，安装到主屏幕后使用会更稳定。';
+  return '已安装运行且持久化保护可用，本地数据被系统清理的概率较低。';
+});
+const installActionLabel = computed(() => {
+  if (browserContext.value.installed) return '已安装';
+  return browserContext.value.installPromptAvailable ? '安装到主屏幕' : '安装指引';
+});
 const rankedSections = computed(() => {
   const totalBytes = Math.max(1, managedBytes.value);
   return [...dataSections.value]
@@ -197,6 +283,19 @@ const cleanupActionStats = computed(() => cleanupActions.map((action) => {
 const dataBusyLabel = computed(() => {
   const action = cleanupActions.find((item) => item.id === dataBusy.value);
   return action ? `正在清理${action.label}，请稍候。` : '正在处理本地数据，请稍候。';
+});
+
+const installPromptChangeListener = () => {
+  browserContext.value = getBrowserStorageContext();
+};
+
+onMounted(() => {
+  window.addEventListener(pwaInstallPromptChangeEvent, installPromptChangeListener);
+  void refreshDataSnapshot();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener(pwaInstallPromptChangeEvent, installPromptChangeListener);
 });
 
 function setDataFeedback(message: string, kind: 'success' | 'error' = 'success') {
@@ -231,9 +330,14 @@ async function refreshDataSnapshot() {
       estimates[action.id] = store.estimateCleanupFreedBytes(action.id);
       return estimates;
     }, {});
-    const estimate = await navigator.storage?.estimate?.();
+    const [estimate, nextPersistence] = await Promise.all([
+      navigator.storage?.estimate?.(),
+      queryPersistentStorage()
+    ]);
     dataInventory.value = nextInventory;
     cleanupEstimates.value = nextCleanupEstimates;
+    browserContext.value = getBrowserStorageContext();
+    persistence.value = nextPersistence;
     browserStorage.value = {
       usage: Number(estimate?.usage ?? 0),
       quota: Number(estimate?.quota ?? 0)
@@ -247,6 +351,49 @@ async function refreshDataSnapshot() {
     setDataFeedback('刷新缓存统计失败，请稍后重试。', 'error');
   } finally {
     storageRefreshing.value = false;
+  }
+}
+
+async function enableStorageProtection() {
+  protectionBusy.value = 'persist';
+  dataFeedback.value = '';
+  await waitForBusyPaint();
+
+  try {
+    const result = await requestPersistentStorage();
+    persistence.value = result;
+    browserContext.value = getBrowserStorageContext();
+    if (result.status === 'granted') setDataFeedback('已开启浏览器持久化存储保护。');
+    else if (result.status === 'unsupported') setDataFeedback('当前浏览器不支持持久化存储保护，请优先使用系统浏览器或 PWA。', 'error');
+    else setDataFeedback('浏览器暂未授予持久化存储保护，请安装 PWA 或换用系统浏览器后再试。', 'error');
+  } finally {
+    protectionBusy.value = '';
+  }
+}
+
+async function runPwaInstallAction() {
+  if (browserContext.value.installed) return;
+  protectionBusy.value = 'install';
+  dataFeedback.value = '';
+  await waitForBusyPaint();
+
+  try {
+    if (!browserContext.value.installPromptAvailable) {
+      installGuideOpen.value = true;
+      setDataFeedback('当前浏览器没有提供安装弹窗，请按安装指引操作。');
+      return;
+    }
+
+    const outcome = await promptPwaInstall();
+    browserContext.value = getBrowserStorageContext();
+    if (outcome === 'accepted') setDataFeedback('安装请求已提交，请从主屏幕图标打开 LINK。');
+    else if (outcome === 'dismissed') setDataFeedback('已关闭安装弹窗，可稍后再安装。');
+    else {
+      installGuideOpen.value = true;
+      setDataFeedback('当前浏览器无法直接弹出安装窗口，请按安装指引操作。', 'error');
+    }
+  } finally {
+    protectionBusy.value = '';
   }
 }
 
@@ -528,6 +675,164 @@ async function runCleanupAction(action: DataCleanupAction) {
   white-space: nowrap;
 }
 
+.protection-card {
+  gap: 12px;
+}
+
+.protection-card.tone-safe {
+  background: linear-gradient(180deg, rgba(247, 253, 249, 0.96), rgba(240, 249, 244, 0.96));
+}
+
+.protection-card.tone-warn {
+  background: linear-gradient(180deg, rgba(255, 252, 245, 0.97), rgba(251, 247, 236, 0.97));
+}
+
+.protection-card.tone-danger {
+  background: linear-gradient(180deg, rgba(255, 248, 248, 0.97), rgba(251, 240, 240, 0.97));
+}
+
+.protection-head {
+  align-items: center;
+}
+
+.risk-badge {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 950;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.risk-badge.safe {
+  background: #e5f7eb;
+  color: #14723d;
+}
+
+.risk-badge.warn {
+  background: #fff2d8;
+  color: #94610f;
+}
+
+.risk-badge.danger {
+  background: #ffe7e7;
+  color: #aa2727;
+}
+
+.protection-summary {
+  margin: 0;
+  color: #4f5754;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.protection-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.protection-grid article {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px 8px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.035);
+}
+
+.protection-grid span {
+  color: #747a78;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+.protection-grid strong {
+  min-width: 0;
+  color: #1d2420;
+  font-size: 12px;
+  font-weight: 950;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.protection-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  min-width: 0;
+}
+
+.protection-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 11px;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #24302a;
+  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.05);
+  font-size: 12px;
+  font-weight: 950;
+  line-height: 1.15;
+}
+
+.protection-action.primary {
+  background: #161d19;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.protection-action.icon-only {
+  width: 40px;
+  padding: 0;
+}
+
+.protection-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.protection-action span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.install-guide {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 11px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: inset 0 0 0 1px rgba(17, 17, 17, 0.035);
+}
+
+.install-guide p {
+  margin: 0;
+  color: #59605d;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.install-guide strong {
+  color: #242a27;
+  font-weight: 950;
+}
+
 .composition-copy span {
   color: var(--muted);
   font-size: 11px;
@@ -751,6 +1056,15 @@ async function runCleanupAction(action: DataCleanupAction) {
 
   .composition-row {
     grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .protection-grid,
+  .protection-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .protection-action.icon-only {
+    width: auto;
   }
 
   .composition-row small {

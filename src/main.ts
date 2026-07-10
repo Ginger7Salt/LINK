@@ -5,10 +5,12 @@ import { preloadRoutePages, router } from './router';
 import { syncAppViewportHeight } from './app/viewport';
 import { installRingtoneAudioUnlock } from './services/ringtone';
 import { useAppStore } from './stores/appStore';
+import { requestPersistentStorage, setupPwaInstallPrompt } from './utils/storageProtection';
 import './styles/main.css';
 
 syncAppViewportHeight();
 installRingtoneAudioUnlock();
+setupPwaInstallPrompt();
 
 if (import.meta.env.DEV && 'serviceWorker' in navigator) {
 	navigator.serviceWorker.getRegistrations()
@@ -46,6 +48,7 @@ async function bootstrap() {
 
 		app.mount('#app');
 		window.dispatchEvent(new Event('link:app-mounted'));
+		void requestPersistentStorage();
 	} catch (error) {
 		console.error('Link startup failed.', error);
 		window.dispatchEvent(new CustomEvent('link:app-load-failed', {
