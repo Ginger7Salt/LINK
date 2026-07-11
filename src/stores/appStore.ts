@@ -74,6 +74,7 @@ export interface AppActiveCallState {
   muted: boolean;
   cameraEnabled: boolean;
   speakerEnabled: boolean;
+  generatedBackgroundUrl?: string;
   minimized: boolean;
   floatPosition: { x: number; y: number };
   peerName: string;

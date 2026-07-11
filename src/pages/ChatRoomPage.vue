@@ -892,7 +892,8 @@ const activeCall = computed<ActiveCallState | null>({
       endedAt: call.endedAt,
       muted: call.muted,
       cameraEnabled: call.cameraEnabled,
-      speakerEnabled: call.speakerEnabled
+      speakerEnabled: call.speakerEnabled,
+      generatedBackgroundUrl: call.generatedBackgroundUrl
     };
   },
   set(call) {
@@ -1187,7 +1188,8 @@ function syncActiveCallMetadata() {
   });
 }
 
-const callPhotoBackgroundUrl = computed(() => activeCall.value ? callGeneratedBackgroundUrl.value || callRotatingBackgroundUrl.value : '');
+const callLockedBackgroundUrl = computed(() => activeCall.value ? callGeneratedBackgroundUrl.value || activeCall.value.generatedBackgroundUrl || '' : '');
+const callPhotoBackgroundUrl = computed(() => activeCall.value ? callLockedBackgroundUrl.value || callRotatingBackgroundUrl.value : '');
 const callScreenBackgroundUrl = computed(() => callPhotoBackgroundUrl.value || character.value?.avatar || '');
 const callCharacterSpeaking = computed(() => Boolean(activeCall.value?.status === 'active' && (callStatusText.value.includes('正在说话') || callMouthLevel.value > 0.08)));
 const callVideoStageStyle = computed(() => ({
@@ -1350,9 +1352,10 @@ function syncCallBackgroundRotation() {
     callRotatingBackgroundUrl.value = '';
     return;
   }
-  if (call.mode === 'video' && callGeneratedBackgroundUrl.value) {
+  const lockedBackgroundUrl = callLockedBackgroundUrl.value;
+  if (lockedBackgroundUrl) {
     stopCallBackgroundRotation();
-    callRotatingBackgroundUrl.value = callGeneratedBackgroundUrl.value;
+    callRotatingBackgroundUrl.value = lockedBackgroundUrl;
     return;
   }
   if (!characterPhotoPool.value.length) {
@@ -1421,7 +1424,8 @@ async function ensureCallBackgroundImage() {
     const result = await generateCallBackgroundImage(settings, selectedModel);
     if (runId !== callBackgroundRunId.value || callBackgroundRequestKey.value !== requestKey) return;
     callGeneratedBackgroundUrl.value = result.imageUrl;
-    if (call.mode === 'video') stopCallBackgroundRotation();
+    store.patchActiveCall(props.id, { generatedBackgroundUrl: result.imageUrl });
+    stopCallBackgroundRotation();
     await saveGeneratedCallPhoto(result);
     callRotatingBackgroundUrl.value = result.imageUrl;
   } catch (error) {
@@ -2702,7 +2706,8 @@ async function startOutgoingCall(mode: ChatCallMode) {
     startedAt,
     muted: false,
     cameraEnabled: false,
-    speakerEnabled: true
+    speakerEnabled: true,
+    generatedBackgroundUrl: ''
   };
   refreshCallBackground();
   callStatusText.value = '正在等待接听';
@@ -2737,7 +2742,8 @@ function openIncomingCall(message: ChatMessage) {
     startedAt: call.startedAt,
     muted: false,
     cameraEnabled: false,
-    speakerEnabled: true
+    speakerEnabled: true,
+    generatedBackgroundUrl: ''
   };
   refreshCallBackground();
   callStatusText.value = '';
