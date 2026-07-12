@@ -3714,7 +3714,7 @@ export const useAppStore = defineStore('app', () => {
 
   function groupCharacterContext(character: CharacterProfile): GroupDiscoveryCharacterContext {
     const privateConversation = conversations.value.find((conversation) => conversation.kind !== 'group' && conversation.charId === character.id && conversation.userId === character.boundUserId);
-    const recentMessages = privateConversation ? messagesForConversation(privateConversation.id).filter((message) => message.replyVariantState !== 'inactive').slice(-18) : [];
+    const recentMessages = privateConversation ? visibleMessagesForConversation(privateConversation.id).filter((message) => message.replyVariantState !== 'inactive').slice(-18) : [];
     const boundUser = userById(character.boundUserId) ?? user.value;
     const recentConversation = recentMessages.map((message) => {
       const speaker = message.sender === 'user' ? getUserAiName(boundUser) : message.sender === 'char' ? getCharacterAiName(character) : '系统';
@@ -4196,6 +4196,7 @@ export const useAppStore = defineStore('app', () => {
         members: conversation.groupMembers, history, messages: recentMessages, stickerVisionEnabled: chatSettings.stickerVisionEnabled,
         memorySummary: memoryContextForConversation(conversationId, history, { storeDebug: false }),
         characterContexts,
+        worldBooks: worldBooks.value,
         availableStickers: availableGroupStickers.map((sticker) => ({ id: sticker.id, description: sticker.description })),
         proactive: options.proactive,
         instruction: options.instruction,

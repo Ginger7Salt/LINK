@@ -3215,6 +3215,46 @@ export interface GroupChatReplyResult {
   membershipDecision: 'approve' | 'reject' | null;
 }
 
+function replaceGroupWorldBookTokens(value: string, character: CharacterProfile, user: UserProfile) {
+  const characterName = getCharacterAiName(character);
+  const userName = getUserAiName(user);
+  return value
+    .replace(/\{\{\s*char\s*\}\}/gi, characterName)
+    .replace(/<\s*char\s*>/gi, characterName)
+    .replace(/\bChar\b/g, characterName)
+    .replace(/\bchar\b/g, characterName)
+    .replace(/\{\{\s*user\s*\}\}/gi, userName)
+    .replace(/<\s*user\s*>/gi, userName)
+    .replace(/\bUser\b/g, userName)
+    .replace(/\buser\b/g, userName);
+}
+
+function renderGroupWorldBooks(books: WorldBookEntry[], character: CharacterProfile, user: UserProfile, activationText: string) {
+  const normalizedActivationText = activationText.toLocaleLowerCase();
+  return books
+    .filter((book) => book.enabled)
+    .flatMap((book) => book.entries
+      .filter((entry) => {
+        if (!entry.enabled || entry.probability <= 0) return false;
+        if (entry.activation === 'constant' || entry.activation === 'priority') return true;
+        const sourceText = entry.caseSensitive ? activationText : normalizedActivationText;
+        const normalizeKey = (key: string) => entry.caseSensitive ? key : key.toLocaleLowerCase();
+        const primaryMatched = entry.keys.some((key) => key.trim() && sourceText.includes(normalizeKey(key)));
+        if (!primaryMatched) return false;
+        return !entry.secondaryKeys.length || entry.secondaryKeys.some((key) => key.trim() && sourceText.includes(normalizeKey(key)));
+      })
+      .sort((first, second) => {
+        if (first.activation === 'priority' && second.activation !== 'priority') return -1;
+        if (first.activation !== 'priority' && second.activation === 'priority') return 1;
+        return first.order - second.order;
+      })
+      .map((entry) => [
+        `【${replaceGroupWorldBookTokens(book.title || '未命名世界书', character, user)} / ${replaceGroupWorldBookTokens(entry.title || '未命名条目', character, user)}】`,
+        replaceGroupWorldBookTokens(entry.content, character, user)
+      ].join('\n')))
+    .join('\n\n');
+}
+
 function normalizeGeneratedGroupMembers(value: unknown, selectedCharacters: CharacterProfile[], createdAt: number): GroupMember[] {
   if (!Array.isArray(value)) return [];
   const selectedById = new Map(selectedCharacters.map((character) => [character.id, character]));
@@ -3323,6 +3363,7 @@ export async function generateGroupChatReply(input: {
   stickerVisionEnabled: boolean;
   memorySummary: string;
   characterContexts: GroupDiscoveryCharacterContext[];
+  worldBooks: WorldBookEntry[];
   availableStickers?: Array<{ id: string; description: string }>;
   proactive?: boolean;
   instruction?: string;
@@ -3334,20 +3375,48 @@ export async function generateGroupChatReply(input: {
   requireTextGenerationConfig(input.settings, input.modelOverride, '群聊回复');
   const canonicalUserName = getUserAiName(input.user);
   const mode = input.mode ?? 'online';
-  const memberTable = input.members.map((member) => `${member.id} | ${member.identityType} | 真名:${member.trueName} | 当前群昵称:${member.nickname} | 身份:${member.role} | 设定:${member.description || '无'}`).join('\n');
-  const characterMemory = input.characterContexts.map((entry) => `${getCharacterAiName(entry.character)}(${entry.character.id})：${entry.memorySummary || entry.conversationSummary || '暂无额外记忆'}`).join('\n');
+  const currentCharacterById = new Map(input.characterContexts.map((entry) => [entry.character.id, entry.character]));
+  const memberTable = input.members.map((member) => {
+    const currentCharacter = member.identityType === 'character' && member.identityId ? currentCharacterById.get(member.identityId) : undefined;
+    const currentDescription = currentCharacter?.description || (member.identityType === 'user' ? input.user.description : member.description);
+    return `${member.id} | ${member.identityType} | 真名:${member.trueName} | 当前群昵称:${member.nickname} | 身份:${member.role} | 设定:${currentDescription || '无'}`;
+  }).join('\n');
+  const globalWorldBooks = input.worldBooks.filter((book) => book.scope === (mode === 'online' ? 'global-online' : 'global-offline'));
+  const groupActivationText = [input.history, input.memorySummary, input.instruction].filter(Boolean).join('\n');
+  const characterContext = input.characterContexts.map((entry) => {
+    const character = entry.character;
+    const characterName = getCharacterAiName(character);
+    const worldBookContext = renderGroupWorldBooks(
+      [...globalWorldBooks, ...entry.localWorldBooks],
+      character,
+      input.user,
+      [groupActivationText, entry.conversationSummary, entry.memorySummary, entry.recentConversation].filter(Boolean).join('\n')
+    );
+    return [
+      `【${characterName}（${character.id}）的专属扮演上下文】`,
+      `角色设定：${character.description || '暂无'}`,
+      `角色 LINK 资料：网名「${character.nickname || characterName}」；签名「${character.signature || '暂无'}」`,
+      `与${canonicalUserName}的一对一会话总结：${entry.conversationSummary || '暂无'}`,
+      `与${canonicalUserName}的一对一记忆手册：${entry.memorySummary || '暂无'}`,
+      `与${canonicalUserName}的近期一对一线上/线下对话：\n${entry.recentConversation || '暂无'}`,
+      `该角色可用世界书：\n${worldBookContext || '无启用或命中的条目'}`,
+      `知识边界：这一段只允许用于扮演${characterName}。其他群成员不能因为模型看到了这段内容就知道其中的私聊、记忆或局部世界书；除非相关事实已经在群聊中公开或被当事人转述。`
+    ].join('\n');
+  }).join('\n\n---\n\n');
   const stickerList = (input.availableStickers ?? []).slice(0, 80).map((sticker) => `${sticker.id}: ${sticker.description}`).join('\n');
   const prompt = `你是 LINK 群聊的消息导演，同时严格扮演群内角色和 NPC。当前模式是${mode === 'offline' ? '群聊线下 RP：所有群成员处于同一现实场景，以章节正文推进共同剧情' : '线上群聊：以真实社交软件消息推进对话'}。根据用户刚发出的内容与完整上下文，决定自然会回应或行动的成员并生成本轮内容。
 
 群名：${input.groupName}
 群公告：${input.announcement || '无'}
 当前用户真名：${canonicalUserName}
+当前用户设定：${input.user.description || '暂无'}
+当前用户 LINK 资料：网名「${input.user.nickname || canonicalUserName}」；签名「${input.user.signature || '暂无'}」
 当前用户群成员状态：${input.membershipStatus || 'active'}
 成员表：
 ${memberTable}
 
-已有角色跨私聊/线下/群聊连续记忆：
-${characterMemory || '暂无'}
+已有角色的当前设定、私聊/线下连续记忆与世界书（严格按角色隔离知识）：
+${characterContext || '暂无'}
 
 当前群聊记忆：
 ${input.memorySummary || '暂无'}
@@ -3364,7 +3433,7 @@ ${stickerList || '无'}
 1. 只允许成员表里的角色发言，绝不代替用户发言；authorMemberId 必须来自成员表。
 2. 所有行为描述、消息正文中的人物指代只能使用用户真名或角色/NPC真名。网名和群昵称只是可修改资料，绝不能写成网名做了某事。
 3. ${mode === 'offline' ? '这是群聊线下 RP。每条 content 都是该成员视角下可直接展示的沉浸式章节正文，包含必要的场景、动作、神情、对白与多人互动；不得写成聊天气泡口吻，不得替用户决定、行动或发言。输出 1-4 个自然章节，不要机械轮流。' : '像真实群聊：允许无人回复、单人回复、多人插话、连续多条、引用、@、跑题与沉默；本轮输出 0-8 条，不要机械轮流。需要引用最近群聊中的历史消息时，在该条消息填写 quoteMessageId；可以引用用户、其他成员，也可以自然引用该发言成员自己此前发过的消息。只能填写最近群聊里方括号标出的真实消息 ID，不要在 content 中复述被引用内容。'}
-4. 已有角色必须结合其跨会话记忆，不得把群聊当作孤立世界；但角色不能知道自己未参与且未被转述的秘密。
+4. 已有角色必须同时结合自己的角色设定、与用户的一对一会话总结、记忆手册、近期私聊/线下对话和世界书，不得把群聊当作孤立世界；每个角色只能使用自己专属上下文里的私密知识，不能读取、暗示或利用其他角色的专属上下文，也不能知道自己未参与且未被转述的秘密。
 5. ${mode === 'offline' ? '线下模式的 type 必须为 text。' : 'type 可为 text、voice、image、sticker。voice 的 content 是语音转写；image 的 content 是图片画面描述；sticker 必须填写 stickerId，content 可填贴纸含义。'}
 6. 如果群内情境让某个已有角色很自然地想单独联系用户，可在 privateInitiations 放入该角色ID和原因；最多 1 个，不能使用 NPC，不能每轮都触发。
 7. 如果当前用户状态为 pending，群主或管理员可根据群设定和上下文决定是否通过申请，在 membershipDecision 输出 approve、reject 或 null；其他状态必须输出 null。

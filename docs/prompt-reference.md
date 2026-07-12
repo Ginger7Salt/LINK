@@ -7,6 +7,7 @@
 | 功能 | 主要入口 | 说明 |
 | --- | --- | --- |
 | 线上聊天 / 线下模式 | `src/services/prompt.ts` 的 `buildPrompt` | 所有角色聊天回复的总拼装函数。 |
+| 群聊回复 | `src/services/ai.ts` 的 `generateGroupChatReply` | 按群成员分别注入当前角色设定、一对一记忆和世界书，并保持私密知识隔离。 |
 | 角色发布 VOOM | `src/services/prompt.ts` 的 `buildMomentPrompt`，由 `src/services/ai.ts` 的 `generateVoomPost` 调用 | 在基础角色提示词上追加 VOOM 发帖 JSON 任务。 |
 | VOOM 评论区自动回复 | `src/services/ai.ts` 的 `generateVoomCommentReplies` | 在基础角色提示词上追加评论区继续发展任务。 |
 | 用户 VOOM 初始评论 | `src/services/ai.ts` 的 `generateUserVoomComments` | 用户发布动态后，模拟可见角色和 NPC 评论；不走 `buildPrompt`。 |
@@ -98,6 +99,18 @@
 - 要改线下 JSON 输出格式，改 `offlineReplyOutputPrompt`。
 - 要改线下文风、视角、心理、抢话、转述、篇幅等，改 `renderOfflineSettingsPrompt` 及其 helper。
 - 要改默认线下设置或预设内容，查看 `src/utils/memory.ts` 中的 `defaultOfflineSettings` 和相关 preset helper。
+
+## 群聊回复
+
+群聊通过 `generateGroupChatReply(input)` 生成，不直接复用单角色的 `buildPrompt`，而是为每位已有角色建立独立的专属扮演上下文。每次回复会读取：
+
+- 当前用户的真名、用户设定、LINK 网名和签名。
+- 每位角色的当前角色设定、LINK 网名和签名，不使用建群时的旧设定快照代替当前设定。
+- 该角色与当前用户的一对一会话总结、记忆手册和近期可见线上/线下对话。
+- 当前模式对应的全局世界书，以及绑定到该角色的局部世界书；关键词条会结合群聊、私聊、总结和记忆触发。
+- 当前群聊记忆、最近 36 条群消息、群公告、成员状态和可用 Sticker。
+
+每个角色的一对一记忆和局部世界书只允许用于扮演该角色。其他群成员不能因同一次模型请求包含了这些上下文，就获知未在群内公开或转述的私聊秘密。
 
 ## 角色 VOOM 发帖
 
