@@ -1,0 +1,91 @@
+name: Build signed Android APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and sync Android
+        run: |
+          npm run build
+          npx cap sync android
+
+      - name: Configure release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.BABYLINK_ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.BABYLINK_ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.BABYLINK_ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.BABYLINK_ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_BASE64"
+          test -n "$STORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > android/babylink-release.keystore
+          {
+            printf 'storeFile=%s\n' "$GITHUB_WORKSPACE/android/babylink-release.keystore"
+            printf 'storePassword=%s\n' "$STORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+          } > android/keystore.properties
+
+      - name: Build signed release
+        working-directory: android
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Verify and package APK
+        run: |
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          test -s "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$apksigner"
+          "$apksigner" verify --verbose --print-certs "$apk" | tee build-apksigner.txt
+          grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' build-apksigner.txt
+          expected="$(tr -d ':\r\n' < android/release-certificate.sha256 | tr 'A-F' 'a-f')"
+          actual="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' build-apksigner.txt | head -n 1)"
+          test "$actual" = "$expected"
+          mkdir -p build/android-release
+          cp "$apk" build/android-release/BabyLink-1.0.0-android.apk
+          (cd build/android-release && sha256sum BabyLink-1.0.0-android.apk | tee BabyLink-1.0.0-android.apk.sha256)
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BabyLink-android-1.0.0
+          path: |
+            build/android-release/BabyLink-1.0.0-android.apk
+            build/android-release/BabyLink-1.0.0-android.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
