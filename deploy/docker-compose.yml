@@ -42,8 +42,10 @@ services:
       - private
 
   napcat:
-    image: mlikiowa/napcat-docker:latest
+    image: mlikiowa/napcat-docker@sha256:32891e1f5aa654ef84fb4fcfb1724b4d844a26c2fcb11519945e64e22d13e766
     restart: unless-stopped
+    hostname: babylink-napcat
+    mac_address: ${NAPCAT_MAC_ADDRESS:-02:42:4c:49:4e:4b}
     environment:
       NAPCAT_UID: "0"
       NAPCAT_GID: "0"
@@ -54,6 +56,7 @@ services:
       - napcat_qq:/app/.config/QQ
       - napcat_config:/app/napcat/config
       - napcat_plugins:/app/napcat/plugins
+      - ./private/napcat-machine-id:/etc/machine-id:ro
     shm_size: 256m
     networks:
       - private

@@ -6,6 +6,7 @@ releases/
 .DS_Store
 .env
 deploy/.env
+deploy/private/
 .env.local
 .env.*.local
 *.pem

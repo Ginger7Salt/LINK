@@ -25,9 +25,18 @@ cp .env.example .env
 - `ADMIN_TOKEN`：管理员 API 和安装包上传凭据。
 - `NAPCAT_ACCESS_TOKEN`：NapCat 反向 WebSocket 独立凭据，不得与管理员 Token 相同。
 - `NAPCAT_ACCOUNT`：专用机器人 QQ 号；首次扫码后用于容器重启时快速登录。
+- `NAPCAT_MAC_ADDRESS`：固定的本地管理 MAC；首次登录后不要修改，避免 QQ 将容器识别为新设备。
 - `ALLOWED_QQ_GROUPS`：逗号分隔的全部授权 QQ 群号。
 
 生成随机值时可使用 `openssl rand -base64 48 | tr -d '\n'`。不要把 `deploy/.env`、数据库密码、NapCat Token 或 Android keystore 提交到 Git。
+
+首次启动前创建专用于 NapCat 的稳定 machine-id；此文件已被 Git 忽略，首次扫码登录后不得删除或重新生成：
+
+```bash
+mkdir -p private
+umask 077
+test -s private/napcat-machine-id || openssl rand -hex 16 > private/napcat-machine-id
+```
 
 ## 3. 首次启动
 
@@ -49,6 +58,8 @@ curl -I https://babylink.top/access
 ## 4. NapCat 配置
 
 使用专用 QQ 作为机器人，并让它加入 `ALLOWED_QQ_GROUPS` 中的全部群。NapCat 配置 OneBot 11 反向 WebSocket：
+
+生产 Compose 固定了 NapCat 镜像摘要、hostname、MAC 和 machine-id。升级 NapCat 时应先备份 `napcat_qq`、`napcat_config` 卷及 `private/napcat-machine-id`，再显式更新镜像摘要；不要改回浮动的 `latest` 标签。
 
 NapCat WebUI 只绑定服务器 `127.0.0.1:6099`，在本机建立 SSH 隧道后访问，禁止直接开放公网端口：
 
