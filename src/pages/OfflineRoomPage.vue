@@ -1421,6 +1421,7 @@ async function exitOffline() {
 .offline-dock {
   position: relative;
   z-index: 12;
+  flex: 0 0 auto;
   display: grid;
   gap: 8px;
   padding: 10px calc(12px + var(--safe-right)) calc(10px + var(--safe-bottom)) calc(12px + var(--safe-left));

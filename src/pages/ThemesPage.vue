@@ -383,6 +383,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { FileCode2, Globe2, LoaderCircle, Maximize2, Minus, Moon, Plus, Share2, Type, Upload, Wifi } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import { useAppStore } from '@/stores/appStore';
+import { getLastNativeDisplayState } from '@/services/nativeDisplay';
 import { setFullscreenEnabled } from '@/services/systemBars';
 import type { AppSettings, AppThemeSettings, ThemeFontEntry, ThemeFontSource, ThemeStylePreset, ThemeStyleScopeSettings } from '@/types/domain';
 import { createId } from '@/utils/id';
@@ -598,7 +599,13 @@ async function toggleFullscreen() {
     nextThemeSettings.global.fullscreen = next;
     await saveThemeSettings(nextThemeSettings);
     if (!next) await setFullscreenEnabled(false);
-    fullscreenFeedback.value = next ? '已开启全屏显示。' : '已关闭全屏显示。';
+    const nativeState = getLastNativeDisplayState();
+    if (next && nativeState?.applied === false) {
+      fullscreenFeedback.value = `已开启持续沉浸模式，系统栏正在重试隐藏（状态栏：${nativeState.statusBarVisible ? '仍显示' : '已隐藏'}；导航栏：${nativeState.navigationBarVisible ? '仍显示' : '已隐藏'}）。`;
+      fullscreenFeedbackError.value = true;
+    } else {
+      fullscreenFeedback.value = next ? '已开启全屏显示。' : '已关闭全屏显示。';
+    }
   } catch (error) {
     await setFullscreenEnabled(previous, { requestBrowserFullscreen: previous });
     fullscreenFeedback.value = error instanceof Error && error.message ? error.message : '全屏设置保存失败，请重试。';

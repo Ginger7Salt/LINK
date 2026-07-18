@@ -34,7 +34,7 @@
     <button v-if="online && !textMode" class="icon-button" type="button" aria-label="图片" :disabled="disabled" @click="$emit('open-image-panel')">
       <ImageIcon :size="23" />
     </button>
-    <label class="composer-input">
+    <div class="composer-input">
       <textarea
         ref="inputRef"
         v-model="text"
@@ -48,10 +48,10 @@
         @focus="handleFocus"
         @blur="handleBlur"
       />
-      <button v-if="!textMode" class="sticker-button" type="button" aria-label="Stickers" :disabled="disabled" @click.stop="$emit('open-stickers')">
+      <button v-if="!textMode" class="sticker-button" type="button" aria-label="Stickers" :disabled="disabled" @click.stop="openStickers">
         <Smile :size="online ? 20 : 21" />
       </button>
-    </label>
+    </div>
     <template v-if="online && textMode">
       <button class="text-action text-action--send" type="button" :disabled="disabled || !text.trim()" @pointerdown.prevent="keepTextMode" @click="submit">发送</button>
       <button class="text-action text-action--reply" type="button" :disabled="disabled || (!text.trim() && !canSendReply)" @pointerdown.prevent="keepTextMode" @click="submitAndReply">回复</button>
@@ -215,6 +215,12 @@ function openCameraInput() {
   cameraInputRef.value?.click();
 }
 
+function openStickers() {
+  clearBlurTimer();
+  inputRef.value?.blur();
+  window.requestAnimationFrame(() => emit('open-stickers'));
+}
+
 function handleCameraFile(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
@@ -246,6 +252,7 @@ defineExpose({ focusInput });
 .composer {
   position: relative;
   z-index: 12;
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: 32px 32px minmax(0, 1fr) 30px;
   align-items: end;

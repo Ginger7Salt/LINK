@@ -10,6 +10,8 @@
   --app-height: 100vh;
   --app-height: 100svh;
   --app-height: 100dvh;
+  --visual-viewport-height: var(--app-height);
+  --visual-viewport-offset-top: 0px;
   --link-green: #06c755;
   --ink: #111111;
   --muted: #8f9297;

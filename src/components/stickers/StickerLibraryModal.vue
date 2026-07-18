@@ -90,20 +90,18 @@ onBeforeUnmount(stopPanelObserver);
 .sticker-keyboard-layer {
   --sticker-keyboard-panel-height: clamp(286px, 42vh, 388px);
   position: fixed;
-  inset: 0;
+  inset: var(--visual-viewport-offset-top) 0 auto;
   z-index: 11;
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  height: 100vh;
-  height: 100dvh;
-  height: var(--app-height);
+  height: var(--visual-viewport-height);
   pointer-events: none;
 }
 
 .sticker-keyboard-dismiss {
-  position: fixed;
-  inset: 0 0 var(--sticker-keyboard-panel-height, min(360px, 45vh)) 0;
+  position: absolute;
+  inset: 0;
   border: 0;
   background: transparent;
   pointer-events: auto;
@@ -114,7 +112,7 @@ onBeforeUnmount(stopPanelObserver);
   z-index: 1;
   width: min(100%, 414px);
   height: var(--sticker-keyboard-panel-height);
-  max-height: calc(var(--app-height) - var(--safe-top) - 76px);
+  max-height: calc(var(--visual-viewport-height) - var(--safe-top) - 76px);
   padding: 9px calc(8px + var(--safe-right)) calc(9px + var(--safe-bottom)) calc(8px + var(--safe-left));
   overflow: hidden;
   border-top: 1px solid rgba(20, 20, 20, 0.08);

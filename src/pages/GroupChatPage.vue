@@ -65,9 +65,12 @@
       placeholder="发送消息到群聊"
       @cancel-quote="quoteTarget = null"
       @capture-photo="sendPhoto"
+      @prepare-focus="captureKeyboardScrollAnchor"
+      @focus="handleComposerFocus"
+      @blur="handleComposerBlur"
       @open-image-panel="showImagePanel = true"
       @open-menu="showActionMenu = true"
-      @open-stickers="showStickers = true"
+      @open-stickers="openStickerPanel"
       @open-voice-panel="showVoicePanel = true"
       @send="sendOnly"
       @reply="sendAndReply"
@@ -217,6 +220,7 @@ import StickerLibraryModal from '@/components/stickers/StickerLibraryModal.vue';
 import { useAppStore } from '@/stores/appStore';
 import type { CharacterProfile, ChatMessage, ChatMessageQuote, VoomFrequency } from '@/types/domain';
 import { readChatImageFile } from '@/utils/imageFile';
+import { useKeyboardScrollGuard } from '@/utils/keyboardScrollGuard';
 import { formatChatTimeDivider, shouldShowChatTimeDivider } from '@/utils/time';
 
 const props = defineProps<{ id: string }>();
@@ -271,6 +275,7 @@ let mediaStream: MediaStream | null = null;
 let mediaChunks: Blob[] = [];
 let recordingStartedAt = 0;
 let recordingTimer: number | undefined;
+const { captureKeyboardScrollAnchor, startKeyboardScrollGuard, stopKeyboardScrollGuard } = useKeyboardScrollGuard(messageList);
 
 const conversation = computed(() => { const value = store.conversationById(props.id); return value?.kind === 'group' ? value : null; });
 const allVisibleMessages = computed(() => store.messagesForConversation(props.id).filter((message) => !message.contextOnly && message.mode === 'online'));
@@ -315,6 +320,8 @@ function messageText(message: ChatMessage) { if (message.sticker) return `[Stick
 async function scrollToBottom() { await nextTick(); if (messageList.value) { messageList.value.scrollLeft = 0; messageList.value.scrollTop = messageList.value.scrollHeight; } }
 async function loadEarlierMessages() { const list = messageList.value; if (!list || !hasEarlierMessages.value || loadingEarlierMessages.value) return; loadingEarlierMessages.value = true; const previousHeight = list.scrollHeight; const previousTop = list.scrollTop; visibleMessageLimit.value += groupMessagePageSize; await nextTick(); list.scrollTop = previousTop + Math.max(0, list.scrollHeight - previousHeight); loadingEarlierMessages.value = false; }
 function handleMessageListScroll() { const list = messageList.value; if (!list) return; shouldStickToBottom.value = list.scrollHeight - list.clientHeight - list.scrollTop <= 80; if (list.scrollTop <= 72) void loadEarlierMessages(); }
+function handleComposerFocus() { const keepBottom = shouldStickToBottom.value; startKeyboardScrollGuard(); if (keepBottom) void scrollToBottom(); }
+function handleComposerBlur() { stopKeyboardScrollGuard(); }
 
 async function sendOnly(content: string) { await store.appendGroupUserMessage(props.id, content, quoteTarget.value); quoteTarget.value = null; await scrollToBottom(); }
 async function sendAndReply(content: string) { if (content.trim()) await store.appendGroupUserMessage(props.id, content, quoteTarget.value); quoteTarget.value = null; await scrollToBottom(); await store.requestGroupReply(props.id); await scrollToBottom(); }
@@ -323,7 +330,8 @@ function insertMention(name: string) { composerText.value = `${composerText.valu
 function mentionMessageAuthor(message: ChatMessage) { if (message.sender !== 'system' && message.authorType !== 'user' && message.authorName) insertMention(message.authorName); }
 function canQuoteMessage(message: ChatMessage) { return message.sender !== 'system' && !message.id.includes('__') && Boolean(store.createMessageQuoteSnapshot(message)); }
 function quoteMessage(message: ChatMessage) { if (!canQuoteMessage(message)) return; quoteTarget.value = store.createMessageQuoteSnapshot(message); }
-function handleStickerPanelHeightChange(height: number) { stickerPanelHeight.value = Math.max(0, height); }
+function openStickerPanel() { const keepBottom = shouldStickToBottom.value; showStickers.value = true; if (keepBottom) void scrollToBottom(); }
+function handleStickerPanelHeightChange(height: number) { const keepBottom = shouldStickToBottom.value; stickerPanelHeight.value = Math.max(0, height); if (keepBottom) void scrollToBottom(); }
 function openChatSearch() { void router.push({ name: 'chat-search', params: { id: props.id } }); }
 function openChatSettings() { void router.push({ name: 'chat-settings', params: { id: props.id } }); }
 function openModelSwitch() { showActionMenu.value = false; showModelSwitch.value = true; }

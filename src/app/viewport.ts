@@ -42,6 +42,8 @@ export function syncAppViewportHeight() {
 
     root.classList.toggle('keyboard-open', keyboardOpen);
     root.style.setProperty('--app-height', `${Math.round(nextHeight)}px`);
+    root.style.setProperty('--visual-viewport-height', `${viewportHeight}px`);
+    root.style.setProperty('--visual-viewport-offset-top', `${viewportOffsetTop}px`);
     root.style.setProperty('--keyboard-inset', `${nextKeyboardInset}px`);
     window.dispatchEvent(new CustomEvent<AppViewportChangeDetail>(APP_VIEWPORT_CHANGE_EVENT, {
       detail: {
