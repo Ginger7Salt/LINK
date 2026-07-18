@@ -16,7 +16,7 @@ if printf '%s' "$status" | grep -q '"botOnline":true'; then
   exit 0
 fi
 
-if ! printf '%s' "$status" | grep -q '"botCheckedAt":"'; then
+if ! printf '%s' "$status" | grep -Eq '"botCheckedAt":[1-9][0-9]*'; then
   exit 0
 fi
 
