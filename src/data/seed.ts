@@ -228,5 +228,18 @@ export const defaultSettings: AppSettings = {
       updatedAt: 0
     }
   },
+  webDavBackup: {
+    enabled: false,
+    url: '',
+    username: '',
+    password: '',
+    path: 'babylink-backup.enc.json',
+    recoveryKey: '',
+    intervalMinutes: 30,
+    lastBackupAt: 0,
+    lastBackupStatus: 'idle',
+    lastBackupError: '',
+    latestRemoteBackupAt: 0
+  },
   apiVendors: []
 };

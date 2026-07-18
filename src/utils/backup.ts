@@ -204,6 +204,7 @@ function sanitizeSettingsForBackup(settings: AppSettings): AppSettings {
     githubBackup: {
       ...settings.githubBackup,
       enabled: false,
+      token: '',
       lastBackupStatus: 'idle',
       lastBackupError: '',
       progress: {
@@ -212,6 +213,15 @@ function sanitizeSettingsForBackup(settings: AppSettings): AppSettings {
         percent: 0,
         updatedAt: 0
       }
+    },
+    webDavBackup: {
+      ...settings.webDavBackup,
+      enabled: false,
+      username: '',
+      password: '',
+      recoveryKey: '',
+      lastBackupStatus: 'idle',
+      lastBackupError: ''
     },
     imageOpenAi: {
       ...settings.imageOpenAi,

@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light" />
+  <meta name="theme-color" content="#f5fbf7" />
+  <title>BabyLink 访问验证</title>
+  <style>
+    :root { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif; color: #132019; background: #eff8f2; }
+    * { box-sizing: border-box; }
+    body { min-height: 100dvh; margin: 0; background: radial-gradient(circle at 15% 0%, rgba(83, 218, 137, .25), transparent 34%), radial-gradient(circle at 92% 16%, rgba(113, 168, 255, .17), transparent 31%), linear-gradient(180deg, #f8fcf9, #eaf5ee); }
+    button, input { font: inherit; }
+    button { border: 0; cursor: pointer; }
+    .shell { width: min(100%, 460px); min-height: 100dvh; margin: 0 auto; padding: max(28px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); display: grid; align-content: center; gap: 18px; }
+    .brand { display: flex; align-items: center; gap: 12px; padding: 0 6px; }
+    .logo { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 17px; color: #fff; background: linear-gradient(145deg, #17c96b, #079d4d); box-shadow: 0 12px 30px rgba(8, 161, 80, .24); font-size: 23px; font-weight: 900; }
+    .brand h1 { margin: 0; font-size: 24px; letter-spacing: -.03em; }
+    .brand p { margin: 3px 0 0; color: #66736b; font-size: 13px; }
+    .card { padding: 24px; border: 1px solid rgba(25, 70, 43, .07); border-radius: 28px; background: rgba(255,255,255,.9); box-shadow: 0 22px 60px rgba(37, 73, 50, .11); backdrop-filter: blur(18px); }
+    .eyebrow { color: #0ca653; font-size: 12px; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; }
+    h2 { margin: 8px 0 8px; font-size: 27px; letter-spacing: -.04em; }
+    .lead { margin: 0 0 22px; color: #657169; font-size: 14px; line-height: 1.65; }
+    .field { display: grid; gap: 8px; }
+    .field span { font-size: 13px; font-weight: 800; }
+    input { width: 100%; height: 52px; padding: 0 16px; border: 1px solid #dce8e0; border-radius: 16px; outline: none; background: #f9fcfa; color: #101a14; font-size: 17px; transition: .18s ease; }
+    input:focus { border-color: #20b763; background: #fff; box-shadow: 0 0 0 4px rgba(32,183,99,.1); }
+    .primary { width: 100%; min-height: 52px; margin-top: 14px; border-radius: 16px; color: #fff; background: linear-gradient(135deg, #19c768, #079d4d); box-shadow: 0 10px 25px rgba(9, 156, 75, .2); font-weight: 850; }
+    .primary:disabled { cursor: wait; opacity: .58; }
+    .challenge { display: none; gap: 14px; }
+    .challenge.visible { display: grid; }
+    .code-box { padding: 17px; border: 1px solid rgba(18, 170, 85, .14); border-radius: 18px; background: #f1fbf5; text-align: center; }
+    .code-box small { display: block; color: #637269; font-size: 12px; }
+    .code { margin: 6px 0; color: #098d47; font-size: 30px; font-weight: 950; letter-spacing: .13em; }
+    .command { width: 100%; padding: 12px 14px; border-radius: 14px; background: #17231c; color: #ecfff3; overflow-wrap: anywhere; font: 700 14px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .secondary { min-height: 44px; border-radius: 14px; background: #e9f4ed; color: #17633a; font-weight: 800; }
+    .groups { margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 7px; list-style: none; }
+    .groups li { padding: 6px 10px; border-radius: 999px; background: #edf2ef; color: #506057; font-size: 12px; font-weight: 750; }
+    .status { min-height: 22px; margin: 2px 0 0; color: #647168; font-size: 13px; line-height: 1.55; text-align: center; }
+    .status.error { color: #c63e3e; }
+    .status.success { color: #078843; }
+    .privacy { margin: 0 10px; color: #78847d; font-size: 11px; line-height: 1.6; text-align: center; }
+    .spinner { display: inline-block; width: 12px; height: 12px; margin-right: 7px; border: 2px solid rgba(8,139,68,.2); border-top-color: #078b44; border-radius: 50%; vertical-align: -2px; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (max-width: 370px) { .shell { padding-inline: 13px; } .card { padding: 20px; border-radius: 24px; } h2 { font-size: 24px; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="brand">
+      <div class="logo">L</div>
+      <div><h1>BabyLink</h1><p>仅向指定 QQ 群成员开放</p></div>
+    </header>
+
+    <section class="card">
+      <div id="login-step">
+        <span class="eyebrow">Private Access</span>
+        <h2>验证你的 QQ</h2>
+        <p class="lead">每台新设备都需要由对应 QQ 在授权群发送一次性口令。无需设置密码，也不能通过分享密码绕过验证。</p>
+        <form id="login-form">
+          <label class="field"><span>QQ 号码</span><input id="qq" name="qq" inputmode="numeric" autocomplete="username" pattern="[1-9][0-9]{4,11}" maxlength="12" placeholder="请输入你的 QQ 号" required /></label>
+          <button class="primary" id="submit" type="submit">获取群验证口令</button>
+        </form>
+      </div>
+
+      <div id="challenge-step" class="challenge">
+        <span class="eyebrow">One-time Challenge</span>
+        <h2>前往授权群验证</h2>
+        <p class="lead">请用刚才填写的 QQ，在下面任意授权群中发送完整命令。口令只对该 QQ 有效。</p>
+        <ul id="groups" class="groups"></ul>
+        <div class="code-box"><small>一次性口令</small><div id="code" class="code"></div><div id="command" class="command"></div></div>
+        <button id="copy" class="secondary" type="button">复制验证命令</button>
+        <button id="restart" class="secondary" type="button">更换 QQ / 重新获取</button>
+      </div>
+
+      <p id="status" class="status"></p>
+    </section>
+    <p class="privacy">服务器仅保存 QQ、群成员状态、设备会话和安全审计；聊天、角色和备份数据仍保存在你的设备及你选择的云盘中。</p>
+  </main>
+
+  <script>
+    (() => {
+      const DEVICE_KEY = 'link:auth-device-id';
+      const LEASE_KEY = 'link:auth-lease';
+      const loginStep = document.querySelector('#login-step');
+      const challengeStep = document.querySelector('#challenge-step');
+      const form = document.querySelector('#login-form');
+      const qqInput = document.querySelector('#qq');
+      const submitButton = document.querySelector('#submit');
+      const statusElement = document.querySelector('#status');
+      const groupsElement = document.querySelector('#groups');
+      const codeElement = document.querySelector('#code');
+      const commandElement = document.querySelector('#command');
+      const copyButton = document.querySelector('#copy');
+      const restartButton = document.querySelector('#restart');
+      let challenge = null;
+      let pollTimer = 0;
+
+      function randomId() {
+        if (crypto.randomUUID) return crypto.randomUUID().replaceAll('-', '');
+        const bytes = crypto.getRandomValues(new Uint8Array(24));
+        return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+      }
+
+      function deviceId() {
+        let value = localStorage.getItem(DEVICE_KEY);
+        if (!value) { value = randomId(); localStorage.setItem(DEVICE_KEY, value); }
+        return value;
+      }
+
+      function deviceLabel() {
+        const platform = navigator.userAgent.includes('Android') ? 'Android' : /iPhone|iPad|iPod/.test(navigator.userAgent) ? 'iPhone / iPad' : '浏览器';
+        return `${platform} · ${new Date().toLocaleDateString('zh-CN')}`;
+      }
+
+      function setStatus(message, kind = '') {
+        statusElement.className = `status ${kind}`.trim();
+        const loadingPrefix = '<span class="spinner"></span>';
+        if (message.startsWith(loadingPrefix)) {
+          const spinner = document.createElement('span');
+          spinner.className = 'spinner';
+          statusElement.replaceChildren(spinner, document.createTextNode(message.slice(loadingPrefix.length)));
+          return;
+        }
+        statusElement.textContent = message;
+      }
+
+      async function readJson(response) {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message || body.error || `请求失败 (${response.status})`);
+        return body;
+      }
+
+      async function loadGroups() {
+        const config = await readJson(await fetch('/api/auth/config', { cache: 'no-store' }));
+        groupsElement.replaceChildren(...config.groups.map(group => {
+          const item = document.createElement('li');
+          item.textContent = group.name ? `${group.name} (${group.id})` : `QQ群 ${group.id}`;
+          return item;
+        }));
+        if (!config.enabled) throw new Error('管理员尚未配置授权 QQ 群。');
+      }
+
+      async function checkExistingSession() {
+        if (new URLSearchParams(location.search).get('logout') === '1') {
+          await fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
+          localStorage.removeItem(LEASE_KEY);
+          history.replaceState({}, '', '/access');
+          return;
+        }
+        const response = await fetch('/api/auth/me', { cache: 'no-store' });
+        if (!response.ok) return;
+        const session = await response.json();
+        localStorage.setItem(LEASE_KEY, JSON.stringify({ qq: session.qq, leaseUntil: session.leaseUntil }));
+        location.replace('/');
+      }
+
+      async function pollChallenge() {
+        if (!challenge) return;
+        try {
+          const response = await fetch(`/api/auth/challenges/${encodeURIComponent(challenge.id)}`, {
+            cache: 'no-store',
+            headers: { 'X-Link-Challenge-Token': challenge.pollToken }
+          });
+          const body = await response.json().catch(() => ({}));
+          if (body.state === 'pending') {
+            setStatus('<span class="spinner"></span>等待 NapCat 收到群消息…');
+            pollTimer = window.setTimeout(pollChallenge, 1800);
+            return;
+          }
+          if (body.state === 'authenticated') {
+            localStorage.setItem(LEASE_KEY, JSON.stringify({ qq: body.qq, leaseUntil: body.leaseUntil }));
+            setStatus('验证成功，正在进入 BabyLink…', 'success');
+            window.setTimeout(() => location.replace('/'), 450);
+            return;
+          }
+          throw new Error(body.message || '验证请求已失效，请重新获取。');
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : '验证失败。', 'error');
+        }
+      }
+
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        submitButton.disabled = true;
+        setStatus('<span class="spinner"></span>正在创建一次性口令…');
+        try {
+          await loadGroups();
+          challenge = await readJson(await fetch('/api/auth/challenges', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ qq: qqInput.value.trim(), deviceId: deviceId(), deviceLabel: deviceLabel() })
+          }));
+          codeElement.textContent = challenge.code;
+          commandElement.textContent = challenge.command;
+          loginStep.hidden = true;
+          challengeStep.classList.add('visible');
+          setStatus('<span class="spinner"></span>等待 NapCat 收到群消息…');
+          pollChallenge();
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : '无法创建验证口令。', 'error');
+        } finally {
+          submitButton.disabled = false;
+        }
+      });
+
+      copyButton.addEventListener('click', async () => {
+        if (!challenge) return;
+        await navigator.clipboard.writeText(challenge.command).catch(() => undefined);
+        copyButton.textContent = '已复制';
+        window.setTimeout(() => { copyButton.textContent = '复制验证命令'; }, 1200);
+      });
+
+      restartButton.addEventListener('click', () => {
+        window.clearTimeout(pollTimer);
+        challenge = null;
+        challengeStep.classList.remove('visible');
+        loginStep.hidden = false;
+        setStatus('');
+        qqInput.focus();
+      });
+
+      checkExistingSession().catch(() => undefined);
+    })();
+  </script>
+</body>
+</html>

@@ -997,6 +997,20 @@ export interface GitHubBackupSettings {
   progress: GitHubBackupProgress;
 }
 
+export interface WebDavBackupSettings {
+  enabled: boolean;
+  url: string;
+  username: string;
+  password: string;
+  path: string;
+  recoveryKey: string;
+  intervalMinutes: number;
+  lastBackupAt: number;
+  lastBackupStatus: GitHubBackupStatus;
+  lastBackupError: string;
+  latestRemoteBackupAt: number;
+}
+
 export type MinimaxTtsAudioFormat = 'mp3' | 'wav' | 'pcm';
 
 export type OpenAiTtsAudioFormat = 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm';
@@ -1176,6 +1190,7 @@ export interface AppSettings {
   imagePrivateOnly: boolean;
   imageGenerationEnabled: boolean;
   githubBackup: GitHubBackupSettings;
+  webDavBackup: WebDavBackupSettings;
 }
 
 export interface AppSnapshot {

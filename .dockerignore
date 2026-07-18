@@ -1,0 +1,12 @@
+node_modules
+dist
+server-dist
+releases
+.git
+.github
+.vscode
+android
+ios
+deploy/.env
+*.log
+*.tsbuildinfo

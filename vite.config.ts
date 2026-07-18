@@ -10,6 +10,7 @@ const imageProxyPath = '/__image-proxy';
 const openAiImageGeneratePath = '/__openai-image-generate';
 const openAiModelsPath = '/__openai-models';
 const imageDownloadPath = '/__image-download';
+const appServerProxyTarget = process.env.LINK_SERVER_PROXY_TARGET || 'http://127.0.0.1:3000';
 
 async function readRequestBody(request: IncomingMessage) {
   const chunks: Buffer[] = [];
@@ -235,6 +236,11 @@ export default defineConfig({
       'Cache-Control': 'no-store'
     },
     proxy: {
+      '/api': {
+        target: appServerProxyTarget,
+        changeOrigin: true,
+        ws: true
+      },
       '/__openai': {
         target: 'https://api.openai.com',
         changeOrigin: true,

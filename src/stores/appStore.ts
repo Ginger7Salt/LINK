@@ -611,15 +611,17 @@ export const useAppStore = defineStore('app', () => {
   }
 
 
-  function keepDeviceGitHubBackupSettings(snapshot: AppSnapshot): AppSnapshot {
-    const currentBackup = settings.value?.githubBackup;
-    if (!currentBackup || (!currentBackup.token && !currentBackup.owner && !currentBackup.enabled && !currentBackup.lastBackupAt)) return snapshot;
+  function keepDeviceBackupSettings(snapshot: AppSnapshot): AppSnapshot {
+    const currentGitHubBackup = settings.value?.githubBackup;
+    const currentWebDavBackup = settings.value?.webDavBackup;
+    if (!currentGitHubBackup && !currentWebDavBackup) return snapshot;
 
     return {
       ...snapshot,
       settings: normalizeAppSettings({
         ...snapshot.settings,
-        githubBackup: currentBackup
+        ...(currentGitHubBackup ? { githubBackup: currentGitHubBackup } : {}),
+        ...(currentWebDavBackup ? { webDavBackup: currentWebDavBackup } : {})
       })
     };
   }
@@ -4683,7 +4685,7 @@ export const useAppStore = defineStore('app', () => {
 
   async function importBackupSnapshot(snapshot: AppSnapshot, options: ImportBackupOptions = {}): Promise<ImportBackupResult> {
     await options.onProgress?.('正在整理导入数据', 45);
-    const normalizedSnapshot = keepDeviceGitHubBackupSettings(normalizeSnapshotForRestore(snapshot));
+    const normalizedSnapshot = keepDeviceBackupSettings(normalizeSnapshotForRestore(snapshot));
     const slimmedForMobile = shouldUseMobileSafeRestore(options.sourceByteSize);
     const restorableSnapshot = slimmedForMobile
       ? slimOversizedRestoreSnapshot(normalizedSnapshot)

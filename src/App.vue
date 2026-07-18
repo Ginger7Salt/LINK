@@ -43,6 +43,8 @@ import AppModal from '@/components/common/AppModal.vue';
 import FirstRunDisclaimer from '@/components/common/FirstRunDisclaimer.vue';
 import GlobalSmallTheaterNotice from '@/components/common/GlobalSmallTheaterNotice.vue';
 import GlobalVoomNotice from '@/components/common/GlobalVoomNotice.vue';
+import { startAccessHeartbeat } from '@/services/access';
+import { uploadEncryptedWebDavBackup } from '@/services/webDavBackup';
 import { syncKeepAlive } from '@/services/keepAlive';
 import { useAppStore } from '@/stores/appStore';
 import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
@@ -55,7 +57,10 @@ const router = useRouter();
 const musicPlayer = useMusicPlayerStore();
 const musicAudioRef = ref<HTMLAudioElement | null>(null);
 let githubAutoBackupTimer: number | undefined;
+let webDavAutoBackupTimer: number | undefined;
+let webDavAutoBackupRunning = false;
 let proactiveGroupTimer: number | undefined;
+let stopAccessHeartbeat: (() => void) | undefined;
 let globalCallFloatDrag: { pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null = null;
 let suppressGlobalCallFloatClick = false;
 const themeFontStyleId = 'link-theme-fonts';
@@ -68,6 +73,11 @@ const githubBackupScheduleKey = computed(() => {
   const backup = store.settings?.githubBackup;
   if (!store.ready || !backup?.enabled || !backup.token || !backup.owner || !backup.repo) return '';
   return [backup.owner, backup.repo, backup.branch, backup.path, backup.intervalMinutes].join('|');
+});
+const webDavBackupScheduleKey = computed(() => {
+  const backup = store.settings?.webDavBackup;
+  if (!store.ready || !backup?.enabled || !backup.url || !backup.username || !backup.password || !backup.recoveryKey) return '';
+  return [backup.url, backup.username, backup.path, backup.intervalMinutes].join('|');
 });
 const themeFontSettings = computed(() => store.settings?.themeSettings.fonts ?? { activeFontId: '', entries: [] as ThemeFontEntry[] });
 const globalThemeSettings = computed(() => store.settings?.themeSettings.global ?? { scale: 1 });
@@ -316,6 +326,53 @@ function getGitHubBackupIntervalMs() {
   return minutes * 60 * 1000;
 }
 
+function clearWebDavAutoBackupTimer() {
+  if (webDavAutoBackupTimer === undefined) return;
+  window.clearInterval(webDavAutoBackupTimer);
+  webDavAutoBackupTimer = undefined;
+}
+
+function getWebDavBackupIntervalMs() {
+  return Math.max(5, store.settings?.webDavBackup.intervalMinutes ?? 30) * 60 * 1000;
+}
+
+async function runWebDavAutoBackupIfDue() {
+  const backupSettings = store.settings?.webDavBackup;
+  if (webDavAutoBackupRunning || !store.settings || !backupSettings?.enabled || !backupSettings.url || !backupSettings.username || !backupSettings.password || !backupSettings.recoveryKey) return;
+  if (backupSettings.lastBackupAt && Date.now() - backupSettings.lastBackupAt < getWebDavBackupIntervalMs()) return;
+  webDavAutoBackupRunning = true;
+  try {
+    await store.saveSettings({ ...store.settings, webDavBackup: { ...backupSettings, lastBackupStatus: 'running', lastBackupError: '' } });
+    const backup = await store.createBackupFile();
+    await uploadEncryptedWebDavBackup(backupSettings, backup);
+    if (store.settings) {
+      await store.saveSettings({
+        ...store.settings,
+        webDavBackup: {
+          ...store.settings.webDavBackup,
+          lastBackupAt: Date.now(),
+          latestRemoteBackupAt: backup.exportedAt,
+          lastBackupStatus: 'success',
+          lastBackupError: ''
+        }
+      });
+    }
+  } catch (error) {
+    if (store.settings) {
+      await store.saveSettings({
+        ...store.settings,
+        webDavBackup: {
+          ...store.settings.webDavBackup,
+          lastBackupStatus: 'failed',
+          lastBackupError: error instanceof Error ? error.message : '自动 WebDAV 备份失败。'
+        }
+      }).catch(() => undefined);
+    }
+  } finally {
+    webDavAutoBackupRunning = false;
+  }
+}
+
 async function runGitHubAutoBackupIfDue() {
   const backup = store.settings?.githubBackup;
   if (!backup?.enabled || !backup.token || !backup.owner || !backup.repo) return;
@@ -344,6 +401,17 @@ watch(
   { immediate: true }
 );
 
+watch(
+  webDavBackupScheduleKey,
+  (scheduleKey) => {
+    clearWebDavAutoBackupTimer();
+    if (!scheduleKey) return;
+    void runWebDavAutoBackupIfDue();
+    webDavAutoBackupTimer = window.setInterval(() => void runWebDavAutoBackupIfDue(), getWebDavBackupIntervalMs());
+  },
+  { immediate: true }
+);
+
 watch(themeFontSettings, applyThemeFonts, { immediate: true, deep: true });
 watch(globalThemeSettings, applyGlobalThemeScale, { immediate: true, deep: true });
 watch(onlineThemeSettings, applyOnlineThemeStyles, { immediate: true, deep: true });
@@ -365,11 +433,20 @@ watch(() => store.ready, (ready) => {
 }, { immediate: true });
 
 onMounted(() => {
+  stopAccessHeartbeat = startAccessHeartbeat();
+  document.addEventListener('visibilitychange', handleWebDavVisibilityChange);
   musicPlayer.setAudioElement(musicAudioRef.value);
 });
 
+function handleWebDavVisibilityChange() {
+  if (document.visibilityState === 'visible') void runWebDavAutoBackupIfDue();
+}
+
 onBeforeUnmount(() => {
+  stopAccessHeartbeat?.();
+  document.removeEventListener('visibilitychange', handleWebDavVisibilityChange);
   clearGitHubAutoBackupTimer();
+  clearWebDavAutoBackupTimer();
   if (proactiveGroupTimer !== undefined) window.clearInterval(proactiveGroupTimer);
   setAppFontFamily('');
   document.documentElement.style.removeProperty('--app-display-scale');

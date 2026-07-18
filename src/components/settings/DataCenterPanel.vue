@@ -1,5 +1,6 @@
 <template>
   <section class="data-center">
+    <AccessAccountPanel />
     <section class="backup-card">
       <header class="card-head">
         <div>
@@ -22,6 +23,8 @@
 
       <p v-if="localFeedback" class="feedback" :class="localFeedbackKind">{{ localFeedback }}</p>
     </section>
+
+    <WebDavBackupPanel :settings="settings" />
 
     <section class="backup-card github-card">
       <header class="card-head">
@@ -147,6 +150,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { CloudUpload, Download, Github, Lock } from 'lucide-vue-next';
+import AccessAccountPanel from '@/components/settings/AccessAccountPanel.vue';
+import WebDavBackupPanel from '@/components/settings/WebDavBackupPanel.vue';
 import { buildGitHubLoginUrl, ensureGitHubBackupRepository, fetchGitHubViewer, findGitHubBackupRepository, formatGitHubBackupError, getGitHubOAuthWorkerOrigin } from '@/services/githubBackup';
 import { useAppStore } from '@/stores/appStore';
 import type { AppSettings, GitHubBackupHistoryRecord, GitHubBackupSettings } from '@/types/domain';

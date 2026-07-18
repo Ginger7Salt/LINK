@@ -1,4 +1,4 @@
-import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterProfileHomepageAutoCleanupSettings, CharacterRingtoneSettings, CharacterSmallTheaterAutoCleanupSettings, CharacterVoomAutoCleanupSettings, DoubaoTtsAudioFormat, DoubaoTtsSettings, DoubaoTtsTextType, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, ProfileHomepageAutoCleanupPreset, RingtoneAsset, RingtoneEventType, SmallTheaterAutoCleanupPreset, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType, VoomAutoCleanupPreset } from '@/types/domain';
+import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterProfileHomepageAutoCleanupSettings, CharacterRingtoneSettings, CharacterSmallTheaterAutoCleanupSettings, CharacterVoomAutoCleanupSettings, DoubaoTtsAudioFormat, DoubaoTtsSettings, DoubaoTtsTextType, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, ProfileHomepageAutoCleanupPreset, RingtoneAsset, RingtoneEventType, SmallTheaterAutoCleanupPreset, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType, VoomAutoCleanupPreset, WebDavBackupSettings } from '@/types/domain';
 import { createId } from './id';
 
 export const novelAiOfficialApiUrl = 'https://image.novelai.net';
@@ -367,6 +367,19 @@ export const defaultAppSettings: AppSettings = {
       percent: 0,
       updatedAt: 0
     }
+  },
+  webDavBackup: {
+    enabled: false,
+    url: '',
+    username: '',
+    password: '',
+    path: 'babylink-backup.enc.json',
+    recoveryKey: '',
+    intervalMinutes: 30,
+    lastBackupAt: 0,
+    lastBackupStatus: 'idle',
+    lastBackupError: '',
+    latestRemoteBackupAt: 0
   }
 };
 
@@ -1080,6 +1093,26 @@ function normalizeGitHubBackupSettings(settings: Partial<GitHubBackupSettings> |
   };
 }
 
+function normalizeWebDavBackupSettings(settings: Partial<WebDavBackupSettings> | null | undefined): WebDavBackupSettings {
+  const intervalMinutes = Math.min(1440, Math.max(5, Math.round(Number(settings?.intervalMinutes ?? defaultAppSettings.webDavBackup.intervalMinutes) || defaultAppSettings.webDavBackup.intervalMinutes)));
+  const status = ['idle', 'running', 'success', 'failed'].includes(String(settings?.lastBackupStatus))
+    ? settings?.lastBackupStatus as WebDavBackupSettings['lastBackupStatus']
+    : 'idle';
+  return {
+    enabled: Boolean(settings?.enabled),
+    url: String(settings?.url ?? '').trim(),
+    username: String(settings?.username ?? '').trim(),
+    password: String(settings?.password ?? ''),
+    path: String(settings?.path ?? defaultAppSettings.webDavBackup.path).trim().replace(/^\/+/, '') || defaultAppSettings.webDavBackup.path,
+    recoveryKey: String(settings?.recoveryKey ?? '').trim(),
+    intervalMinutes,
+    lastBackupAt: Math.max(0, Number(settings?.lastBackupAt ?? 0) || 0),
+    lastBackupStatus: status,
+    lastBackupError: String(settings?.lastBackupError ?? '').trim(),
+    latestRemoteBackupAt: Math.max(0, Number(settings?.latestRemoteBackupAt ?? 0) || 0)
+  };
+}
+
 function normalizeVendorModel(model: Partial<ApiVendorModel> | null | undefined): ApiVendorModel | null {
   const id = String(model?.id ?? '').trim();
   if (!id) return null;
@@ -1574,7 +1607,8 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
     keepAlive: normalizeKeepAliveSettings(settings?.keepAlive),
     ringtoneSettings: normalizeRingtoneSettings(settings?.ringtoneSettings),
     themeSettings: normalizeThemeSettings(settings?.themeSettings),
-    githubBackup: normalizeGitHubBackupSettings(settings?.githubBackup)
+    githubBackup: normalizeGitHubBackupSettings(settings?.githubBackup),
+    webDavBackup: normalizeWebDavBackupSettings(settings?.webDavBackup)
   };
 
   const resolvedApiConfig = getResolvedApiConfig(normalized);

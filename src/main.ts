@@ -4,6 +4,7 @@ import App from './App.vue';
 import { preloadRoutePages, router } from './router';
 import { syncAppViewportHeight } from './app/viewport';
 import { installRingtoneAudioUnlock } from './services/ringtone';
+import { ensureAccessOnStartup } from './services/access';
 import { useAppStore } from './stores/appStore';
 import { requestPersistentStorage, setupPwaInstallPrompt } from './utils/storageProtection';
 import './styles/main.css';
@@ -31,6 +32,7 @@ function getStartupErrorMessage(error: unknown) {
 }
 
 async function bootstrap() {
+	if (!await ensureAccessOnStartup()) return;
 	const app = createApp(App);
 	const pinia = createPinia();
 

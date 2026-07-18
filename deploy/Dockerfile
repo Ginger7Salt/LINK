@@ -1,0 +1,22 @@
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY tsconfig.json tsconfig.app.json tsconfig.node.json vite.config.ts index.html ./
+COPY public ./public
+COPY src ./src
+COPY server ./server
+RUN npm run build:all
+
+FROM node:22-alpine AS runtime
+ENV NODE_ENV=production
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/server-dist ./server-dist
+COPY --from=build /app/server/public ./server/public
+RUN mkdir -p /app/releases && chown -R node:node /app
+USER node
+EXPOSE 3000
+CMD ["node", "server-dist/index.js"]

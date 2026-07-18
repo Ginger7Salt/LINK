@@ -1,0 +1,65 @@
+name: Build unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-unsigned-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and sync iOS
+        run: |
+          npm run build
+          npx cap sync ios
+
+      - name: Build unsigned app
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/BabyLinkDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            clean build
+
+      - name: Package IPA
+        run: |
+          app="$RUNNER_TEMP/BabyLinkDerivedData/Build/Products/Release-iphoneos/App.app"
+          test -d "$app"
+          mkdir -p build/Payload
+          cp -R "$app" build/Payload/BabyLink.app
+          (cd build && ditto -c -k --sequesterRsrc --keepParent Payload BabyLink-unsigned-1.0.0.ipa)
+          shasum -a 256 build/BabyLink-unsigned-1.0.0.ipa | tee build/BabyLink-unsigned-1.0.0.ipa.sha256
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BabyLink-unsigned-1.0.0
+          path: |
+            build/BabyLink-unsigned-1.0.0.ipa
+            build/BabyLink-unsigned-1.0.0.ipa.sha256
+          if-no-files-found: error
+          retention-days: 14

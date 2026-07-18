@@ -1,6 +1,14 @@
 node_modules/
 dist/
+server-dist/
+releases/
 *.tsbuildinfo
 .DS_Store
+.env
+deploy/.env
 .env.local
 .env.*.local
+*.pem
+*.key
+*.p12
+*.pfx

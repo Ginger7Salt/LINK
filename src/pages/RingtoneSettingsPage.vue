@@ -191,6 +191,42 @@
             <CheckCircle2 v-else :size="14" />
             <span>{{ appUpdateBrowserNote }}</span>
           </p>
+
+          <article v-if="nativeReleaseStatus.supported" class="native-release-card" :class="`is-${nativeReleaseStatus.phase}`">
+            <header>
+              <div>
+                <small>{{ nativeReleaseStatus.platform === 'android' ? 'Android APK' : 'iOS IPA' }}</small>
+                <strong>原生安装包</strong>
+              </div>
+              <span>{{ nativeReleasePhaseLabel }}</span>
+            </header>
+
+            <div class="native-release-copy">
+              <strong>{{ nativeReleaseStatus.message }}</strong>
+              <span v-if="nativeReleaseStatus.release">
+                最新 {{ nativeReleaseStatus.release.versionName }} · {{ formatReleaseSize(nativeReleaseStatus.release.fileSize) }}
+                <template v-if="nativeReleaseStatus.currentVersionCode"> · 当前 {{ nativeReleaseStatus.currentVersionName || nativeReleaseStatus.currentVersionCode }}</template>
+              </span>
+              <span v-else>{{ nativeReleaseStatus.native ? '当前运行在 Capacitor 原生壳中。' : '下载后仍需完成系统安装或自行签名。' }}</span>
+              <p v-if="nativeReleaseStatus.release?.notes">{{ nativeReleaseStatus.release.notes }}</p>
+              <p v-if="nativeReleaseStatus.release?.mandatory" class="mandatory">当前版本低于最低安全版本，必须更新原生壳。</p>
+            </div>
+
+            <div class="native-release-actions">
+              <button type="button" :disabled="nativeReleaseBusy" @click="runNativeReleaseCheck">
+                <RefreshCw :size="15" :class="{ spin: nativeReleaseStatus.phase === 'checking' }" />
+                <span>检查安装包</span>
+              </button>
+              <button class="primary" type="button" :disabled="nativeReleaseBusy || !nativeReleaseStatus.release" @click="downloadNativeRelease">
+                <Download :size="15" />
+                <span>{{ nativeReleaseStatus.platform === 'ios' ? '下载 IPA' : '下载 APK' }}</span>
+              </button>
+            </div>
+
+            <p class="native-release-tip">
+              {{ nativeReleaseStatus.platform === 'ios' ? 'IPA 下载后需要使用自己的 Apple ID、AltStore、SideStore 或其他方式签名。' : 'APK 会转到系统浏览器下载，安装时由 Android 再次确认签名与权限。' }}
+            </p>
+          </article>
         </section>
 
         <section v-else class="ringtone-content" :class="{ 'is-muted': !ringtoneSettings.enabled }" aria-label="铃声内容">
@@ -296,6 +332,7 @@ import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, type Pro
 import { useRouter } from 'vue-router';
 import { AlertCircle, BatteryCharging, BellRing, CheckCircle2, Clapperboard, Cloud, Download, LoaderCircle, MessageCircle, Music2, Phone, Power, RadioTower, RefreshCw, RotateCcw, ShieldCheck, Smartphone, Undo2, Upload, Volume2, VolumeX } from 'lucide-vue-next';
 import { checkForAppUpdate, getAppUpdateStatus, installDownloadedAppUpdate, refreshAppUpdateStatus, subscribeAppUpdateStatus, type AppUpdateStatus } from '@/services/appUpdate';
+import { checkNativeRelease, createInitialNativeReleaseStatus, openNativeReleaseDownload, type NativeReleaseStatus } from '@/services/nativeRelease';
 import { getKeepAliveStatus, requestKeepAliveNotificationPermission, startKeepAlive, stopKeepAlive, subscribeKeepAliveStatus, type KeepAliveRuntimeStatus } from '@/services/keepAlive';
 import { useAppStore } from '@/stores/appStore';
 import type { AppKeepAliveSettings, AppRingtoneSettings, RingtoneAsset, RingtoneEventType } from '@/types/domain';
@@ -361,6 +398,8 @@ const notificationAuthMessage = ref('');
 const keepAliveStatus = ref<KeepAliveRuntimeStatus>(getKeepAliveStatus());
 const appUpdateStatus = ref<AppUpdateStatus>(getAppUpdateStatus());
 const appUpdateBusy = ref(false);
+const nativeReleaseStatus = ref<NativeReleaseStatus>(createInitialNativeReleaseStatus());
+const nativeReleaseBusy = ref(false);
 let unsubscribeKeepAliveStatus: (() => void) | null = null;
 let unsubscribeAppUpdateStatus: (() => void) | null = null;
 
@@ -443,6 +482,15 @@ const appUpdateBrowserNote = computed(() => {
   if (!appUpdateStatus.value.supported) return '只有支持 Service Worker 的安全上下文浏览器可以执行网页热更新。';
   return '检查会下载新资源；安装只会在新版本完整进入等待状态后启用。';
 });
+const nativeReleasePhaseLabel = computed(() => ({
+  idle: '待检查',
+  checking: '检查中',
+  latest: '已最新',
+  available: '可下载',
+  opening: '正在打开',
+  unsupported: '不适用',
+  error: '检查失败'
+})[nativeReleaseStatus.value.phase]);
 
 onMounted(() => {
   void store.hydrate();
@@ -453,6 +501,7 @@ onMounted(() => {
     appUpdateStatus.value = nextStatus;
   });
   void refreshAppUpdateStatus();
+  if (nativeReleaseStatus.value.supported) void runNativeReleaseCheck();
 });
 
 onBeforeUnmount(() => {
@@ -494,6 +543,31 @@ async function runAppUpdateInstall() {
     await installDownloadedAppUpdate();
   } finally {
     appUpdateBusy.value = false;
+  }
+}
+
+async function runNativeReleaseCheck() {
+  if (nativeReleaseBusy.value || !nativeReleaseStatus.value.supported) return;
+  nativeReleaseBusy.value = true;
+  nativeReleaseStatus.value = { ...nativeReleaseStatus.value, phase: 'checking', message: '正在检查受保护的安装包版本…' };
+  try {
+    nativeReleaseStatus.value = await checkNativeRelease();
+  } finally {
+    nativeReleaseBusy.value = false;
+  }
+}
+
+async function downloadNativeRelease() {
+  const release = nativeReleaseStatus.value.release;
+  if (!release || nativeReleaseBusy.value) return;
+  nativeReleaseBusy.value = true;
+  nativeReleaseStatus.value = { ...nativeReleaseStatus.value, phase: 'opening', message: '正在打开系统下载…' };
+  try {
+    await openNativeReleaseDownload(release);
+  } catch (error) {
+    nativeReleaseStatus.value = { ...nativeReleaseStatus.value, phase: 'error', message: error instanceof Error ? error.message : '无法打开安装包下载。' };
+  } finally {
+    nativeReleaseBusy.value = false;
   }
 }
 
@@ -547,6 +621,11 @@ function formatAssetMeta(asset: RingtoneAsset) {
     ? `${(asset.size / 1024 / 1024).toFixed(1)} MB`
     : `${Math.max(1, Math.round(asset.size / 1024))} KB`;
   return `${asset.mimeType || 'Audio'} · ${size}`;
+}
+
+function formatReleaseSize(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '未知大小';
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
 function getFileExtension(fileName: string) {
@@ -1412,6 +1491,92 @@ async function resetCharacter(characterId: string, eventType: RingtoneEventType)
 .app-update-note svg {
   flex: 0 0 auto;
   margin-top: 1px;
+}
+
+.native-release-card {
+  display: grid;
+  gap: 13px;
+  padding: 16px;
+  border: 1px solid rgba(44, 111, 75, 0.1);
+  border-radius: 20px;
+  background: linear-gradient(145deg, rgba(248, 253, 250, 0.98), rgba(236, 247, 241, 0.96));
+}
+
+.native-release-card > header,
+.native-release-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.native-release-card > header > div,
+.native-release-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.native-release-card > header small,
+.native-release-copy > span,
+.native-release-tip {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.native-release-card > header strong {
+  font-size: 16px;
+}
+
+.native-release-card > header > span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(28, 128, 71, 0.1);
+  color: #197141;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.native-release-card.is-error > header > span,
+.native-release-copy .mandatory {
+  color: #a92e2e;
+}
+
+.native-release-copy > strong {
+  font-size: 14px;
+}
+
+.native-release-copy p {
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.native-release-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex: 1 1 0;
+  min-height: 40px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #24342b;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.native-release-actions button.primary {
+  background: #111111;
+  color: #ffffff;
+}
+
+.native-release-actions button:disabled {
+  opacity: 0.5;
+}
+
+.native-release-tip {
+  margin: 0;
+  line-height: 1.55;
 }
 
 .keepalive-dashboard {
