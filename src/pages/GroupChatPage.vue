@@ -299,7 +299,7 @@ const groupHeaderTitle = computed(() => `${conversation.value?.title ?? '群聊'
 const chatSurfaceStyle = computed(() => ({
   backgroundColor: chatSettings.value.appearance.backgroundColor,
   backgroundImage: chatSettings.value.appearance.backgroundImage ? `url(${chatSettings.value.appearance.backgroundImage})` : 'none',
-  '--sticker-panel-offset': `${stickerPanelHeight.value}px`
+  '--sticker-panel-offset': showStickers.value ? 'var(--sticker-panel-height)' : '0px'
 }));
 const messageEntries = computed(() => visibleMessages.value.map((message, messageIndex) => {
   const previousMessage = allVisibleMessages.value[visibleMessageStartIndex.value + messageIndex - 1];

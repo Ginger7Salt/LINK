@@ -12,6 +12,7 @@
   --app-height: 100dvh;
   --visual-viewport-height: var(--app-height);
   --visual-viewport-offset-top: 0px;
+  --sticker-panel-height: min(clamp(286px, 42vh, 388px), calc(var(--visual-viewport-height) - var(--safe-top) - 76px));
   --link-green: #06c755;
   --ink: #111111;
   --muted: #8f9297;

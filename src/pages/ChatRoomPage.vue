@@ -1063,7 +1063,7 @@ function getMessageVisualSender(message: ChatMessage): ChatMessage['sender'] {
 const chatSurfaceStyle = computed(() => ({
   backgroundColor: chatSettings.value.appearance.backgroundColor,
   backgroundImage: chatSettings.value.appearance.backgroundImage ? `url(${chatSettings.value.appearance.backgroundImage})` : 'none',
-  '--sticker-panel-offset': `${stickerPanelHeight.value}px`
+  '--sticker-panel-offset': showStickers.value ? 'var(--sticker-panel-height)' : '0px'
 }));
 const messageListStyle = computed(() => ({
   backgroundColor: 'transparent',
