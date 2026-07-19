@@ -21,6 +21,24 @@ interface ReleaseRow {
   created_at: Date;
 }
 
+export function normalizeReleaseNotes(value: unknown) {
+  const source = String(value ?? '').trim();
+  if (!source) return '';
+  let normalized = source;
+  if (/%[0-9a-f]{2}/i.test(normalized)) {
+    try {
+      normalized = decodeURIComponent(normalized);
+    } catch {}
+  }
+  if (/[\u00c0-\u00ff\u0152\u0153]/.test(normalized)) {
+    const repaired = Buffer.from(normalized, 'latin1').toString('utf8');
+    const normalizedCjkCount = normalized.match(/[\u3400-\u9fff]/g)?.length ?? 0;
+    const repairedCjkCount = repaired.match(/[\u3400-\u9fff]/g)?.length ?? 0;
+    if (!repaired.includes('\ufffd') && repairedCjkCount > normalizedCjkCount) normalized = repaired;
+  }
+  return normalized.slice(0, 4000);
+}
+
 function isAdmin(request: FastifyRequest) {
   return Boolean(config.adminToken && request.headers.authorization === `Bearer ${config.adminToken}`);
 }
@@ -41,7 +59,7 @@ function releasePayload(row: ReleaseRow, qq: string, currentVersionCode = 0) {
     updateAvailable: currentVersionCode === 0 || currentVersionCode < row.version_code,
     sha256: row.sha256,
     fileSize: Number(row.file_size),
-    notes: row.notes,
+    notes: normalizeReleaseNotes(row.notes),
     publishedAt: row.created_at.getTime(),
     downloadUrl: `/api/releases/${row.id}/download?${new URLSearchParams({ ticket }).toString()}`,
     downloadExpiresAt: Date.now() + 5 * 60 * 1000
@@ -105,14 +123,11 @@ export async function registerReleaseRoutes(app: FastifyInstance) {
     const versionCode = Number(request.headers['x-link-version-code'] ?? 0);
     const versionName = String(request.headers['x-link-version-name'] ?? '').trim().slice(0, 40);
     const minimumVersionCode = Math.max(1, Number(request.headers['x-link-minimum-version-code'] ?? 1) || 1);
-    const rawNotes = String(request.headers['x-link-release-notes'] ?? '').trim();
-    let notes = rawNotes;
-    try {
-      notes = decodeURIComponent(rawNotes);
-    } catch {
-      notes = rawNotes;
-    }
-    notes = notes.slice(0, 4000);
+    const encodedNotes = String(request.headers['x-link-release-notes-base64'] ?? '').trim();
+    const legacyNotes = request.headers['x-link-release-notes'];
+    const notes = encodedNotes
+      ? normalizeReleaseNotes(Buffer.from(encodedNotes, 'base64').toString('utf8'))
+      : normalizeReleaseNotes(legacyNotes);
     if (!['android', 'ios'].includes(platform) || !Number.isInteger(versionCode) || versionCode < 1 || !versionName) {
       return await reply.code(400).send({ error: 'invalid_release_metadata' });
     }

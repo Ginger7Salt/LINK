@@ -28,7 +28,7 @@ const response = await fetch(`${baseUrl}/api/admin/releases/upload`, {
     'X-Link-Version-Code': String(versionCode),
     'X-Link-Version-Name': versionName,
     'X-Link-Minimum-Version-Code': String(minimumVersionCode),
-    'X-Link-Release-Notes': encodeURIComponent(releaseNotes)
+    'X-Link-Release-Notes-Base64': Buffer.from(releaseNotes, 'utf8').toString('base64')
   },
   body: bytes
 });

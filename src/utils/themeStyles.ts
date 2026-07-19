@@ -13,9 +13,25 @@ const exportPosterHeight = 1350;
 
 export type ThemeStyleExportScope = 'global' | 'online' | 'offline';
 
-export const defaultGlobalThemeCss = `/* LINK 全站默认完整样式。
+export const defaultGlobalThemeCss = `/* LINK 默认全站样式（安全模式）。
+  默认状态不会覆盖任何页面或弹窗，Home、VOOM、Services、Settings 等页面继续使用各自原本的内置样式。
+
+  点击右上角 + 新建全站样式时，会提供可编辑的完整起始模板；只有保存并主动应用自定义预设后，才会覆盖整个网站。
+
+  常用全站选择器：
+  1. 普通子页面：#app .mobile-shell > .screen:not(.chat-room):not(.offline-room)
+  2. 顶部栏：#app .screen .top-bar
+  3. 底部导航：#app .mobile-shell .bottom-tabs
+  4. 卡片/面板：#app .screen :is([class$="-card"], [class$="-panel"], [class$="-block"])
+  5. 表单：#app .screen :is(input, textarea, select)
+  6. AppModal 弹窗：body .modal-backdrop、body .modal-panel、body .modal-header、body .modal-body
+  7. 其他浮层：body :is([class$="-sheet"], [class$="-popover"], [class$="-menu"], [class$="-layer"])
+  8. 线上聊天与 Stickers 请继续到“线上”主题细调；线下阅读页请到“线下”主题细调。 */
+`;
+
+export const globalThemeStarterCss = `/* LINK 全站自定义样式起始模板。
   这份样式作用于整个网站：所有子页面、顶部栏、底部导航、卡片、表单、按钮、弹窗、抽屉、浮层和提示。
-  它会一直生效；线上与线下主题会在它之后加载，可继续覆盖聊天页和线下阅读页的专用细节。
+  保存并应用后才会生效；线上与线下主题会在它之后加载，可继续覆盖聊天页和线下阅读页的专用细节。
 
   小白改法：
   1. 想改全站配色，先改 :root 里的 --global-* 变量。

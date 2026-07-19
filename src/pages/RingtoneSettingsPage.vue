@@ -1525,7 +1525,10 @@ async function resetCharacter(characterId: string, eventType: RingtoneEventType)
 .native-release-card {
   display: grid;
   gap: 13px;
+  min-width: 0;
+  width: 100%;
   padding: 16px;
+  overflow: hidden;
   border: 1px solid rgba(44, 111, 75, 0.1);
   border-radius: 20px;
   background: linear-gradient(145deg, rgba(248, 253, 250, 0.98), rgba(236, 247, 241, 0.96));
@@ -1533,16 +1536,18 @@ async function resetCharacter(characterId: string, eventType: RingtoneEventType)
 
 .native-release-card > header,
 .native-release-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
+  min-width: 0;
 }
 
 .native-release-card > header > div,
 .native-release-copy {
   display: grid;
   gap: 3px;
+  min-width: 0;
 }
 
 .native-release-card > header small,
@@ -1557,12 +1562,16 @@ async function resetCharacter(characterId: string, eventType: RingtoneEventType)
 }
 
 .native-release-card > header > span {
+  max-width: 42vw;
   padding: 5px 8px;
+  overflow: hidden;
   border-radius: 999px;
   background: rgba(28, 128, 71, 0.1);
   color: #197141;
   font-size: 10px;
   font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .native-release-card.is-error > header > span,
@@ -1576,8 +1585,17 @@ async function resetCharacter(characterId: string, eventType: RingtoneEventType)
 
 .native-release-copy p {
   margin: 5px 0 0;
+  max-width: 100%;
   font-size: 12px;
   line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.native-release-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
 }
 
 .native-release-actions button {
@@ -1585,13 +1603,21 @@ async function resetCharacter(characterId: string, eventType: RingtoneEventType)
   align-items: center;
   justify-content: center;
   gap: 7px;
-  flex: 1 1 0;
+  min-width: 0;
   min-height: 40px;
+  padding: 0 8px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.9);
   color: #24342b;
   font-size: 12px;
   font-weight: 850;
+}
+
+.native-release-actions button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .native-release-actions button.primary {
@@ -1606,6 +1632,13 @@ async function resetCharacter(characterId: string, eventType: RingtoneEventType)
 .native-release-tip {
   margin: 0;
   line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 340px) {
+  .native-release-actions {
+    grid-template-columns: 1fr;
+  }
 }
 
 .keepalive-dashboard {

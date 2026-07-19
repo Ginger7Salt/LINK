@@ -395,7 +395,8 @@ import {
   defaultOfflineThemePresetId,
   defaultOnlineThemeCss,
   defaultOnlineThemePresetId,
-  encodeThemeStylePresetsToPng
+  encodeThemeStylePresetsToPng,
+  globalThemeStarterCss
 } from '@/utils/themeStyles';
 
 type ThemeTab = 'font' | 'global' | 'online' | 'offline';
@@ -735,7 +736,7 @@ function openStyleImporter() {
   activeStyleImportTab.value = 'code';
   editingStylePresetId.value = '';
   styleNameDraft.value = '';
-  styleCssDraft.value = activeDefaultStyleCss.value;
+  styleCssDraft.value = activeStyleScopeId.value === 'global' ? globalThemeStarterCss : activeDefaultStyleCss.value;
   selectedStylePngFile.value = null;
   styleImportError.value = '';
   feedbackMessage.value = '';
