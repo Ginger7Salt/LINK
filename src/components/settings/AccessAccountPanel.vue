@@ -1,5 +1,5 @@
 <template>
-  <section v-if="enabled" class="access-card">
+  <section class="access-card">
     <header>
       <div>
         <span>Access</span>
@@ -8,7 +8,8 @@
       <strong v-if="session">{{ maskQq(session.qq) }}</strong>
     </header>
 
-    <p v-if="loading" class="muted">正在读取登录设备…</p>
+    <p v-if="!enabled" class="muted disabled-note">当前开发环境未启用 QQ 访问控制；线上登录后会在这里显示账号与设备。</p>
+    <p v-else-if="loading" class="muted">正在读取登录设备…</p>
     <p v-else-if="feedback" class="feedback" :class="{ error: feedbackError }">{{ feedback }}</p>
 
     <div v-if="session" class="device-list">
@@ -23,7 +24,7 @@
       </article>
     </div>
 
-    <button class="logout" type="button" @click="logoutAccessSession">退出当前账号</button>
+    <button v-if="enabled && session" class="logout" type="button" @click="logoutAccessSession">退出当前账号</button>
   </section>
 </template>
 
@@ -97,5 +98,6 @@ article em { padding: 2px 5px; border-radius: 999px; background: #dff5e7; color:
 article button, .logout { min-height: 34px; padding: 0 11px; border-radius: 11px; background: #e8f2ec; color: #246240; font-size: 12px; font-weight: 800; }
 .logout { min-height: 42px; background: #fff; color: #9c3b3b; }
 .muted, .feedback { margin: 0; color: #748178; font-size: 12px; }
+.disabled-note { padding: 14px; border-radius: 14px; background: rgba(255,255,255,.72); line-height: 1.6; }
 .feedback.error { color: #b63e3e; }
 </style>

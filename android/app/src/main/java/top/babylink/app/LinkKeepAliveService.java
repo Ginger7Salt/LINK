@@ -18,6 +18,7 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.Person;
 import androidx.core.graphics.drawable.IconCompat;
+import java.util.List;
 
 public class LinkKeepAliveService extends Service {
     public static final String ACTION_START = "top.babylink.app.action.START_KEEP_ALIVE";
@@ -93,7 +94,7 @@ public class LinkKeepAliveService extends Service {
         manager.createNotificationChannel(messageChannel);
     }
 
-    public static void showMessageNotification(Context context, String title, String body, String tag, String icon, String url) {
+    public static void showMessageNotification(Context context, String title, String body, List<String> messages, String tag, String icon, String url) {
         createNotificationChannels(context);
         Intent launchIntent = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
         if (launchIntent == null) launchIntent = new Intent(context, MainActivity.class);
@@ -124,11 +125,13 @@ public class LinkKeepAliveService extends Service {
             Person localUser = new Person.Builder()
                 .setName(context.getString(R.string.app_name))
                 .build();
-            builder
-                .setLargeIcon(avatar)
-                .setStyle(new NotificationCompat.MessagingStyle(localUser)
-                    .setGroupConversation(false)
-                    .addMessage(body, System.currentTimeMillis(), sender));
+            NotificationCompat.MessagingStyle style = new NotificationCompat.MessagingStyle(localUser)
+                .setGroupConversation(false);
+            long now = System.currentTimeMillis();
+            for (int index = 0; index < messages.size(); index += 1) {
+                style.addMessage(messages.get(index), now - (messages.size() - index - 1L) * 1_000L, sender);
+            }
+            builder.setStyle(style);
         } else {
             builder.setStyle(new NotificationCompat.BigTextStyle().bigText(body));
         }

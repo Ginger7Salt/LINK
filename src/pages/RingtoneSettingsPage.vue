@@ -1,8 +1,8 @@
 <template>
   <section class="screen no-tabs ringtone-page">
     <header class="top-bar ringtone-topbar">
-      <button class="ringtone-title-button" type="button" aria-label="返回首页" @click="goBack">
-        <h1 class="top-title">Ringtones</h1>
+      <button class="ringtone-title-button" type="button" :aria-label="activeTab === 'ringtones' ? '返回首页' : '返回 Services'" @click="goBack">
+        <h1 class="top-title">{{ activeTabMeta.title }}</h1>
       </button>
       <button
         v-if="activeTab === 'ringtones'"
@@ -316,25 +316,12 @@
       </section>
     </main>
 
-    <nav class="ringtone-tabs" aria-label="铃声设置分栏">
-      <button
-        v-for="tab in tabs"
-        :key="tab.id"
-        class="ringtone-tab"
-        :class="{ active: activeTab === tab.id }"
-        type="button"
-        @click="openTab(tab.id)"
-      >
-        <component :is="tab.icon" :size="20" stroke-width="2.1" />
-        <span>{{ tab.shortLabel }}</span>
-      </button>
-    </nav>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { AlertCircle, BatteryCharging, BellRing, CheckCircle2, Clapperboard, Cloud, Download, LoaderCircle, MessageCircle, Music2, Phone, Power, RadioTower, RefreshCw, RotateCcw, ShieldCheck, Smartphone, Undo2, Upload, Volume2, VolumeX } from 'lucide-vue-next';
 import { checkForAppUpdate, getAppUpdateStatus, installDownloadedAppUpdate, refreshAppUpdateStatus, subscribeAppUpdateStatus, type AppUpdateStatus } from '@/services/appUpdate';
 import { checkNativeRelease, createInitialNativeReleaseStatus, openNativeReleaseDownload, type NativeReleaseStatus } from '@/services/nativeRelease';
@@ -375,11 +362,11 @@ const eventMeta = {
   call: { label: '来电铃声', shortLabel: 'Call' }
 } satisfies Record<RingtoneEventType, { label: string; shortLabel: string }>;
 
-const tabs = [
-  { id: 'keepalive' as RingtoneTab, shortLabel: 'Keep', icon: BatteryCharging },
-  { id: 'ringtones' as RingtoneTab, shortLabel: 'Rings', icon: Music2 },
-  { id: 'updates' as RingtoneTab, shortLabel: 'Update', icon: Download }
-] as const;
+const pageMeta = {
+  keepalive: { title: 'Keep Alive', shortLabel: 'KEEP' },
+  ringtones: { title: 'Ringtones', shortLabel: 'RINGS' },
+  updates: { title: 'Update', shortLabel: 'UPDATE' }
+} satisfies Record<RingtoneTab, { title: string; shortLabel: string }>;
 
 const RingtoneCardIcon = defineComponent({
   props: {
@@ -395,9 +382,14 @@ const RingtoneCardIcon = defineComponent({
   }
 });
 
+const route = useRoute();
 const router = useRouter();
 const store = useAppStore();
-const activeTab = ref<RingtoneTab>('keepalive');
+const activeTab = computed<RingtoneTab>(() => {
+  if (route.name === 'service-keepalive') return 'keepalive';
+  if (route.name === 'service-update') return 'updates';
+  return 'ringtones';
+});
 const importError = ref('');
 const notificationAuthMessage = ref('');
 const keepAliveStatus = ref<KeepAliveRuntimeStatus>(getKeepAliveStatus());
@@ -408,7 +400,7 @@ const nativeReleaseBusy = ref(false);
 let unsubscribeKeepAliveStatus: (() => void) | null = null;
 let unsubscribeAppUpdateStatus: (() => void) | null = null;
 
-const activeTabMeta = computed(() => tabs.find((tab) => tab.id === activeTab.value) ?? tabs[0]);
+const activeTabMeta = computed(() => pageMeta[activeTab.value]);
 const keepAliveSettings = computed(() => normalizeKeepAliveSettings(store.settings?.keepAlive));
 const ringtoneSettings = computed(() => normalizeRingtoneSettings(store.settings?.ringtoneSettings));
 const keepAliveModeLabel = computed(() => {
@@ -509,14 +501,18 @@ const nativeReleasePhaseLabel = computed(() => ({
 
 onMounted(() => {
   void store.hydrate();
-  unsubscribeKeepAliveStatus = subscribeKeepAliveStatus((nextStatus) => {
-    keepAliveStatus.value = nextStatus;
-  });
-  unsubscribeAppUpdateStatus = subscribeAppUpdateStatus((nextStatus) => {
-    appUpdateStatus.value = nextStatus;
-  });
-  void refreshAppUpdateStatus();
-  if (nativeReleaseStatus.value.supported) void runNativeReleaseCheck();
+  if (activeTab.value === 'keepalive') {
+    unsubscribeKeepAliveStatus = subscribeKeepAliveStatus((nextStatus) => {
+      keepAliveStatus.value = nextStatus;
+    });
+  }
+  if (activeTab.value === 'updates') {
+    unsubscribeAppUpdateStatus = subscribeAppUpdateStatus((nextStatus) => {
+      appUpdateStatus.value = nextStatus;
+    });
+    void refreshAppUpdateStatus();
+    if (nativeReleaseStatus.value.supported) void runNativeReleaseCheck();
+  }
 });
 
 onBeforeUnmount(() => {
@@ -525,15 +521,15 @@ onBeforeUnmount(() => {
 });
 
 function goBack() {
+  if (activeTab.value !== 'ringtones') {
+    void router.push({ name: 'services' });
+    return;
+  }
   if (window.history.length > 1) {
     router.back();
     return;
   }
   void router.push({ name: 'home' });
-}
-
-function openTab(tab: RingtoneTab) {
-  activeTab.value = tab;
 }
 
 function formatUpdateTime(timestamp: number) {

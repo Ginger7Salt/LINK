@@ -16,6 +16,7 @@ const FanficPage = () => import('@/pages/FanficPage.vue');
 const ProfilePage = () => import('@/pages/ProfilePage.vue');
 const AddFriendPage = () => import('@/pages/AddFriendPage.vue');
 const ServicesPage = () => import('@/pages/ServicesPlaceholderPage.vue');
+const ServicesUtilityPage = () => import('@/pages/ServicesUtilityPage.vue');
 const ImageModuleSettingsPage = () => import('@/pages/settings/ImageModuleSettingsPage.vue');
 const SettingsPage = () => import('@/pages/settings/SettingsPage.vue');
 const StickersPage = () => import('@/pages/StickersPage.vue');
@@ -43,6 +44,7 @@ const routePageLoaders = [
   ProfilePage,
   AddFriendPage,
   ServicesPage,
+  ServicesUtilityPage,
   ImageModuleSettingsPage,
   SettingsPage,
   StickersPage,
@@ -67,6 +69,11 @@ export const router = createRouter({
     { path: '/account', name: 'account', component: ProfilePage },
     { path: '/friends/add', name: 'add-friend', component: AddFriendPage },
     { path: '/services', name: 'services', component: ServicesPage },
+    { path: '/services/keep-alive', name: 'service-keepalive', component: RingtoneSettingsPage },
+    { path: '/services/update', name: 'service-update', component: RingtoneSettingsPage },
+    { path: '/services/backup', name: 'service-backup', component: ServicesUtilityPage, props: { mode: 'backup' } },
+    { path: '/services/qq-access', name: 'service-access', component: ServicesUtilityPage, props: { mode: 'access' } },
+    { path: '/services/data', name: 'service-data', component: ServicesUtilityPage, props: { mode: 'data' } },
     { path: '/stickers', name: 'stickers', component: StickersPage },
     { path: '/favorites', name: 'favorites', component: FavoritesPage },
     { path: '/ringtones', name: 'ringtones', component: RingtoneSettingsPage },

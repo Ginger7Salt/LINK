@@ -8,6 +8,7 @@ import android.os.Build;
 import android.os.PowerManager;
 import android.provider.Settings;
 import androidx.core.content.ContextCompat;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
@@ -16,6 +17,8 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
+import java.util.ArrayList;
+import java.util.List;
 
 @CapacitorPlugin(
     name = "LinkKeepAlive",
@@ -93,10 +96,19 @@ public class LinkKeepAlivePlugin extends Plugin {
         }
         String title = call.getString("title", "BabyLink");
         String body = call.getString("body", "");
+        JSArray rawMessages = call.getArray("messages");
+        List<String> messages = new ArrayList<>();
+        if (rawMessages != null) {
+            for (int index = 0; index < rawMessages.length(); index += 1) {
+                String message = rawMessages.optString(index, "").trim();
+                if (!message.isEmpty()) messages.add(message);
+            }
+        }
+        if (messages.isEmpty() && !body.trim().isEmpty()) messages.add(body);
         String tag = call.getString("tag", "babylink-message");
         String icon = call.getString("icon", "");
         String url = call.getString("url", "");
-        LinkKeepAliveService.showMessageNotification(getContext(), title, body, tag, icon, url);
+        LinkKeepAliveService.showMessageNotification(getContext(), title, body, messages, tag, icon, url);
         JSObject result = new JSObject();
         result.put("sent", true);
         call.resolve(result);

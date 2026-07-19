@@ -43,6 +43,11 @@ const router = useRouter();
 const panelRef = ref<HTMLElement | null>(null);
 let resizeObserver: ResizeObserver | null = null;
 
+function handleOutsidePointer(event: PointerEvent) {
+  const target = event.target;
+  if (target instanceof Node && !panelRef.value?.contains(target)) close();
+}
+
 function emitPanelHeight() {
   emit('panelHeightChange', props.modelValue ? Math.ceil(panelRef.value?.getBoundingClientRect().height ?? 0) : 0);
 }
@@ -53,12 +58,14 @@ function startPanelObserver() {
   if (!panelRef.value) return;
   resizeObserver = new ResizeObserver(emitPanelHeight);
   resizeObserver.observe(panelRef.value);
+  document.addEventListener('pointerdown', handleOutsidePointer, true);
   emitPanelHeight();
 }
 
 function stopPanelObserver() {
   resizeObserver?.disconnect();
   resizeObserver = null;
+  document.removeEventListener('pointerdown', handleOutsidePointer, true);
   emit('panelHeightChange', 0);
 }
 

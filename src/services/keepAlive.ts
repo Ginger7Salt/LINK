@@ -12,6 +12,7 @@ export interface LinkNotificationPayload {
   kind: LinkNotificationKind;
   title: string;
   body: string;
+  messages?: string[];
   tag: string;
   icon?: string;
   url?: string;
@@ -506,6 +507,7 @@ export async function showLinkNotification(settings: Partial<AppKeepAliveSetting
     return await showNativeLinkNotification({
       title: payload.title,
       body: payload.body,
+      messages: payload.messages,
       tag: payload.tag,
       icon: await getNativeNotificationIcon(payload.icon),
       url: getNotificationUrl(payload.url || '')

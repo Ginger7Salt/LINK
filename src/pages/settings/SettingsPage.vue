@@ -23,13 +23,7 @@
       <section class="settings-panel">
         <ApiSettingsEditor v-if="activeTab === 'api'" :settings="currentSettings" :open-composer-tick="apiComposerTick" @save="saveSettings" />
         <TtsSettingsEditor v-else-if="activeTab === 'tts'" :settings="currentSettings" @save="saveSettings" />
-        <ImageSettingsEditor v-else-if="activeTab === 'image'" :settings="currentSettings" @save="saveSettings" />
-        <DataCenterPanel
-          v-else-if="activeTab === 'data'"
-          :user-id="store.user?.id || '--'"
-          :settings="currentSettings"
-        />
-        <DataManagementPanel v-else />
+        <ImageSettingsEditor v-else :settings="currentSettings" @save="saveSettings" />
       </section>
     </main>
 
@@ -54,11 +48,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { CloudUpload, Database, ImagePlus, Plus, SlidersHorizontal, Volume2 } from 'lucide-vue-next';
+import { ImagePlus, Plus, SlidersHorizontal, Volume2 } from 'lucide-vue-next';
 import ChatModelSwitchPanel from '@/components/chat/ChatModelSwitchPanel.vue';
 import ApiSettingsEditor from '@/components/home/ApiSettingsEditor.vue';
-import DataCenterPanel from '@/components/settings/DataCenterPanel.vue';
-import DataManagementPanel from '@/components/settings/DataManagementPanel.vue';
 import ImageSettingsEditor from '@/components/settings/ImageSettingsEditor.vue';
 import ImageModelPickerButton from '@/components/settings/ImageModelPickerButton.vue';
 import TtsModelPickerButton from '@/components/settings/TtsModelPickerButton.vue';
@@ -67,7 +59,7 @@ import { useAppStore } from '@/stores/appStore';
 import type { AppSettings } from '@/types/domain';
 import { normalizeAppSettings } from '@/utils/settings';
 
-type SettingsTab = 'api' | 'tts' | 'image' | 'data' | 'storage';
+type SettingsTab = 'api' | 'tts' | 'image';
 
 const tabs = [
   {
@@ -93,22 +85,6 @@ const tabs = [
     title: '图片生成配置',
     longDescription: '生图配置页用于收口图片生成相关参数，让后续在线聊天或线下 RP 的生图触发都能复用同一套配置。',
     icon: ImagePlus
-  },
-  {
-    id: 'data' as SettingsTab,
-    label: 'Backup',
-    shortLabel: 'Backup',
-    title: 'Backup',
-    longDescription: '数据页提供本地导入导出和 GitHub 私有仓库自动备份。',
-    icon: CloudUpload
-  },
-  {
-    id: 'storage' as SettingsTab,
-    label: 'Data',
-    shortLabel: 'Data',
-    title: 'Data',
-    longDescription: '数据管理页用于查看本地存储组成，并提供缓存瘦身和分区清理。',
-    icon: Database
   }
 ];
 
@@ -245,7 +221,7 @@ async function saveSettings(nextSettings: AppSettings) {
 
 .settings-tabs {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 3px;
   padding: 7px calc(8px + var(--safe-right)) calc(9px + var(--safe-bottom)) calc(8px + var(--safe-left));
   border-top: 1px solid rgba(17, 17, 17, 0.05);

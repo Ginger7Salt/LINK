@@ -13,7 +13,7 @@ interface NativeKeepAlivePlugin {
   stop(): Promise<NativeKeepAliveStatus>;
   requestNotifications(): Promise<NativeKeepAliveStatus>;
   openBatterySettings(): Promise<void>;
-  notify(options: { title: string; body: string; tag: string; icon?: string; url?: string }): Promise<{ sent: boolean }>;
+  notify(options: { title: string; body: string; messages?: string[]; tag: string; icon?: string; url?: string }): Promise<{ sent: boolean }>;
 }
 
 const LinkKeepAlive = registerPlugin<NativeKeepAlivePlugin>('LinkKeepAlive');
@@ -48,7 +48,7 @@ export async function openNativeBatterySettings() {
   return true;
 }
 
-export async function showNativeLinkNotification(payload: { title: string; body: string; tag: string; icon?: string; url?: string }) {
+export async function showNativeLinkNotification(payload: { title: string; body: string; messages?: string[]; tag: string; icon?: string; url?: string }) {
   if (!isNativeKeepAliveAvailable()) return false;
   const result = await LinkKeepAlive.notify(payload);
   return result.sent;

@@ -1728,16 +1728,14 @@ export const useAppStore = defineStore('app', () => {
   function notifyCharacterMessages(conversation: Conversation, charMessages: ChatMessage[]) {
     const character = characterById(conversation.charId);
     const displayName = character ? getCharacterVoomDisplayName(character) : conversation.title || '角色';
-    const latestMessage = charMessages[charMessages.length - 1];
-    const body = notificationPreview(
-      latestMessage ? messageReadableContent(latestMessage) : '',
-      '发来了新消息'
-    );
+    const messages = charMessages.map((message) => notificationPreview(messageReadableContent(message), '发来了新消息'));
+    const body = messages.join('\n') || '发来了新消息';
     void playRingtone(settings.value, 'message', conversation.charId);
     void showLinkNotification(settings.value?.keepAlive, {
       kind: 'message',
       title: displayName,
       body,
+      messages,
       tag: `link-message-${conversation.id}`,
       icon: character?.avatar,
       url: `/chats/${conversation.id}`
