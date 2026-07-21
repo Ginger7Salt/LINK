@@ -87,7 +87,7 @@ const globalThemeStyleSettings = computed(() => globalThemeSettings.value.style 
 const onlineThemeSettings = computed(() => store.settings?.themeSettings.online ?? { activePresetId: '', presets: [] });
 const offlineThemeSettings = computed(() => store.settings?.themeSettings.offline ?? { activePresetId: '', presets: [] });
 const routeConversationId = computed(() => {
-  if (!['chat-room', 'offline-room'].includes(String(route.name ?? ''))) return '';
+  if (!['chat-room', 'gobang-room', 'offline-room'].includes(String(route.name ?? ''))) return '';
   const rawId = route.params.id;
   return Array.isArray(rawId) ? String(rawId[0] ?? '') : String(rawId ?? '');
 });

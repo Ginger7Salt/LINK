@@ -41,17 +41,20 @@
           @apply-image="applyChatImageCandidate"
           @accept-music-listen-invite="acceptMusicListenInvite(entry.message)"
           @accept-call="acceptCallMessage(entry.message)"
+          @accept-gobang="acceptGobangInvitation(entry.message)"
           @accept-offline-invitation="acceptOfflineInvitation(entry.message)"
           @accept-transfer="respondToTransfer(entry.message.id, 'accepted')"
           @busy-action="store.showConfigAlert"
           @long-press="openMessageActions"
           @open-card-detail="openCardDetail"
+          @open-gobang="openGobangMessage"
           @open-profile="openCharacterProfile"
           @open-user-profile="openUserProfile"
           @quote-message="quoteMessage"
           @regenerate-image="regenerateChatImage"
           @reject-music-listen-invite="rejectMusicListenInvite(entry.message)"
           @reject-call="rejectCallMessage(entry.message)"
+          @reject-gobang="rejectGobangInvitation(entry.message)"
           @reject-offline-invitation="rejectOfflineInvitation(entry.message)"
           @reject-transfer="respondToTransfer(entry.message.id, 'rejected')"
           @toggle-select="toggleMessageSelection(entry.message)"
@@ -361,7 +364,7 @@
         <button type="button" :disabled="chatActionLocked" @click="openNarrationPanel">
           <span>添加旁白</span>
         </button>
-        <button type="button" @click="openGobangPlaceholder">
+        <button type="button" :disabled="chatActionLocked" @click="startGobangInvitation">
           <span>五子棋</span>
         </button>
         <button type="button" :class="{ busy: generatingVoom }" :aria-disabled="generatingVoom" @click="generateVoomPost">
@@ -690,6 +693,7 @@
       <CharacterProfileSheet
         v-if="character"
         :character="character"
+        :homepages="store.profileHomepagesForCharacter(character.id)"
         :posts="store.sortedVoomPosts"
         @save="saveCharacterProfile"
         @delete-history-entry="deleteCharacterProfileHistoryEntry"
@@ -724,13 +728,14 @@ import { getCharacterAiName, getCharacterDisplayName, getFriendRelationship } fr
 import { collectCharacterPhotoImages, createCharacterPhotoRecord, normalizeCharacterPhotoRecords, normalizeHiddenSourcePhotoKeys } from '@/utils/characterPhotos';
 import { readChatImageFile } from '@/utils/imageFile';
 import { useKeyboardScrollGuard } from '@/utils/keyboardScrollGuard';
-import { getUserAiName, normalizeUserProfile, normalizeVisualProfile } from '@/utils/profile';
+import { defaultProfileAvatar, getUserAiName, normalizeUserProfile, normalizeVisualProfile } from '@/utils/profile';
 import { normalizeRingtoneSettings } from '@/utils/settings';
 import { defaultImageNegativePrompt, getImagePromptPresetForProvider, getSelectedImageModelOption } from '@/utils/settings';
 import { RECOMMENDED_STICKER_LIMIT, recommendStickers } from '@/utils/stickerRecommendations';
 import { formatChatTimeDivider, shouldShowChatTimeDivider } from '@/utils/time';
 import { isVoomNarrationMessage, mergeVoomLikeMessages } from '@/utils/voomMessages';
 import { createId } from '@/utils/id';
+import { createGobangGame } from '@/utils/gobang';
 
 type BrowserSpeechRecognitionAlternative = {
   transcript: string;
@@ -1102,7 +1107,7 @@ const characterPhotoPool = computed(() => {
 });
 const allOnlineMessages = computed(() => {
   const messages = store.messagesForConversation(props.id).filter((message) => message.mode === 'online');
-  const displayMessages = messages.filter((message) => !message.contextOnly && !isVoomNarrationMessage(message) && !isCallSubtitleMessage(message));
+  const displayMessages = messages.filter((message) => !message.contextOnly && !message.gobangId && !isVoomNarrationMessage(message) && !isCallSubtitleMessage(message));
   return mergeVoomLikeMessages(displayMessages);
 });
 const visibleOnlineStartIndex = computed(() => Math.max(0, allOnlineMessages.value.length - visibleMessageLimit.value));
@@ -1115,7 +1120,6 @@ const onlineMessageEntries = computed<OnlineMessageEntry[]>(() => onlineMessages
     : '';
   return { message, messageIndex, timeLabel };
 }));
-
 function shouldHideAvatar(index: number) {
   if (!chatSettings.value.appearance.showOnlyFirstAvatarInReply) return false;
   const message = onlineMessages.value[index];
@@ -1146,7 +1150,7 @@ const activeMessageIsSynthetic = computed(() => Boolean(activeMessage.value?.id.
 const activeMessageTransferIsReceipt = computed(() => Boolean(activeMessage.value?.transfer?.responseToMessageId));
 const canRecallActiveMessage = computed(() => Boolean(activeMessage.value && activeMessage.value.sender === 'user' && !activeMessageIsSynthetic.value));
 const canQuoteActiveMessage = computed(() => Boolean(activeMessage.value && canQuoteMessage(activeMessage.value)));
-const canEditActiveMessage = computed(() => Boolean(activeMessage.value && !activeMessageIsSynthetic.value && !activeMessageTransferIsReceipt.value && !activeMessage.value.musicListenInvite && !activeMessage.value.theaterLink && !activeMessage.value.call));
+const canEditActiveMessage = computed(() => Boolean(activeMessage.value && !activeMessageIsSynthetic.value && !activeMessageTransferIsReceipt.value && !activeMessage.value.musicListenInvite && !activeMessage.value.theaterLink && !activeMessage.value.call && !activeMessage.value.gobang));
 const canFavoriteActiveMessage = computed(() => Boolean(activeMessage.value && !activeMessageIsSynthetic.value && store.canFavoriteMessage(activeMessage.value)));
 const isActiveMessageFavorited = computed(() => Boolean(activeMessage.value && store.isMessageFavorited(activeMessage.value.id)));
 const favoriteActionLabel = computed(() => {
@@ -2619,7 +2623,7 @@ function isCallSubtitleMessage(message: ChatMessage) {
   if (!message.callId || message.call || message.contextOnly) return false;
   if (message.displayStyle === 'narration') return true;
   if (message.sender !== 'user' && message.sender !== 'char') return false;
-  if (message.sticker || message.image || message.location || message.transfer || message.musicListenInvite || message.theaterLink || message.offlineInvitation) return false;
+  if (message.sticker || message.image || message.location || message.transfer || message.commerce || message.shopShare || message.musicListenInvite || message.theaterLink || message.offlineInvitation) return false;
   return Boolean(message.voice?.transcript.trim() || message.content.trim());
 }
 
@@ -3317,6 +3321,8 @@ function messageActionText(message: ChatMessage) {
   if (message.voice) return `[语音] ${message.voice.transcript}`;
   if (message.location) return `[定位] ${[message.location.name, message.location.address, message.location.distance].filter(Boolean).join(' · ')}`;
   if (message.transfer) return `${message.transfer.responseToMessageId ? '[转账回执]' : '[转账]'} ¥${message.transfer.amount} · ${message.transfer.status === 'pending' ? '待处理' : message.transfer.status === 'accepted' ? '已接收' : '已拒绝'}`;
+  if (message.commerce) return `[${message.commerce.kind === 'takeout' ? '外卖' : message.commerce.kind === 'gift' ? '礼物' : '购物'}] ${message.commerce.storeName} · ${message.commerce.items.map((item) => item.name).join('、')} · ¥${message.commerce.totalAmount}`;
+  if (message.shopShare) return `[商城${message.shopShare.kind === 'character-pick' ? '共同挑选' : '分享'}] ${message.shopShare.title} · ${message.shopShare.storeName}${message.shopShare.note ? ` · ${message.shopShare.note}` : ''}`;
   if (message.theaterLink) return `[网站链接] ${message.theaterLink.title} · ${message.theaterLink.summary} · ${message.theaterLink.url}`;
   if (message.call) return `[${message.call.mode === 'video' ? '视频通话' : '语音通话'}] ${message.call.status}`;
   return message.content;
@@ -3340,6 +3346,18 @@ function createLinkMapLabel(address: string, fallback: string) {
 }
 
 function openCardDetail(message: ChatMessage) {
+  if (message.shopShare) {
+    const share = message.shopShare;
+    if (share.orderId) void router.push({ name: 'wallet-shop', query: { order: share.orderId } });
+    else if (share.momentId) void router.push({ name: 'wallet-shop', query: { section: 'moments', moment: share.momentId } });
+    else if (share.storeId) void router.push({ name: 'wallet-shop', query: { store: share.storeId, ...(share.productId ? { product: share.productId } : {}) } });
+    else void router.push({ name: 'wallet-shop', query: { ...(share.productId ? { product: share.productId } : {}) } });
+    return;
+  }
+  if (message.commerce?.orderId) {
+    void router.push({ name: 'wallet-shop', query: { order: message.commerce.orderId } });
+    return;
+  }
   if (message.theaterLink?.theaterId) {
     void router.push({ name: 'small-theater-detail', params: { theaterId: message.theaterLink.theaterId } });
   }
@@ -3675,9 +3693,80 @@ async function confirmRegenerateReply() {
   await store.regenerateLatestReply(props.id, { replyInstruction });
 }
 
-function openGobangPlaceholder() {
+async function openGobangMessage(message: ChatMessage) {
+  const game = message.gobang;
+  if (!game) return;
+  const invitationStatus = game.invitationStatus ?? 'accepted';
+  if (invitationStatus === 'pending') {
+    if (game.direction === 'outgoing') await requestGobangInvitationResponse(message);
+    return;
+  }
+  if (invitationStatus !== 'accepted') return;
+  await store.recoverInterruptedGobangMessage(message.id);
+  await router.push({ name: 'gobang-room', params: { id: props.id, messageId: message.id } });
+}
+
+async function requestGobangInvitationResponse(message: ChatMessage) {
+  if (!message.gobang || message.gobang.direction !== 'outgoing' || message.gobang.invitationStatus !== 'pending' || chatActionLocked.value) return;
+  await store.requestRoleplayReply(props.id, {
+    gobangResponseTargetMessageId: message.id,
+    replyInstruction: `${callUserAiName.value}刚刚在 LINK 里向${callCharacterAiName.value}发出五子棋邀请。请让${callCharacterAiName.value}继续像平时线上聊天一样自然发送符合此刻人设和关系的消息，同时必须在 messageActions.gobangResponse 写 accepted 或 rejected，真实决定是否接受。不要固定接受，不要随机决定；只有 accepted 才表示开局，开局后由${callUserAiName.value}执黑先行。`
+  });
+  const resolvedMessage = store.messagesForConversation(props.id).find((item) => item.id === message.id);
+  const invitationStatus = resolvedMessage?.gobang?.invitationStatus ?? 'pending';
+  if (invitationStatus === 'accepted' && resolvedMessage) await openGobangMessage(resolvedMessage);
+  else if (invitationStatus === 'pending') store.showConfigAlert('角色模型没有返回可识别的接受或拒绝决定。点击邀请卡可以重新调用 API。', '邀请未完成');
+}
+
+async function startGobangInvitation() {
+  if (chatActionLocked.value) return;
   showActionMenu.value = false;
-  store.showConfigAlert('五子棋功能开发中。', '五子棋');
+  const localOnlineModel = store.modelOverridesForConversation(props.id).online.trim();
+  const globalOnlineModel = store.settings?.modelOverrides.online.trim() ?? '';
+  if (!store.hasConfiguredTextModel(localOnlineModel || globalOnlineModel)) {
+    store.showConfigAlert('请先配置可用的线上聊天 API 模型，再发起五子棋邀请。角色回应和落子都不会使用本地模拟。', '需要配置 API 模型');
+    return;
+  }
+  const existing = [...store.messagesForConversation(props.id)].reverse().find((message) => {
+    const game = message.gobang;
+    if (!game) return false;
+    const invitationStatus = game.invitationStatus ?? 'accepted';
+    return invitationStatus === 'pending' || (invitationStatus === 'accepted' && game.status === 'active');
+  });
+  if (existing?.gobang) {
+    if ((existing.gobang.invitationStatus ?? 'accepted') === 'accepted') await openGobangMessage(existing);
+    else if (existing.gobang.direction === 'outgoing') await requestGobangInvitationResponse(existing);
+    else store.showConfigAlert('当前已有一条来自角色的五子棋邀请，请先接受或拒绝。', '五子棋邀请');
+    return;
+  }
+  const game = createGobangGame({
+    gameId: createId('gobang'),
+    starter: 'user',
+    direction: 'outgoing',
+    invitationStatus: 'pending'
+  });
+  const message = await store.appendUserGobangMessage(props.id, game);
+  if (!message) return;
+  await scrollMessagesToBottom();
+  await requestGobangInvitationResponse(message);
+}
+
+async function acceptGobangInvitation(message: ChatMessage) {
+  const game = message.gobang;
+  if (!game || game.direction !== 'incoming' || game.invitationStatus !== 'pending' || chatActionLocked.value) return;
+  const updatedMessage = await store.updateGobangInvitationStatus(message.id, 'accepted');
+  if (!updatedMessage?.gobang) return;
+  await store.appendConversationEvent(props.id, `${callUserAiName.value}接受了${callCharacterAiName.value}发来的五子棋邀请。`, { mode: 'online' });
+  await openGobangMessage(updatedMessage);
+}
+
+async function rejectGobangInvitation(message: ChatMessage) {
+  const game = message.gobang;
+  if (!game || game.direction !== 'incoming' || game.invitationStatus !== 'pending' || chatActionLocked.value) return;
+  const updatedMessage = await store.updateGobangInvitationStatus(message.id, 'rejected');
+  if (!updatedMessage?.gobang) return;
+  await store.appendConversationEvent(props.id, `${callUserAiName.value}拒绝了${callCharacterAiName.value}发来的五子棋邀请。`, { mode: 'online' });
+  await scrollMessagesToBottom();
 }
 
 async function generateVoomPost() {

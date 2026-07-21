@@ -4,6 +4,7 @@ const HomePage = () => import('@/pages/HomePage.vue');
 const ChatSettingsPage = () => import('@/pages/ChatSettingsPage.vue');
 const ChatSearchPage = () => import('@/pages/ChatSearchPage.vue');
 const ChatRoomPage = () => import('@/pages/ChatRoomPage.vue');
+const GobangRoomPage = () => import('@/pages/GobangRoomPage.vue');
 const CoupleSpacePage = () => import('@/pages/CoupleSpacePage.vue');
 const GroupChatPage = () => import('@/pages/GroupChatPage.vue');
 const ProfileThemePage = () => import('@/pages/ProfileThemePage.vue');
@@ -14,6 +15,11 @@ const OfflineRoomPage = () => import('@/pages/OfflineRoomPage.vue');
 const VoomPage = () => import('@/pages/VoomPage.vue');
 const MusicPage = () => import('@/pages/MusicPage.vue');
 const FanficPage = () => import('@/pages/FanficPage.vue');
+const FanficCreatePage = () => import('@/pages/FanficCreatePage.vue');
+const FanficBookPage = () => import('@/pages/FanficBookPage.vue');
+const FanficReaderPage = () => import('@/pages/FanficReaderPage.vue');
+const WalletPage = () => import('@/pages/WalletPage.vue');
+const ShopPage = () => import('@/pages/ShopPage.vue');
 const ProfilePage = () => import('@/pages/ProfilePage.vue');
 const AddFriendPage = () => import('@/pages/AddFriendPage.vue');
 const ServicesPage = () => import('@/pages/ServicesPlaceholderPage.vue');
@@ -33,6 +39,7 @@ const routePageLoaders = [
   ChatSettingsPage,
   ChatSearchPage,
   ChatRoomPage,
+  GobangRoomPage,
   CoupleSpacePage,
   GroupChatPage,
   ProfileThemePage,
@@ -43,6 +50,11 @@ const routePageLoaders = [
   VoomPage,
   MusicPage,
   FanficPage,
+  FanficCreatePage,
+  FanficBookPage,
+  FanficReaderPage,
+  WalletPage,
+  ShopPage,
   ProfilePage,
   AddFriendPage,
   ServicesPage,
@@ -93,6 +105,7 @@ export const router = createRouter({
     { path: '/chats/:id/profile-themes', name: 'profile-themes', component: ProfileThemePage, props: true },
     { path: '/chats/:id/couple-space', name: 'couple-space', component: CoupleSpacePage, props: true },
     { path: '/chats/:id/theaters', name: 'small-theater', component: SmallTheaterPage, props: true },
+    { path: '/chats/:id/gobang/:messageId', name: 'gobang-room', component: GobangRoomPage, props: true },
     { path: '/theaters/:theaterId', name: 'small-theater-detail', component: SmallTheaterDetailPage, props: true },
     { path: '/chats/:id', name: 'chat-room', component: ChatRoomPage, props: true },
     { path: '/groups/:id', name: 'group-chat', component: GroupChatPage, props: true },
@@ -100,7 +113,12 @@ export const router = createRouter({
     { path: '/offline/:id', name: 'offline-room', component: OfflineRoomPage, props: true },
     { path: '/voom', name: 'voom', component: VoomPage },
     { path: '/music', name: 'music', component: MusicPage },
-    { path: '/fanfic', name: 'fanfic', component: FanficPage }
+    { path: '/fanfic', name: 'fanfic', component: FanficPage },
+    { path: '/fanfic/create', name: 'fanfic-create', component: FanficCreatePage },
+    { path: '/fanfic/books/:bookId', name: 'fanfic-book', component: FanficBookPage, props: true },
+    { path: '/fanfic/books/:bookId/chapters/:chapterId', name: 'fanfic-reader', component: FanficReaderPage, props: true }
+    ,{ path: '/wallet', name: 'wallet', component: WalletPage }
+    ,{ path: '/wallet/shop', name: 'wallet-shop', component: ShopPage }
   ],
   scrollBehavior() {
     return { top: 0 };

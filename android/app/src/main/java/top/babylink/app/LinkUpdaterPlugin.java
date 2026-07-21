@@ -75,7 +75,7 @@ public class LinkUpdaterPlugin extends Plugin {
     public void installUpdate(PluginCall call) {
         String rawUrl = call.getString("url", "");
         String expectedSha256 = call.getString("sha256", "").trim().toLowerCase(Locale.US);
-        long expectedVersionCode = call.getLong("versionCode", 0L);
+        long expectedVersionCode = versionCodeFromPluginValue(call.getData().opt("versionCode"));
         if (!isTrustedDownloadUrl(rawUrl)) {
             call.reject("Only trusted BabyLink HTTPS downloads are allowed.");
             return;
@@ -109,6 +109,15 @@ public class LinkUpdaterPlugin extends Plugin {
                 if (apkFile.exists()) apkFile.delete();
             }
         });
+    }
+
+    static long versionCodeFromPluginValue(Object value) {
+        if (!(value instanceof Number)) return 0L;
+        Number number = (Number) value;
+        double doubleValue = number.doubleValue();
+        if (!Double.isFinite(doubleValue) || doubleValue != Math.rint(doubleValue)) return 0L;
+        long versionCode = number.longValue();
+        return versionCode > 0 ? versionCode : 0L;
     }
 
     private boolean isTrustedDownloadUrl(String rawUrl) {

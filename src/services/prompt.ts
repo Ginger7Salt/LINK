@@ -167,7 +167,7 @@ export const profileMutationPrompt = `补充输出规则：
 
 最终必须输出 JSON，不要输出 JSON 以外的任何文字，不要使用 Markdown 代码块。
 
-线上聊天像真实社交软件消息。messages 数组就是本轮发送顺序，可自由组合文字、语音、图片、定位、转账、Sticker；撤回和引用放在 messageActions。所有消息类型和动作都只是可选工具，不是固定流程：你可以本轮只发一句文字、只发一条语音、只发一个 Sticker、只发定位或转账，也可以任意组合并重复使用多次；先发什么、后发什么、发几个，都由角色当下情绪、上下文、关系距离和真实社交直觉决定。不要为了覆盖功能而机械凑齐类型，不要把示例顺序当模板，不要固定“文字+语音+表情/图片”的套路。旁白模式开启时也可加入旁白。修改网名或个性签名时，资料变动旁白也放进 messages 里的 narration 项，由它在数组中的位置决定显示位置。
+线上聊天像真实社交软件消息。messages 数组就是本轮发送顺序，可自由组合文字、语音、图片、定位、转账、外卖订单、礼物订单、Sticker；撤回和引用放在 messageActions。所有消息类型和动作都只是可选工具，不是固定流程：你可以本轮只发一句文字、只发一条语音、只发一个 Sticker、只发定位、转账、外卖或礼物，也可以任意组合并重复使用多次；先发什么、后发什么、发几个，都由角色当下情绪、上下文、关系距离、独立经济状况和真实社交直觉决定。不要为了覆盖功能而机械凑齐类型，不要把示例顺序当模板，不要固定“文字+语音+表情/图片”的套路。旁白模式开启时也可加入旁白。修改网名或个性签名时，资料变动旁白也放进 messages 里的 narration 项，由它在数组中的位置决定显示位置。
 
 如果不修改资料：
 {
@@ -184,6 +184,8 @@ export const profileMutationPrompt = `补充输出规则：
     "offlineInvitation": null,
     "callInvite": null,
     "callResponse": null,
+    "gobangInvite": null,
+    "gobangResponse": null,
     "relationshipAction": null
   },
   "profileUpdate": {
@@ -204,6 +206,8 @@ export const profileMutationPrompt = `补充输出规则：
     { "type": "image", "description": "你要发送的一张图片的中文画面描述", "generationPrompt": "发送给生图模型的英文画面提示词" },
     { "type": "location", "name": "地点名称", "address": "详细地址，可留空", "distance": "你与{{user}}的距离，例如：约2.4公里" },
     { "type": "transfer", "amount": "转账金额，例如 52.00", "note": "转账备注，可留空" },
+    { "type": "takeout", "storeName": "餐厅名称", "items": [{ "name": "餐品名称", "quantity": 1, "price": "32.00" }], "totalAmount": "38.00", "eta": "预计35分钟送达", "note": "配送或口味备注，可留空" },
+    { "type": "gift", "storeName": "礼物店名称", "items": [{ "name": "礼物名称", "quantity": 1, "price": "199.00" }], "totalAmount": "199.00", "cardMessage": "写给{{user}}的专属卡片内容", "note": "礼物说明，可留空" },
     { "type": "sticker", "stickers": ["合适的Sticker id"] },
     { "type": "narration", "content": "第三人称短旁白，用于显示你修改了自己的资料" },
     { "type": "text", "content": "第二条聊天气泡" }
@@ -218,6 +222,8 @@ export const profileMutationPrompt = `补充输出规则：
     "offlineInvitation": null,
     "callInvite": null,
     "callResponse": null,
+    "gobangInvite": null,
+    "gobangResponse": null,
     "relationshipAction": null
   },
   "profileUpdate": {
@@ -243,6 +249,9 @@ export const profileMutationPrompt = `补充输出规则：
 7. location 项显示成定位卡片：{ "type":"location", "name":"地点名称", "address":"详细地址，可留空", "distance":"你与{{user}}的距离" }。只在线上模式使用；name 是你当前所在或要主动发送的位置，distance 必须写清你与{{user}}的相对距离。
 8. transfer 项显示成转账卡片：{ "type":"transfer", "amount":"金额", "note":"备注，可留空" }。只在线上模式使用；amount 必须是数字字符串，最多两位小数，表示你主动给{{user}}转账，发送后等待{{user}}接收或拒绝。
 9. 当最近对话里出现用户发来的待处理转账，你可以按上下文选择接收或拒绝：在 messageActions.transferDecisions 里写 {"messageId":"用户转账消息id","status":"accepted"} 或 {"messageId":"用户转账消息id","status":"rejected"}。只能处理 pending 的用户转账，不要处理角色自己发出的转账。
+9.1 takeout 项显示成角色已经付款的外卖订单卡片：{ "type":"takeout", "storeName":"店名", "items":[{"name":"餐品","quantity":1,"price":"32.00"}], "totalAmount":"38.00", "eta":"预计35分钟送达", "note":"备注" }。它和角色主动转账一样，是你根据人设与语境自主发出的真实动作，不需要{{user}}设置地址、不需要{{user}}确认，也绝对不能使用或扣除{{user}}的钱包；默认由平台使用{{user}}已有的常用配送信息，你不知道也不要编造具体地址。金额必须符合你的角色经济条件和现实消费水平。
+9.2 gift 项显示成角色已经购买并付款的礼物订单卡片：{ "type":"gift", "storeName":"店名", "items":[{"name":"礼物","quantity":1,"price":"199.00"}], "totalAmount":"199.00", "cardMessage":"只写你真正想留给{{user}}的话", "note":"礼物说明" }。可用于生日、纪念日、日常心意或符合人设的临时起意；不需要{{user}}付款或确认。礼物选择、价格、卡片语气必须符合角色设定、关系阶段、记忆与角色自己的收入和消费习惯，禁止每轮机械送礼。
+9.3 shopping 项用于角色购买普通商品并分享订单：结构与 gift 相同，但 type 写 shopping，cardMessage 可省略。外卖、购物和礼物一旦输出就表示角色已用自己的钱完成付款，不要再发文字要求{{user}}付款、报销、授权或填写收货信息。
 10. 当最近对话里出现用户发来的待处理一起听邀请，你可以按上下文选择同意或拒绝：在 messageActions.musicListenInviteDecisions 里写 {"messageId":"用户一起听邀请消息id","status":"accepted"} 或 {"messageId":"用户一起听邀请消息id","status":"rejected"}。只能处理 pending 的用户邀请。
 11. 你可以主动邀请用户一起听：先用正常 text 气泡自然提出，再在 messageActions.musicListenInvite 写 { "note":"邀请备注，可留空", "query":"想一起听的歌名/歌手，可留空", "source":"netease/kuwo/joox，可留空" }。如果你知道明确歌曲，也可写 track。用户同意前不要把两人写成已经一起听。
 12. 一起听状态下，你可以主动选择歌曲或加入喜欢：messageActions.musicActions 可写 {"type":"play","query":"歌名 歌手","source":"netease"}、{"type":"favorite_current"} 或 {"type":"favorite_track","query":"歌名 歌手"}。只在当前已经一起听时使用；不要在未连接时切歌或收藏。如果你在聊天内容里表达“我切到/换成/放这首/给你加到喜欢/我收藏了”，必须同时写入对应 musicActions；不写 action 就表示这件事没有实际发生。play 和 favorite_track 的 query 必须尽量包含歌名和歌手。切歌/收藏成功后的系统旁白可以像 narration 一样出现在任意消息位置：在 messages 数组中想显示旁白的位置放 {"type":"music_action","actionIndex":0}，actionIndex 对应 musicActions 数组从 0 开始；不要自己用 text 或 narration 伪造“已切歌/已收藏”的系统结果。
@@ -254,15 +263,17 @@ export const profileMutationPrompt = `补充输出规则：
 17. 最近对话每条消息前的 [msg_xxx] 是 messageId。你可以像真实社交软件一样撤回自己之前发出的某条消息，但只能把你自己发过的角色消息 id 放进 messageActions.recallMessageIds；不要撤回用户或系统消息。撤回是独立动作，不要求前后固定搭配文字解释；是否解释由角色和语境决定。
 18. 你可以引用用户或你自己之前发过的某条消息进行回复。若第 n 个 text 气泡要引用历史消息，在 messageActions.quotes 里写 {"replyIndex": n, "messageId": "用户消息或角色消息id"}；可以自然引用你自己此前发过的角色消息；replyIndex 从 0 开始，只按 text 气泡计数，不把 voice、image、location、transfer、sticker、narration 算进去。
 19. 引用用于自然承接上下文。引用时 text.content 里仍只写你真正要发出的新消息，不要重复被引用内容；引用不要求必须放在本轮第一条 text 上。
-20. 如果没有撤回、引用、转账处理、一起听处理、音乐动作、线下邀约、通话或关系动作，messageActions 里的数组都保持空数组，对象字段保持 null。
+20. 如果没有撤回、引用、转账处理、一起听处理、音乐动作、线下邀约、通话、五子棋邀请或关系动作，messageActions 里的数组都保持空数组，对象字段保持 null。
 21. 如上下文未告知绝对禁止写成两人已经见面、正在同一物理空间、你主动来找{{user}}、你已经在{{user}}附近等待、你知道或安排了{{user}}线下行程。除非{{user}}自己明确发来定位或描述，否则你不知道{{user}}在哪里、在做什么。
 22. 你可以在关系和语境合适时主动发起线下邀约：本质是你想和{{user}}见面，在线上聊天里只表示“提出邀约”，不代表两人已经见面、你已经在路上、你已经到{{user}}附近或知道{{user}}未告知的现实行程。邀约必须先用正常 text 气泡自然说出，然后在 messageActions.offlineInvitation 写 { "prompt": "用户接受后进入线下模块时，本章开场要承接的场景/动作/关系氛围，50-160字" }。不邀约时 offlineInvitation 固定为 null。
 23. offlineInvitation.prompt 只给线下模块作为开章输入；可以写你想开启的见面场景、氛围和角色主动性，但不能把用户接受前的线下见面写成已发生事实，不能写角色已知{{user}}未告知的现实位置、行程或住址。
 24. 你可以在关系、时间和语境自然时主动给{{user}}拨打语音或视频通话：在 messageActions.callInvite 写 { "mode":"voice" } 或 { "mode":"video" }。拨打本身不代表用户已经接听，接听前不要把通话内容写成已发生。
 25. 当额外指令明确说明“用户正在拨打给你，需要你判断是否接听”时，这仍然是一轮正常线上聊天回复：你可以照常在 messages 输出 text、voice、sticker、image、location、transfer 等气泡，同时必须在 messageActions.callResponse 写 { "status":"accepted" }、{ "status":"rejected" }、{ "status":"busy" } 或 { "status":"missed" }。只有 accepted 才表示进入通话。
-26. 你拥有真实社交软件里的关系边界。只有当冲突严重、信任破裂、持续越界或人设确实会决绝离开时，才可在最后一条告别消息后设置 messageActions.relationshipAction：拉黑写 { "type":"block", "reason":"简短真实原因" }，删除好友写 { "type":"delete", "reason":"简短真实原因" }。这是会真正锁定会话的高影响动作，禁止为了戏剧性、试探用户、普通吃醋或小争执滥用，也禁止每轮反复触发。涉及拉黑、删除好友及恢复关系的旁白必须明确使用{{char}}与{{user}}的真名，禁止用昵称、备注、“你”或“对方”代替当事人姓名。
-27. 当额外指令明确说明用户在被拉黑或删除后发来了好友验证，你必须结合人设、验证文字、最近冲突和关系记忆决定：同意写 { "type":"accept_request", "reason":"决定原因" }，拒绝写 { "type":"reject_request", "reason":"决定原因" }。不要用 block/delete 代替申请决定；可以在 messages 中写一两句符合角色性格的回应。
-28. 当额外指令明确说明“这是关系事件，{{char}}被{{user}}拉黑或删除后考虑重新申请好友”时，不要假装普通消息还能送达。只有{{char}}确实想恢复与{{user}}的关系时才输出一条简短验证文字，并设置 { "type":"request_friend", "reason":"作为好友验证显示的文字" }；{{char}}不想申请时 relationshipAction 保持 null。此事件不是普通聊天回复。`;
+26. 你可以在关系、时间和语境自然时主动邀请{{user}}下五子棋：先按真实线上聊天习惯决定是否发一句自然消息，再在 messageActions.gobangInvite 写 { "starter":"char" }。邀请仅表示你发出对局请求，用户接受前绝对不能写成已经开局、已经落子或用户已经同意；不邀请时固定为 null。
+27. 当额外指令明确说明“用户向你发出五子棋邀请，需要你判断是否接受”时，这仍是一轮正常线上聊天回复：你可以照常发送符合人设的消息，同时必须在 messageActions.gobangResponse 写 { "status":"accepted" } 或 { "status":"rejected" }。决定必须来自你此刻的人设、关系、现实时间与会话上下文，不得固定接受，也不得用随机规则。
+28. 你拥有真实社交软件里的关系边界。只有当冲突严重、信任破裂、持续越界或人设确实会决绝离开时，才可在最后一条告别消息后设置 messageActions.relationshipAction：拉黑写 { "type":"block", "reason":"简短真实原因" }，删除好友写 { "type":"delete", "reason":"简短真实原因" }。这是会真正锁定会话的高影响动作，禁止为了戏剧性、试探用户、普通吃醋或小争执滥用，也禁止每轮反复触发。涉及拉黑、删除好友及恢复关系的旁白必须明确使用{{char}}与{{user}}的真名，禁止用昵称、备注、“你”或“对方”代替当事人姓名。
+29. 当额外指令明确说明用户在被拉黑或删除后发来了好友验证，你必须结合人设、验证文字、最近冲突和关系记忆决定：同意写 { "type":"accept_request", "reason":"决定原因" }，拒绝写 { "type":"reject_request", "reason":"决定原因" }。不要用 block/delete 代替申请决定；可以在 messages 中写一两句符合角色性格的回应。
+30. 当额外指令明确说明“这是关系事件，{{char}}被{{user}}拉黑或删除后考虑重新申请好友”时，不要假装普通消息还能送达。只有{{char}}确实想恢复与{{user}}的关系时才输出一条简短验证文字，并设置 { "type":"request_friend", "reason":"作为好友验证显示的文字" }；{{char}}不想申请时 relationshipAction 保持 null。此事件不是普通聊天回复。`;
 
 export const offlineReplyOutputPrompt = `补充线下输出规则：
 
@@ -563,7 +574,7 @@ function formatPromptMessageTime(timestamp: number) {
   return promptMessageTimeFormatter.format(timestamp);
 }
 
-function getMessageText(message: Pick<PromptContext['messages'][number], 'content' | 'sender' | 'sticker' | 'image' | 'voice' | 'location' | 'transfer' | 'musicListenInvite' | 'theaterLink' | 'offlineInvitation'>) {
+function getMessageText(message: Pick<PromptContext['messages'][number], 'content' | 'sender' | 'sticker' | 'image' | 'voice' | 'location' | 'transfer' | 'commerce' | 'shopShare' | 'musicListenInvite' | 'theaterLink' | 'offlineInvitation'>) {
   if (message.sticker) return `[Sticker] ${message.sticker.description}`;
   if (message.image) {
     if (message.image.kind === 'description') return `用户发送了一张图片，图片内容为“${message.image.description}”。`;
@@ -602,6 +613,27 @@ function getMessageText(message: Pick<PromptContext['messages'][number], 'conten
     }[message.transfer.status];
     const noteText = message.transfer.note ? `，备注为“${message.transfer.note}”` : '';
     return `${senderText}发起了一笔转账：金额 ¥${message.transfer.amount}${noteText}，当前状态：${statusText}。`;
+  }
+  if (message.commerce) {
+    const kindText = message.commerce.kind === 'takeout' ? '外卖' : message.commerce.kind === 'gift' ? '礼物' : '购物';
+    const itemsText = message.commerce.items.map((item) => `${item.name}×${item.quantity}`).join('、');
+    const etaText = message.commerce.eta ? `，${message.commerce.eta}` : '';
+    const cardText = message.commerce.cardMessage ? `，专属卡片：“${message.commerce.cardMessage}”` : '';
+    return `角色用自己的钱完成了一笔${kindText}订单：${message.commerce.storeName}，${itemsText}，实付 ¥${message.commerce.totalAmount}${etaText}${cardText}。订单不使用用户钱包，也不需要用户确认。`;
+  }
+  if (message.shopShare) {
+    const senderText = message.sender === 'user' ? '用户' : '角色';
+    const kindText = {
+      product: '商品',
+      'character-pick': '共同挑选商品',
+      wishlist: '愿望单商品',
+      storefront: '店铺',
+      moment: '商城晒单',
+      order: '订单'
+    }[message.shopShare.kind];
+    const priceText = typeof message.shopShare.priceCents === 'number' ? `，价格 ¥${(message.shopShare.priceCents / 100).toFixed(2)}` : '';
+    const noteText = message.shopShare.note ? `，附言：“${message.shopShare.note}”` : '';
+    return `${senderText}在当前线上会话中发送了一张商城${kindText}卡片：${message.shopShare.title}，来自 ${message.shopShare.storeName || 'LINK Shop'}${priceText}${noteText}。这是双方可见的真实聊天卡片，不代表用户已付款。`;
   }
   if (message.musicListenInvite) {
     const senderText = message.sender === 'user' ? '用户' : '角色';
@@ -811,9 +843,10 @@ export function selectWorldBooks(context: PromptContext) {
   });
 }
 
-export function buildPrompt(context: PromptContext, options: { includeOnlineChatPunctuation?: boolean; includeOnlineStickerSemantics?: boolean; includeOnlineRoutineCare?: boolean; includeAvailableStickers?: boolean } = {}) {
+export function buildPrompt(context: PromptContext, options: { includeOnlineChatPunctuation?: boolean; includeOnlineStickerSemantics?: boolean; includeOnlineRoutineCare?: boolean; includeAvailableStickers?: boolean; includeOnlineReplyTools?: boolean; outputPromptOverride?: string } = {}) {
   const selectedWorldBooks = selectWorldBooks(context);
-  const outputPrompt = context.mode === 'online' ? profileMutationPrompt : offlineReplyOutputPrompt;
+  const outputPrompt = options.outputPromptOverride ?? (context.mode === 'online' ? profileMutationPrompt : offlineReplyOutputPrompt);
+  const includeOnlineReplyTools = options.includeOnlineReplyTools !== false;
   const includeMessageTime = normalizeTimeAwarenessSettings(context.timeAwareness).enabled;
   const characterName = getCharacterAiName(context.character);
   const userName = getUserAiName(context.user);
@@ -865,13 +898,13 @@ export function buildPrompt(context: PromptContext, options: { includeOnlineChat
     context.mode === 'online' && options.includeOnlineChatPunctuation !== false ? onlineChatPunctuationPrompt : '',
     context.mode === 'online' && options.includeOnlineRoutineCare !== false ? replaceTokens(onlineChatRoutineCarePrompt, { '{{user}}': userName }) : '',
     context.mode === 'online' && options.includeOnlineStickerSemantics !== false ? onlineStickerSemanticsPrompt : '',
-    context.mode === 'online' && context.narrationModeEnabled
+    context.mode === 'online' && includeOnlineReplyTools && context.narrationModeEnabled
       ? replaceTokens(narrationModePrompt, {
           '{{char}}': characterName,
           '{{user}}': userName
         })
       : '',
-    context.mode === 'online' && context.offlineInvitationEnabled === false
+    context.mode === 'online' && includeOnlineReplyTools && context.offlineInvitationEnabled === false
       ? '线下邀约功能当前已关闭：本轮以及后续线上回复都禁止发起线下邀约，messageActions.offlineInvitation 必须固定为 null。'
       : '',
     timeAwarenessPrompt,
@@ -880,16 +913,18 @@ export function buildPrompt(context: PromptContext, options: { includeOnlineChat
       : '',
     `当前对话总结：\n${normalizePromptIdentityText(context.conversationSummary || '暂无总结。', context)}`,
     `一起听状态：\n${renderMusicListeningPrompt(context)}`,
-    context.mode === 'online'
+    context.mode === 'online' && includeOnlineReplyTools
       ? `身份称谓铁律：角色只能用真名「${characterName}」指代，用户只能用真名「${canonicalUserName}」指代。所有 text、voice、narration、location、transfer、image description、messageActions 语境和通话相关判断里，绝对禁止使用角色网名、角色备注、角色主页名、用户网名、用户主页名或任何昵称来代指双方；如果历史里出现这些别名，输出时必须改写成真名。`
+      : context.mode === 'online'
+        ? `身份称谓规则：角色只能用真名「${characterName}」指代，用户只能用真名「${canonicalUserName}」指代；如果历史里出现别名，理解为对应本人。`
       : '',
     `记忆手册：\n${normalizePromptIdentityText(context.memorySummary || '暂无记忆手册。', context)}`,
     `世界书：\n${normalizePromptIdentityText(renderWorldBooks(selectedWorldBooks, context) || '无启用条目。', context)}`,
-    context.mode === 'online'
+    context.mode === 'online' && includeOnlineReplyTools
       ? 'Sticker / 图片 / 语音 / 定位 / 转账 / 一起听 / 网站链接规则：用户发送 Sticker 时，文字描述是用户提供的贴纸含义。用户发送真实图片时，若本次请求附带图片，你可以观察图片内容；用户发送文字描述卡片时，必须理解为“用户发送了一张图片，图片内容为描述文本”，虽然没有真实图片文件，也要按图片内容参与对话。用户或角色发送语音时，必须理解为对方用语音消息说出了对应文字内容，不要把它当成普通打字消息；角色也可以在合适时用 voice 项主动发送语音条。用户发送定位时，必须理解为用户把自己的当前位置发给了你，并告知了用户与角色之间的距离；角色也可以在合适时用 location 项主动发送自己的定位。用户发送转账时，必须理解为用户确实向你发起了对应金额的转账；你可以在后续按角色意愿接收或拒绝。角色也可以在合适时用 transfer 项主动向用户转账，等待用户接收或拒绝。用户发送一起听邀请时，必须理解为用户正在邀请你进入音乐页的一起听状态；你可以按关系和语境接受或拒绝。若你主动邀请用户一起听，先用普通 text 自然提出，再在 messageActions.musicListenInvite 写入邀请。一起听状态下你可以感知当前歌曲、播放进度和此刻歌词，也可以用 messageActions.musicActions 切歌、搜索播放或把当前/指定歌曲加入用户的“我的喜欢音乐”。用户发送网站链接卡片时，必须理解为用户转发了一个真实可读的网页链接给你，链接卡片附带的“网站内容”为你已经能看到的页面正文，可直接按其中内容参与对话。若未附带真实图片，不要臆造描述之外的图片细节。'
       : '',
-    context.mode === 'online' && options.includeAvailableStickers !== false ? `角色可用 Stickers：\n${renderAvailableStickers(context)}` : '',
-    renderProfileThemePrompt(context),
+    context.mode === 'online' && includeOnlineReplyTools && options.includeAvailableStickers !== false ? `角色可用 Stickers：\n${renderAvailableStickers(context)}` : '',
+    includeOnlineReplyTools ? renderProfileThemePrompt(context) : '',
     context.mode === 'online' && context.replyInstruction ? `本次生成任务：\n${normalizePromptIdentityText(context.replyInstruction, context)}` : '',
     `最近对话：\n${history || '暂无。'}`
   ].filter(Boolean).join('\n\n');

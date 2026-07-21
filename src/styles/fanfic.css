@@ -1,0 +1,585 @@
+.fanfic-page {
+  width: 100%;
+  overflow-x: hidden;
+  background: #faf8f4;
+  color: #2d292a;
+}
+
+.fanfic-page,
+.fanfic-page * {
+  box-sizing: border-box;
+}
+
+.fanfic-page .fanfic-topbar {
+  width: 100%;
+  border-bottom: 1px solid rgba(63, 54, 56, 0.045);
+  background: rgba(250, 248, 244, 0.9);
+}
+
+.fanfic-page .fanfic-wordmark {
+  display: grid;
+  gap: 1px;
+  padding: 0;
+  text-align: left;
+}
+
+.fanfic-page .fanfic-wordmark span {
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 25px;
+  font-style: italic;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.fanfic-page .fanfic-wordmark small {
+  color: #a49497;
+  font-size: 7px;
+  font-weight: 850;
+  letter-spacing: 0.21em;
+  text-transform: uppercase;
+}
+
+.fanfic-page .fanfic-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.fanfic-page .round-action {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(64, 55, 57, 0.06);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.76);
+  color: #4d4547;
+  box-shadow: 0 8px 18px rgba(56, 45, 48, 0.05);
+}
+
+.fanfic-page .round-action.primary {
+  background: #343032;
+  color: #fff;
+}
+
+.fanfic-page .fanfic-main {
+  display: grid;
+  gap: 26px;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 10px calc(16px + var(--safe-right)) calc(30px + var(--safe-bottom)) calc(16px + var(--safe-left));
+}
+
+.fanfic-page .search-panel {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 0 13px;
+  border: 1px solid rgba(70, 61, 62, 0.07);
+  border-radius: 16px;
+  background: #fff;
+  color: #93898b;
+  box-shadow: 0 10px 28px rgba(56, 48, 50, 0.055);
+}
+
+.fanfic-page .search-panel input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #3f393b;
+  font-size: 12px;
+}
+
+.fanfic-page .search-panel button,
+.fanfic-page .job-dismiss {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: currentColor;
+}
+
+.fanfic-page .generation-strip {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 17px;
+  background: #eef5ef;
+  color: #46604e;
+}
+
+.fanfic-page .generation-strip.failed {
+  background: #f9ecec;
+  color: #875d60;
+}
+
+.fanfic-page .generation-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.fanfic-page .generation-strip > span:nth-child(2) {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.fanfic-page .generation-strip strong {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fanfic-page .generation-strip small {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 8px;
+  line-height: 1.4;
+  opacity: 0.82;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.fanfic-page .generation-strip em {
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.fanfic-page .job-dismiss {
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.fanfic-page .continue-card {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px;
+  border-radius: 26px;
+  background: linear-gradient(145deg, #f1e4e4, #e7eee7);
+  box-shadow: 0 18px 42px rgba(57, 49, 50, 0.08);
+}
+
+.fanfic-page .continue-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fanfic-page .continue-copy > small,
+.fanfic-page .section-head small {
+  color: #9a7e83;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+}
+
+.fanfic-page .continue-copy strong {
+  overflow: hidden;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 18px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fanfic-page .continue-copy p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: #756d6f;
+  font-size: 9px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.fanfic-page .continue-copy > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #5d745f;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.fanfic-page .inspiration-section,
+.fanfic-page .library-section {
+  display: grid;
+  gap: 13px;
+  min-width: 0;
+}
+
+.fanfic-page .section-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 2px;
+}
+
+.fanfic-page .section-head > span {
+  display: grid;
+  gap: 3px;
+}
+
+.fanfic-page .section-head strong {
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 18px;
+}
+
+.fanfic-page .section-head button {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: 0 0 auto;
+  color: #8f8587;
+  font-size: 9px;
+}
+
+.fanfic-page .section-head > em {
+  color: #a29698;
+  font-size: 9px;
+  font-style: normal;
+}
+
+.fanfic-page .topic-scroller {
+  display: flex;
+  gap: 10px;
+  width: auto;
+  margin: 0 calc(-16px - var(--safe-right)) 0 calc(-16px - var(--safe-left));
+  padding: 2px calc(16px + var(--safe-right)) 12px calc(16px + var(--safe-left));
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+}
+
+.fanfic-page .topic-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.fanfic-page .topic-scroller .topic-card {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  flex: 0 0 min(230px, 76vw);
+  width: min(230px, 76vw);
+  min-width: 0;
+  min-height: 158px;
+  padding: 16px;
+  border: 1px solid rgba(78, 67, 69, 0.06);
+  border-radius: 24px;
+  background: linear-gradient(145deg, rgba(255, 252, 249, 0.98), rgba(243, 238, 232, 0.9));
+  color: #302b2d;
+  text-align: left;
+  box-shadow: 0 12px 28px rgba(61, 52, 54, 0.055);
+  scroll-snap-align: start;
+}
+
+.fanfic-page .topic-scroller .topic-card:nth-child(3n + 2) {
+  background: linear-gradient(145deg, #f8f2f4, #eee2e5);
+}
+
+.fanfic-page .topic-scroller .topic-card:nth-child(3n + 3) {
+  background: linear-gradient(145deg, #f2f7f2, #e1eadf);
+}
+
+.fanfic-page .topic-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #7a6d70;
+}
+
+.fanfic-page .topic-card-top small {
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+
+.fanfic-page .topic-card strong {
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.fanfic-page .topic-card p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: #736b6d;
+  font-size: 10px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.fanfic-page .topic-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: auto;
+  overflow: hidden;
+}
+
+.fanfic-page .topic-tags em {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.62);
+  color: #85777a;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 750;
+}
+
+.fanfic-page .book-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px 12px;
+  width: 100%;
+}
+
+.fanfic-page .book-card {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  min-width: 0;
+  width: 100%;
+}
+
+.fanfic-page .fanfic-cover {
+  position: relative;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 2 / 3;
+  margin: 0;
+  overflow: hidden;
+  border-radius: 20px;
+  background: linear-gradient(145deg, #f3e3df, #dde9e1);
+  box-shadow: 0 18px 42px rgba(53, 44, 45, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.7);
+  isolation: isolate;
+}
+
+.fanfic-page .continue-card .fanfic-cover {
+  width: 90px;
+  border-radius: 14px;
+}
+
+.fanfic-page .fanfic-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.fanfic-page .fanfic-cover .cover-shade {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, rgba(14, 13, 13, 0.02) 30%, rgba(20, 16, 18, 0.72));
+}
+
+.fanfic-page .fanfic-cover figcaption {
+  position: absolute;
+  right: 11px;
+  bottom: 13px;
+  left: 11px;
+  z-index: 2;
+  display: grid;
+  gap: 4px;
+  color: #fff;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.3);
+}
+
+.fanfic-page .fanfic-cover figcaption small {
+  overflow: hidden;
+  font-size: 7px;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.fanfic-page .fanfic-cover figcaption strong {
+  display: -webkit-box;
+  overflow: hidden;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: clamp(14px, 4.6vw, 22px);
+  line-height: 1.16;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.fanfic-page .fanfic-cover figcaption span {
+  overflow: hidden;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fanfic-page .fanfic-cover > em {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  z-index: 3;
+  padding: 4px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.76);
+  color: #4e4749;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 800;
+  backdrop-filter: blur(12px);
+}
+
+.fanfic-page .book-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 3px;
+}
+
+.fanfic-page .book-copy strong {
+  overflow: hidden;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fanfic-page .book-copy small {
+  overflow: hidden;
+  color: #948a8c;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fanfic-page .book-copy > span {
+  display: flex;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.fanfic-page .book-copy em {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: #eee9e5;
+  color: #897d7f;
+  font-size: 7px;
+  font-style: normal;
+}
+
+.fanfic-page .empty-library {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 42px 22px;
+  border: 1px dashed rgba(104, 90, 93, 0.18);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.44);
+  text-align: center;
+}
+
+.fanfic-page .empty-mark {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  margin-bottom: 5px;
+  border-radius: 22px;
+  background: #f0e2e5;
+  color: #836a70;
+  transform: rotate(-4deg);
+}
+
+.fanfic-page .empty-library > small {
+  color: #a48d91;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.17em;
+}
+
+.fanfic-page .empty-library h2 {
+  margin: 0;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 19px;
+}
+
+.fanfic-page .empty-library p {
+  max-width: 260px;
+  margin: 0;
+  color: #8b8183;
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+.fanfic-page .empty-library button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  margin-top: 8px;
+  padding: 0 15px;
+  border-radius: 14px;
+  background: #363133;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.fanfic-page .spin {
+  animation: fanfic-spin 1s linear infinite;
+}
+
+@keyframes fanfic-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (min-width: 620px) {
+  .fanfic-page .book-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px 16px;
+  }
+
+  .fanfic-page .fanfic-cover figcaption strong {
+    font-size: 20px;
+  }
+}
+
+@media (max-width: 340px) {
+  .fanfic-page .continue-card {
+    grid-template-columns: 76px minmax(0, 1fr);
+  }
+
+  .fanfic-page .continue-card .fanfic-cover {
+    width: 76px;
+  }
+
+  .fanfic-page .continue-card > svg {
+    display: none;
+  }
+}

@@ -1,0 +1,530 @@
+import { computed, ref } from 'vue';
+import { defineStore } from 'pinia';
+import { builtInFanficTopics, createFallbackTrendTopic } from '@/data/fanficTopics';
+import { deleteEntity, loadSnapshot, putEntity, putFanficChapterBundle, pruneUnusedStoredMediaCache } from '@/data/db';
+import {
+  distillFanficCreativeDna,
+  fetchFanficTrendKeywords,
+  generateFanficBookPlan,
+  generateFanficChapterWithComments,
+  generateFanficCover,
+  generateFanficTrendTopics,
+  type FanficCreationPreferences
+} from '@/services/fanfic';
+import type { FanficBook, FanficChapter, FanficComment, FanficGenerationJob, FanficTopic } from '@/types/domain';
+import { createFanficProfileFingerprint, createProceduralFanficCover, normalizeFanficBook, requireFanficTrueNames, validateFanficOriginality } from '@/utils/fanfic';
+import { createId } from '@/utils/id';
+import { hydrateStoredMediaRefs } from '@/utils/mediaStorage';
+import { useAppStore } from './appStore';
+
+export interface CreateFanficBookInput {
+  characterId: string;
+  topicId: string;
+  preferences: FanficCreationPreferences;
+}
+
+function uniqueStrings(values: string[], limit = 40) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))].slice(-limit);
+}
+
+function normalizeTopic(topic: FanficTopic): FanficTopic {
+  return {
+    ...topic,
+    source: ['built-in', 'trend', 'ai', 'custom'].includes(topic.source) ? topic.source : 'custom',
+    title: String(topic.title ?? '').trim(),
+    hook: String(topic.hook ?? '').trim(),
+    setting: String(topic.setting ?? '').trim(),
+    conflict: String(topic.conflict ?? '').trim(),
+    relationship: String(topic.relationship ?? '').trim(),
+    tags: uniqueStrings(Array.isArray(topic.tags) ? topic.tags : [], 8),
+    trendKeywords: uniqueStrings(Array.isArray(topic.trendKeywords) ? topic.trendKeywords : [], 6),
+    createdAt: Number(topic.createdAt) || Date.now()
+  };
+}
+
+function normalizeChapter(chapter: FanficChapter): FanficChapter {
+  const paragraphs = Array.isArray(chapter.paragraphs) && chapter.paragraphs.length
+    ? chapter.paragraphs.map((paragraph, index) => ({ id: String(paragraph.id ?? `${chapter.id}_p${index + 1}`), text: String(paragraph.text ?? '').trim() })).filter((paragraph) => paragraph.text)
+    : String(chapter.content ?? '').split(/\n{2,}/).map((text, index) => ({ id: `${chapter.id}_p${index + 1}`, text: text.trim() })).filter((paragraph) => paragraph.text);
+  return {
+    ...chapter,
+    content: paragraphs.map((paragraph) => paragraph.text).join('\n\n'),
+    paragraphs,
+    continuity: uniqueStrings(Array.isArray(chapter.continuity) ? chapter.continuity : [], 20),
+    hotspots: Array.isArray(chapter.hotspots) ? chapter.hotspots : [],
+    nextDirections: uniqueStrings(Array.isArray(chapter.nextDirections) ? chapter.nextDirections : [], 3),
+    wordCount: Number(chapter.wordCount) || [...paragraphs.map((paragraph) => paragraph.text).join('').replace(/\s+/g, '')].length,
+    status: chapter.status || 'published'
+  };
+}
+
+function normalizeComment(comment: FanficComment): FanficComment {
+  return {
+    ...comment,
+    authorType: comment.authorType === 'user' ? 'user' : 'generated',
+    authorName: String(comment.authorName ?? '').trim() || '匿名读者',
+    avatarSeed: String(comment.avatarSeed ?? comment.id),
+    content: String(comment.content ?? '').trim(),
+    likes: Math.max(0, Math.round(Number(comment.likes) || 0)),
+    createdAt: Number(comment.createdAt) || Date.now()
+  };
+}
+
+export const useFanficStore = defineStore('fanfic', () => {
+  const appStore = useAppStore();
+  const ready = ref(false);
+  const hydratePromise = ref<Promise<void> | null>(null);
+  const books = ref<FanficBook[]>([]);
+  const chapters = ref<FanficChapter[]>([]);
+  const comments = ref<FanficComment[]>([]);
+  const topics = ref<FanficTopic[]>([]);
+  const jobs = ref<FanficGenerationJob[]>([]);
+  const generatingBookIds = ref<string[]>([]);
+  const refreshingTrends = ref(false);
+  const trendStatus = ref('');
+
+  const sortedBooks = computed(() => [...books.value].sort((left, right) => right.updatedAt - left.updatedAt));
+  const builtInTopics = computed(() => topics.value.filter((topic) => topic.source === 'built-in'));
+  const trendTopics = computed(() => topics.value.filter((topic) => topic.source === 'trend' && (!topic.expiresAt || topic.expiresAt > Date.now())));
+  const customTopics = computed(() => topics.value.filter((topic) => topic.source === 'custom' || topic.source === 'ai'));
+  const activeJobs = computed(() => jobs.value.filter((job) => !['completed', 'failed'].includes(job.stage)));
+
+  async function hydrate() {
+    if (ready.value) return;
+    if (hydratePromise.value) return hydratePromise.value;
+    hydratePromise.value = (async () => {
+      await appStore.hydrate();
+      const snapshot = await hydrateStoredMediaRefs(await loadSnapshot());
+      books.value = (snapshot.fanficBooks ?? []).map(normalizeFanficBook);
+      chapters.value = (snapshot.fanficChapters ?? []).map(normalizeChapter);
+      comments.value = (snapshot.fanficComments ?? []).map(normalizeComment).filter((comment) => comment.content);
+      topics.value = (snapshot.fanficTopics ?? []).map(normalizeTopic).filter((topic) => topic.title && topic.hook);
+      jobs.value = (snapshot.fanficGenerationJobs ?? []).map((job) => ({ ...job, progress: Number(job.progress) || (job.stage === 'completed' ? 100 : 0) }));
+      await ensureBuiltInTopics();
+      await removeExpiredTrendTopics();
+      ready.value = true;
+    })().finally(() => {
+      hydratePromise.value = null;
+    });
+    return hydratePromise.value;
+  }
+
+  async function ensureBuiltInTopics() {
+    const currentBuiltInIds = new Set(builtInFanficTopics.map((topic) => topic.id));
+    const obsoleteBuiltInIds = topics.value
+      .filter((topic) => topic.source === 'built-in' && !currentBuiltInIds.has(topic.id))
+      .map((topic) => topic.id);
+    if (obsoleteBuiltInIds.length) {
+      const obsoleteIdSet = new Set(obsoleteBuiltInIds);
+      topics.value = topics.value.filter((topic) => !obsoleteIdSet.has(topic.id));
+      await Promise.all(obsoleteBuiltInIds.map((id) => deleteEntity('fanficTopics', id)));
+    }
+    const byId = new Map(topics.value.map((topic) => [topic.id, topic]));
+    const updates: FanficTopic[] = [];
+    builtInFanficTopics.forEach((topic) => {
+      const existing = byId.get(topic.id);
+      if (!existing) {
+        topics.value.push(topic);
+        updates.push(topic);
+        return;
+      }
+      const nextTopic = { ...topic, createdAt: existing.createdAt || topic.createdAt };
+      const index = topics.value.findIndex((entry) => entry.id === topic.id);
+      topics.value[index] = nextTopic;
+      if (JSON.stringify(existing) !== JSON.stringify(nextTopic)) updates.push(nextTopic);
+    });
+    await Promise.all(updates.map((topic) => putEntity('fanficTopics', topic)));
+  }
+
+  async function removeExpiredTrendTopics() {
+    const expiredIds = topics.value.filter((topic) => topic.source === 'trend' && topic.expiresAt && topic.expiresAt <= Date.now()).map((topic) => topic.id);
+    if (!expiredIds.length) return;
+    topics.value = topics.value.filter((topic) => !expiredIds.includes(topic.id));
+    await Promise.all(expiredIds.map((id) => deleteEntity('fanficTopics', id)));
+  }
+
+  function bookById(bookId: string) {
+    return books.value.find((book) => book.id === bookId) ?? null;
+  }
+
+  function topicById(topicId: string) {
+    return topics.value.find((topic) => topic.id === topicId) ?? null;
+  }
+
+  function chaptersForBook(bookId: string) {
+    return chapters.value.filter((chapter) => chapter.bookId === bookId).sort((left, right) => left.order - right.order);
+  }
+
+  function chapterById(chapterId: string) {
+    return chapters.value.find((chapter) => chapter.id === chapterId) ?? null;
+  }
+
+  function commentsForBook(bookId: string) {
+    return comments.value.filter((comment) => comment.bookId === bookId && comment.scope === 'book').sort((left, right) => left.createdAt - right.createdAt);
+  }
+
+  function commentsForChapter(chapterId: string) {
+    return comments.value.filter((comment) => comment.chapterId === chapterId && comment.scope === 'chapter').sort((left, right) => left.createdAt - right.createdAt);
+  }
+
+  function commentsForHotspot(chapterId: string, hotspotId: string) {
+    return commentsForChapter(chapterId).filter((comment) => comment.hotspotId === hotspotId);
+  }
+
+  function latestJobForBook(bookId: string) {
+    return jobs.value.filter((job) => job.bookId === bookId).sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
+  }
+
+  function isGenerating(bookId: string) {
+    return generatingBookIds.value.includes(bookId);
+  }
+
+  async function saveBook(book: FanficBook) {
+    const normalized = normalizeFanficBook({ ...book, updatedAt: Date.now() });
+    const index = books.value.findIndex((entry) => entry.id === normalized.id);
+    if (index >= 0) books.value[index] = normalized;
+    else books.value.unshift(normalized);
+    await putEntity('fanficBooks', normalized);
+    return normalized;
+  }
+
+  async function saveJob(job: FanficGenerationJob) {
+    const index = jobs.value.findIndex((entry) => entry.id === job.id);
+    if (index >= 0) jobs.value[index] = job;
+    else jobs.value.push(job);
+    await putEntity('fanficGenerationJobs', job);
+    return job;
+  }
+
+  async function updateJob(job: FanficGenerationJob, patch: Partial<FanficGenerationJob>) {
+    return await saveJob({ ...job, ...patch, updatedAt: Date.now() });
+  }
+
+  function createJob(bookId: string, chapterOrder?: number): FanficGenerationJob {
+    const now = Date.now();
+    return {
+      id: createId('fanfic_job'),
+      bookId,
+      chapterOrder,
+      stage: 'planning',
+      label: '正在提炼人物气质',
+      progress: 8,
+      error: '',
+      createdAt: now,
+      updatedAt: now
+    };
+  }
+
+  async function generateAndPersistChapter(book: FanficBook, order: number, direction: string, job: FanficGenerationJob) {
+    const character = appStore.characters.find((entry) => entry.id === book.characterId);
+    const user = appStore.users.find((entry) => entry.id === book.userId);
+    if (!character || !user) throw new Error('这本小说绑定的用户或角色已不存在。');
+    job = await updateJob(job, { stage: 'writing', label: `正在生成第 ${order} 章与高潮评论`, progress: 56, error: '' });
+    let bundle = await generateFanficChapterWithComments({
+      book,
+      order,
+      previousChapters: chaptersForBook(book.id),
+      direction,
+      settings: appStore.settings ?? undefined
+    });
+    let originality = validateFanficOriginality({
+      generatedText: bundle.chapter.content,
+      userDescription: user.description,
+      characterDescription: character.description,
+      creativeDna: book.creativeDna,
+      allowedNames: [book.userName, book.characterName]
+    });
+    if (!originality.valid) {
+      job = await updateJob(job, { label: '原创检查未通过，正在重写本章与评论', progress: 66 });
+      bundle = await generateFanficChapterWithComments({
+        book,
+        order,
+        previousChapters: chaptersForBook(book.id),
+        direction: [direction, '必须完全更换本章事件、环境细节和表达，严禁复用人物资料原句或原背景。'].filter(Boolean).join('\n'),
+        settings: appStore.settings ?? undefined
+      });
+      originality = validateFanficOriginality({
+        generatedText: bundle.chapter.content,
+        userDescription: user.description,
+        characterDescription: character.description,
+        creativeDna: book.creativeDna,
+        allowedNames: [book.userName, book.characterName]
+      });
+      if (!originality.valid) throw new Error(`原创检查未通过：${originality.reason}`);
+    }
+    job = await updateJob(job, { stage: 'commenting', label: '正在整理高潮章评与伏笔账本', progress: 78 });
+    const nextContinuity = uniqueStrings([...book.continuity, ...bundle.chapter.continuity], 40);
+    const nextBook: FanficBook = {
+      ...book,
+      continuity: nextContinuity,
+      status: order >= book.chapterTarget ? 'completed' : 'serializing',
+      updatedAt: Date.now()
+    };
+    await putFanficChapterBundle(nextBook, bundle.chapter, [...bundle.comments, ...bundle.bookComments]);
+    const bookIndex = books.value.findIndex((entry) => entry.id === nextBook.id);
+    if (bookIndex >= 0) books.value[bookIndex] = nextBook;
+    const chapterIndex = chapters.value.findIndex((entry) => entry.id === bundle.chapter.id);
+    if (chapterIndex >= 0) chapters.value[chapterIndex] = bundle.chapter;
+    else chapters.value.push(bundle.chapter);
+    comments.value.push(...bundle.comments, ...bundle.bookComments);
+    return { book: nextBook, chapter: bundle.chapter, job };
+  }
+
+  async function createBook(input: CreateFanficBookInput) {
+    await hydrate();
+    const user = appStore.user;
+    const character = appStore.charactersForActiveUser.find((entry) => entry.id === input.characterId);
+    const topic = topicById(input.topicId);
+    if (!user) throw new Error('没有找到当前用户。');
+    if (!character) throw new Error('请选择当前账号绑定的角色。');
+    if (!topic) throw new Error('请选择一个题材。');
+    if (!appStore.settings) throw new Error('应用设置尚未加载。');
+    const { userName, characterName } = requireFanficTrueNames(user, character);
+    const bookId = createId('fanfic_book');
+    let job = createJob(bookId, 1);
+    await saveJob(job);
+    try {
+      const creativeDna = await distillFanficCreativeDna({ user, character, userName, characterName, settings: appStore.settings });
+      job = await updateJob(job, { stage: 'planning', label: '正在创建全新世界与全书大纲', progress: 24 });
+      const plan = await generateFanficBookPlan({ userName, characterName, creativeDna, topic, preferences: input.preferences, settings: appStore.settings });
+      const now = Date.now();
+      let book: FanficBook = normalizeFanficBook({
+        id: bookId,
+        userId: user.id,
+        characterId: character.id,
+        userName,
+        characterName,
+        title: plan.title,
+        authorName: plan.authorName,
+        summary: plan.summary,
+        genre: plan.genre,
+        tags: plan.tags,
+        topicId: topic.id,
+        topicTitle: topic.title,
+        topicPitch: plan.topicPitch,
+        sourceLabel: topic.source === 'trend' ? '联网趋势灵感 · 全新原创' : topic.source === 'built-in' ? '内置原创题材' : '自定义原创题材',
+        tone: plan.tone,
+        pov: plan.pov,
+        endingPreference: plan.endingPreference,
+        contentBoundaries: plan.contentBoundaries,
+        chapterTarget: input.preferences.chapterTarget,
+        coverImage: '',
+        coverPrompt: plan.coverPrompt,
+        coverPalette: plan.coverPalette,
+        status: 'serializing',
+        creativeDna,
+        storyBible: plan.storyBible,
+        outline: plan.outline,
+        continuity: [],
+        profileFingerprint: createFanficProfileFingerprint(user, character),
+        createdAt: now,
+        updatedAt: now
+      });
+      book.coverImage = createProceduralFanficCover({ title: book.title, authorName: book.authorName, palette: book.coverPalette, motif: book.tags[0] });
+      book = await saveBook(book);
+      generatingBookIds.value.push(book.id);
+      try {
+        const generated = await generateAndPersistChapter(book, 1, input.preferences.extraGuidance, job);
+        book = generated.book;
+        job = generated.job;
+        job = await updateJob(job, { stage: 'cover', label: '正在制作小说封面', progress: 88 });
+        try {
+          const generatedCover = await generateFanficCover(book, appStore.settings);
+          if (generatedCover) book = await saveBook({ ...book, coverImage: generatedCover });
+        } catch (error) {
+          console.warn('Fanfic cover generation failed, using procedural cover.', error);
+        }
+        await updateJob(job, { stage: 'completed', label: '第一章与评论已完成', progress: 100, error: '' });
+      } catch (error) {
+        book = await saveBook({ ...book, status: 'paused' });
+        await updateJob(job, { stage: 'failed', label: '第一章生成失败，可在书籍页重试', progress: 100, error: error instanceof Error ? error.message : '第一章生成失败。' });
+      } finally {
+        generatingBookIds.value = generatingBookIds.value.filter((id) => id !== book.id);
+      }
+      return book;
+    } catch (error) {
+      await updateJob(job, { stage: 'failed', label: '小说创建失败', progress: 100, error: error instanceof Error ? error.message : '小说创建失败。' });
+      throw error;
+    }
+  }
+
+  async function generateNextChapter(bookId: string, direction = '') {
+    await hydrate();
+    const book = bookById(bookId);
+    if (!book) throw new Error('没有找到这本小说。');
+    if (isGenerating(bookId)) return null;
+    const currentChapters = chaptersForBook(bookId);
+    const order = (currentChapters.at(-1)?.order ?? 0) + 1;
+    if (order > book.chapterTarget) throw new Error('这本小说已经完成计划章节。');
+    generatingBookIds.value.push(bookId);
+    let job = createJob(bookId, order);
+    job.stage = 'writing';
+    job.label = `正在生成第 ${order} 章与评论`;
+    job.progress = 42;
+    await saveJob(job);
+    try {
+      const generated = await generateAndPersistChapter(book, order, direction, job);
+      await updateJob(generated.job, { stage: 'completed', label: `第 ${order} 章与评论已完成`, progress: 100, error: '' });
+      return generated.chapter;
+    } catch (error) {
+      await updateJob(job, { stage: 'failed', label: `第 ${order} 章生成失败`, progress: 100, error: error instanceof Error ? error.message : '章节生成失败。' });
+      throw error;
+    } finally {
+      generatingBookIds.value = generatingBookIds.value.filter((id) => id !== bookId);
+    }
+  }
+
+  async function regenerateCover(bookId: string) {
+    await hydrate();
+    const book = bookById(bookId);
+    if (!book) throw new Error('没有找到这本小说。');
+    const proceduralCover = createProceduralFanficCover({ title: book.title, authorName: book.authorName, palette: [...book.coverPalette].reverse(), motif: book.tags[0] });
+    let nextBook = await saveBook({ ...book, coverImage: proceduralCover });
+    try {
+      const generatedCover = await generateFanficCover(nextBook, appStore.settings ?? undefined);
+      if (generatedCover) nextBook = await saveBook({ ...nextBook, coverImage: generatedCover });
+    } catch (error) {
+      console.warn('Fanfic cover regeneration failed, using procedural cover.', error);
+    }
+    return nextBook;
+  }
+
+  async function refreshTrendTopics() {
+    await hydrate();
+    if (refreshingTrends.value) return trendTopics.value;
+    refreshingTrends.value = true;
+    trendStatus.value = '正在读取公开题材趋势';
+    try {
+      const trend = await fetchFanficTrendKeywords();
+      trendStatus.value = '正在把趋势重组为原创题材';
+      let generatedTopics = await generateFanficTrendTopics({ keywords: trend.keywords, settings: appStore.settings ?? undefined });
+      if (!generatedTopics.length) generatedTopics = trend.keywords.slice(0, 6).map(createFallbackTrendTopic);
+      const oldTrendIds = topics.value.filter((topic) => topic.source === 'trend').map((topic) => topic.id);
+      topics.value = [...topics.value.filter((topic) => topic.source !== 'trend'), ...generatedTopics];
+      await Promise.all([
+        ...oldTrendIds.map((id) => deleteEntity('fanficTopics', id)),
+        ...generatedTopics.map((topic) => putEntity('fanficTopics', topic))
+      ]);
+      trendStatus.value = `${trend.sourceLabel} · 已更新 ${generatedTopics.length} 个原创题材`;
+      return generatedTopics;
+    } finally {
+      refreshingTrends.value = false;
+    }
+  }
+
+  async function createCustomTopic(input: Pick<FanficTopic, 'title' | 'hook' | 'setting' | 'conflict' | 'relationship' | 'tags'>) {
+    await hydrate();
+    if (!input.title.trim() || !input.hook.trim()) throw new Error('自定义题材至少需要名称和故事钩子。');
+    const topic: FanficTopic = {
+      id: createId('fanfic_topic_custom'),
+      source: 'custom',
+      title: input.title.trim(),
+      hook: input.hook.trim(),
+      setting: input.setting.trim(),
+      conflict: input.conflict.trim(),
+      relationship: input.relationship.trim(),
+      tags: uniqueStrings(input.tags, 8),
+      trendKeywords: [],
+      createdAt: Date.now()
+    };
+    topics.value.push(topic);
+    await putEntity('fanficTopics', topic);
+    return topic;
+  }
+
+  async function addUserComment(input: { bookId: string; content: string; chapterId?: string; hotspotId?: string; parentId?: string }) {
+    await hydrate();
+    const user = appStore.user;
+    const content = input.content.trim();
+    if (!user?.name.trim()) throw new Error('请先填写用户真名。');
+    if (!content) return null;
+    const comment: FanficComment = {
+      id: createId('fanfic_comment'),
+      bookId: input.bookId,
+      chapterId: input.chapterId,
+      hotspotId: input.hotspotId,
+      scope: input.chapterId ? 'chapter' : 'book',
+      authorType: 'user',
+      authorName: user.name.trim(),
+      avatarSeed: user.id,
+      content,
+      parentId: input.parentId,
+      likes: 0,
+      createdAt: Date.now()
+    };
+    comments.value.push(comment);
+    await putEntity('fanficComments', comment);
+    return comment;
+  }
+
+  async function likeComment(commentId: string) {
+    const index = comments.value.findIndex((comment) => comment.id === commentId);
+    if (index < 0) return;
+    comments.value[index] = { ...comments.value[index], likes: comments.value[index].likes + 1 };
+    await putEntity('fanficComments', comments.value[index]);
+  }
+
+  async function updateReadingProgress(bookId: string, chapterId: string, paragraphId = '') {
+    const book = bookById(bookId);
+    if (!book) return;
+    await saveBook({ ...book, lastReadChapterId: chapterId, lastReadParagraphId: paragraphId });
+  }
+
+  async function dismissJob(jobId: string) {
+    jobs.value = jobs.value.filter((job) => job.id !== jobId);
+    await deleteEntity('fanficGenerationJobs', jobId);
+  }
+
+  async function deleteBook(bookId: string) {
+    const chapterIds = chapters.value.filter((chapter) => chapter.bookId === bookId).map((chapter) => chapter.id);
+    const commentIds = comments.value.filter((comment) => comment.bookId === bookId).map((comment) => comment.id);
+    const jobIds = jobs.value.filter((job) => job.bookId === bookId).map((job) => job.id);
+    books.value = books.value.filter((book) => book.id !== bookId);
+    chapters.value = chapters.value.filter((chapter) => chapter.bookId !== bookId);
+    comments.value = comments.value.filter((comment) => comment.bookId !== bookId);
+    jobs.value = jobs.value.filter((job) => job.bookId !== bookId);
+    await Promise.all([
+      deleteEntity('fanficBooks', bookId),
+      ...chapterIds.map((id) => deleteEntity('fanficChapters', id)),
+      ...commentIds.map((id) => deleteEntity('fanficComments', id)),
+      ...jobIds.map((id) => deleteEntity('fanficGenerationJobs', id))
+    ]);
+    await pruneUnusedStoredMediaCache();
+  }
+
+  return {
+    ready,
+    books,
+    chapters,
+    comments,
+    topics,
+    jobs,
+    sortedBooks,
+    builtInTopics,
+    trendTopics,
+    customTopics,
+    activeJobs,
+    refreshingTrends,
+    trendStatus,
+    hydrate,
+    bookById,
+    topicById,
+    chaptersForBook,
+    chapterById,
+    commentsForBook,
+    commentsForChapter,
+    commentsForHotspot,
+    latestJobForBook,
+    isGenerating,
+    createBook,
+    generateNextChapter,
+    regenerateCover,
+    refreshTrendTopics,
+    createCustomTopic,
+    addUserComment,
+    likeComment,
+    updateReadingProgress,
+    dismissJob,
+    deleteBook
+  };
+});

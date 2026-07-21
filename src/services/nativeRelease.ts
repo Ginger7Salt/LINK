@@ -150,16 +150,26 @@ function triggerBrowserDownload(release: NativeRelease, absoluteUrl: string) {
   downloadLink.remove();
 }
 
+function normalizedAndroidVerificationMetadata(release: NativeRelease) {
+  const sha256 = String(release.sha256 ?? '').trim().toLowerCase();
+  const versionCode = Number(release.versionCode);
+  if (!/^[0-9a-f]{64}$/.test(sha256) || !Number.isSafeInteger(versionCode) || versionCode < 1) {
+    throw new Error('安装包校验信息无效，请重新检查更新。');
+  }
+  return { sha256, versionCode };
+}
+
 export async function installNativeRelease(inputRelease: NativeRelease): Promise<NativeReleaseActionResult> {
   const release = await refreshDownloadTicket(inputRelease);
   const absoluteUrl = new URL(release.downloadUrl, window.location.origin).toString();
   if (release.platform === 'android' && Capacitor.isNativePlatform()) {
+    const metadata = normalizedAndroidVerificationMetadata(release);
     try {
-      const result = await LinkUpdater.installUpdate({ url: absoluteUrl, sha256: release.sha256, versionCode: release.versionCode });
+      const result = await LinkUpdater.installUpdate({ url: absoluteUrl, ...metadata });
       return result.status;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error ?? '');
-      if (!/(not implemented|not available|does not exist|unimplemented)/i.test(message)) throw error;
+      if (!/(not implemented|not available|does not exist|unimplemented|invalid update verification metadata)/i.test(message)) throw error;
       await LinkUpdater.openDownload({ url: absoluteUrl });
       return 'browser-download';
     }

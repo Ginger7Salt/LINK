@@ -112,6 +112,7 @@ const quoteContent = computed(() => {
   if (props.quote?.voice) return `[语音] ${props.quote.voice.transcript}`;
   if (props.quote?.location) return `[定位] ${props.quote.location.name}`;
   if (props.quote?.transfer) return `${props.quote.transfer.responseToMessageId ? '[转账回执]' : '[转账]'} ¥${props.quote.transfer.amount}`;
+  if (props.quote?.commerce) return `[${props.quote.commerce.kind === 'takeout' ? '外卖' : props.quote.commerce.kind === 'gift' ? '礼物' : '购物'}] ${props.quote.commerce.storeName}`;
   return props.quote?.content ?? '';
 });
 

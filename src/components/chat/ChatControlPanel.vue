@@ -1238,6 +1238,7 @@ const tokenEstimateKey = computed(() => JSON.stringify({
       voice: message.quote.voice ? { transcript: message.quote.voice.transcript } : undefined,
       location: message.quote.location,
       transfer: message.quote.transfer,
+      commerce: message.quote.commerce,
       offlineInvitation: message.quote.offlineInvitation
     } : undefined,
     sticker: message.sticker ? { description: message.sticker.description, hasImage: Boolean(message.sticker.imageUrl) } : undefined,
@@ -1245,6 +1246,7 @@ const tokenEstimateKey = computed(() => JSON.stringify({
     voice: message.voice ? { transcript: message.voice.transcript } : undefined,
     location: message.location,
     transfer: message.transfer,
+    commerce: message.commerce,
     offlineInvitation: message.offlineInvitation
   })),
   memories: memories.value.map((memory) => ({

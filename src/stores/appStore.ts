@@ -2,7 +2,8 @@ import { computed, ref, toRaw, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { deleteEntity, loadSnapshot, pruneUnusedStoredMediaCache, putEntity, replaceSnapshot, scheduleStartupStorageMaintenance } from '@/data/db';
 import { defaultSettings } from '@/data/seed';
-import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatCallAttachment, ChatCallMode, ChatCallStatus, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatMusicListenInviteAttachment, ChatMusicListenInviteStatus, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatSmallTheaterLinkAttachment, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationMemoryRecord, ConversationSettings, CoupleSpaceState, FavoriteMessageKind, FavoriteMessageRecord, GenerateReplyInput, GeneratedImageRecord, GroupDiscoveryCandidate, GroupMember, GroupNpcDraft, ImageModuleId, MusicCommentThread, MusicListeningContext, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatCallAttachment, ChatCallMode, ChatCallStatus, ChatGobangAttachment, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatMusicListenInviteAttachment, ChatMusicListenInviteStatus, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatSmallTheaterLinkAttachment, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationMemoryRecord, ConversationSettings, CoupleSpaceState, FavoriteMessageKind, FavoriteMessageRecord, GenerateReplyInput, GeneratedImageRecord, GroupDiscoveryCandidate, GroupMember, GroupNpcDraft, ImageModuleId, MusicCommentThread, MusicListeningContext, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
+import type { ChatCommerceAttachment, ChatShopShareAttachment } from '@/types/commerce';
 import { createAccountId, createId } from '@/utils/id';
 import { getCharacterAiName, getCharacterInitialProfile, getCharacterVoomAuthorName, getCharacterVoomDisplayName, getFriendRelationship, isCharacterFriend, normalizeCharacterMindStateLines, normalizeCharacterProfile } from '@/utils/character';
 import { getUserAiName, getUserDisplayName, getUserVoomAuthorName, normalizeUserProfile, normalizeVisualProfile } from '@/utils/profile';
@@ -14,19 +15,22 @@ import { getSmallTheaterVisibleText } from '@/utils/smallTheaterHtml';
 import { RECENT_STICKER_GROUP_NAME, cacheStickerImageUrl, createStickerFromDraft, createStickerGroup, getStickerDisplayImageUrl, isLegacyGanadiSticker, isLegacyGanadiStickerGroup, isRecentStickerGroupId, normalizeSticker, normalizeStickerGroup, shouldLocalizeStickerImageUrl, sortRecentStickers, type StickerImportDraft } from '@/utils/stickers';
 import { ageMemoryKind, collectIncrementalGrandSummaries, createMemoryRecord, estimateTokenCount, filterHighestMemoryLayers, getConversationActiveMessages, getConversationFloorCount, getGrandSummaryHiddenRange, getHiddenMessageIds, getMemoryContext, getMemoryMergeDepth, getMessageFloorMap, getMessagesInFloorRange, getNextSummaryRange, getNextSummaryStartFloor, getVisibleMessages, isIncrementalGrandSummary, normalizeConversationSettings, normalizeMemoryRecordEntries, renderCharacterMemoryPrompt, shouldCompressMemory } from '@/utils/memory';
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
-import { discoverGeneratedGroups, estimateRoleplayReplyInputTokens, fetchVendorModels, generateConversationSummary, generateCoupleSpaceSnapshot, generateGroupChatReply, generateImageByProvider, generateRoleplayReply, generateSmallTheater, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, shouldAutoGenerateMoment, type ConversationSummaryIdentityRule, type GroupDiscoveryCharacterContext, type RoleplayCallResponse, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
+import { discoverGeneratedGroups, estimateRoleplayReplyInputTokens, fetchVendorModels, generateConversationSummary, generateCoupleSpaceSnapshot, generateGroupChatReply, generateImageByProvider, generateRoleplayReply, generateSmallTheater, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, shouldAutoGenerateMoment, type ConversationSummaryIdentityRule, type GroupDiscoveryCharacterContext, type RoleplayCallResponse, type RoleplayGobangResponse, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
 import { fetchMusicCoverUrl, mergeMusicTrack, refreshPlayableMusicTrack, searchMusicTracks } from '@/services/music';
 import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
+import { useCommerceStore } from '@/stores/commerceStore';
 import { GitHubBackupError, downloadGitHubBackup, downloadGitHubBackupVersion, ensureGitHubBackupRepository, formatGitHubBackupError, listGitHubBackupHistory, uploadGitHubBackup } from '@/services/githubBackup';
 import { showLinkNotification } from '@/services/keepAlive';
 import { playRingtone } from '@/services/ringtone';
 import { synthesizeSpeech } from '@/services/tts';
+import { classifyGobangApiError, generateGobangMove, GobangApiError } from '@/services/gobang';
 import { createLinkBackupFile, parseLinkBackupFileText, parseLinkBackupText, stickerBackupPlaceholder, stringifyLinkBackupFile } from '@/utils/backup';
 import { markRestoredGlobalNoticesSeen } from '@/utils/globalNotices';
 import { getVoomFrequencyChance, stripVoomCommentReplyPrefix } from '@/utils/voom';
 import { compressInlineImageDataUrl } from '@/utils/imageFile';
 import { hydrateStoredMediaRefs, isLocalMediaCacheUrl, materializeStoredMediaRefs } from '@/utils/mediaStorage';
 import { createCoupleSpaceIdentityAliases, normalizeCoupleSpaceIdentityReferences, normalizeCoupleSpaceState } from '@/utils/coupleSpace';
+import { applyGobangMove, createGobangGame, respondGobangInvitation, updateGobangApiState } from '@/utils/gobang';
 
 interface CreateUserVoomPostPayload {
   userId: string;
@@ -48,6 +52,7 @@ interface RoleplayReplyInputBundle {
 }
 
 interface BuildRoleplayReplyInputOptions {
+  mode?: ChatMode;
   proactive?: boolean;
   replyInstruction?: string;
   excludeSourceMessageIds?: string[];
@@ -58,6 +63,10 @@ interface RoleplayCallSessionOptions {
   callId: string;
   mode: ChatCallMode;
   forceVoice?: boolean;
+}
+
+interface RoleplayGobangSessionOptions {
+  gameId: string;
 }
 
 export type AppActiveCallStatus = 'outgoing-ringing' | 'incoming-ringing' | 'active' | 'ended';
@@ -93,6 +102,8 @@ interface RequestRoleplayReplyOptions {
   excludeSourceMessageIds?: string[];
   callSession?: RoleplayCallSessionOptions;
   callResponseTargetMessageId?: string;
+  gobangSession?: RoleplayGobangSessionOptions;
+  gobangResponseTargetMessageId?: string;
   relationshipEvent?: 'character-reapply';
   blockedInteraction?: boolean;
 }
@@ -173,6 +184,7 @@ function getTimelineMessagePreview(message: ChatMessage) {
   if (message.voice) return `[语音] ${message.voice.transcript}`.trim();
   if (message.location) return `[位置] ${message.location.name || message.location.address || message.location.distance || ''}`.trim();
   if (message.transfer) return `${message.transfer.responseToMessageId ? '[转账回执]' : '[转账]'} ${message.transfer.amount || ''} ${message.transfer.note || ''}`.trim();
+  if (message.commerce) return `[${message.commerce.kind === 'takeout' ? '外卖' : message.commerce.kind === 'gift' ? '礼物' : '购物'}] ${message.commerce.storeName} ${message.commerce.items.map((item) => item.name).join('、')}`.trim();
   if (message.musicListenInvite) return `[一起听] ${message.musicListenInvite.track?.name || message.musicListenInvite.note || message.musicListenInvite.status || ''}`.trim();
   if (message.theaterLink) return `[网站链接] ${message.theaterLink.title} ${message.theaterLink.summary}`.trim();
   if (message.offlineInvitation) return `[离线邀请] ${message.offlineInvitation.prompt || message.offlineInvitation.status || ''}`.trim();
@@ -336,6 +348,7 @@ export const useAppStore = defineStore('app', () => {
   const regeneratingChatImageMessageIds = new Set<string>();
   const regeneratingVoomImagePostIds = new Set<string>();
   const activeReplyRunIds = new Map<string, string>();
+  const activeGobangRequestIds = new Map<string, string>();
   const replyCancelVersions = new Map<string, number>();
   const characterReadReceiptTimers = new Map<string, number>();
   const replyingConversationIds = ref<string[]>([]);
@@ -525,6 +538,11 @@ export const useAppStore = defineStore('app', () => {
       profileHomepages: normalizeStoredProfileHomepages(snapshot.profileHomepages ?? []),
       smallTheaterTopics: sharedLibraryData.smallTheaterTopics,
       smallTheaters: snapshot.smallTheaters ?? [],
+      fanficBooks: snapshot.fanficBooks ?? [],
+      fanficChapters: snapshot.fanficChapters ?? [],
+      fanficComments: snapshot.fanficComments ?? [],
+      fanficTopics: snapshot.fanficTopics ?? [],
+      fanficGenerationJobs: snapshot.fanficGenerationJobs ?? [],
       musicFavoriteTracks: snapshot.musicFavoriteTracks ?? [],
       musicCommentThreads: snapshot.musicCommentThreads ?? [],
       worldBooks: normalizeWorldBooks(snapshot.worldBooks),
@@ -537,6 +555,14 @@ export const useAppStore = defineStore('app', () => {
       conversationMemories: normalizedConversationMemories,
       generatedImages: normalizeGeneratedImages(snapshot.generatedImages ?? []),
       favorites: normalizeFavorites(snapshot.favorites ?? []),
+      walletAccounts: snapshot.walletAccounts ?? [],
+      walletTransactions: snapshot.walletTransactions ?? [],
+      shopStorefronts: snapshot.shopStorefronts ?? [],
+      shopProducts: snapshot.shopProducts ?? [],
+      shopCartItems: snapshot.shopCartItems ?? [],
+      shopWishlistItems: snapshot.shopWishlistItems ?? [],
+      shopOrders: snapshot.shopOrders ?? [],
+      shopMoments: snapshot.shopMoments ?? [],
       settings: sharedLibraryData.settings
     };
   }
@@ -707,6 +733,23 @@ export const useAppStore = defineStore('app', () => {
     return error instanceof Error ? error : new Error('导入失败，当前本地数据未被替换。');
   }
 
+  function normalizeInterruptedGobangRequest(message: ChatMessage) {
+    const game = message.gobang;
+    if (!game || (game.invitationStatus ?? 'accepted') !== 'accepted' || game.status !== 'active' || game.turn !== 'char' || game.apiState?.status !== 'requesting') return message;
+    const interruptedGame = updateGobangApiState(game, {
+      ...game.apiState,
+      status: 'interrupted',
+      errorCode: 'interrupted',
+      error: '上一次角色落子请求已中断，请重试这一手。'
+    });
+    return {
+      ...message,
+      content: formatGobangContent(interruptedGame),
+      gobang: interruptedGame,
+      editedAt: interruptedGame.updatedAt
+    };
+  }
+
   async function hydrate() {
     if (ready.value) return;
     if (hydratePromise) return hydratePromise;
@@ -717,7 +760,7 @@ export const useAppStore = defineStore('app', () => {
     const fallbackUserId = snapshot.settings.activeUserId || snapshot.users[0]?.id || '';
     characters.value = snapshot.characters.map((entry) => normalizeCharacterProfile(entry, fallbackUserId));
     conversations.value = snapshot.conversations;
-    messages.value = snapshot.messages.map((message) => normalizeStoredMessageIdentityReferences(message));
+    messages.value = snapshot.messages.map((message) => normalizeInterruptedGobangRequest(normalizeStoredMessageIdentityReferences(message)));
     voomPosts.value = snapshot.voomPosts.map((post) => normalizeStoredVoomPostIdentityReferences(post));
     profileThemes.value = normalizeStoredProfileThemes(snapshot.profileThemes ?? []);
     profileHomepages.value = normalizeStoredProfileHomepages(snapshot.profileHomepages ?? []);
@@ -1015,17 +1058,18 @@ export const useAppStore = defineStore('app', () => {
     const boundUser = userById(conversation.userId || character.boundUserId) ?? user.value;
     if (!boundUser) return null;
 
+    const mode = options.mode ?? conversation.activeMode;
     const conversationMessages = messagesForConversation(conversationId).filter((message) => message.replyVariantState !== 'inactive');
     const userMessageText = getLastUserTurnText(conversationMessages);
     const chatSettings = settingsForConversation(conversationId);
-    const modelOverride = getConversationTextModelOverride(chatSettings, conversation.activeMode);
+    const modelOverride = getConversationTextModelOverride(chatSettings, mode);
     const availableCharacterStickers = stickersForGroups(chatSettings.characterStickerGroupIds);
-    const activeProfileTheme = conversation.activeMode === 'online'
+    const activeProfileTheme = mode === 'online'
       ? selectRandomEnabledProfileTheme(await ensureProfileThemesForCharacter(character.id))
       : null;
     const memorySummary = await memoryContextForConversationAsync(conversationId, userMessageText, {
       storeDebug: false,
-      modelOverride: getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode),
+      modelOverride: getConversationTextModelOverride(chatSettings, 'summary', mode),
       excludeSourceMessageIds: options.excludeSourceMessageIds
     });
 
@@ -1040,7 +1084,7 @@ export const useAppStore = defineStore('app', () => {
         user: boundUser,
         character,
         boundUser,
-        mode: conversation.activeMode,
+        mode,
         messages: visibleMessagesForConversation(conversationId),
         worldBooks: worldBooks.value,
         conversationSummary: conversation.summary,
@@ -1959,6 +2003,21 @@ export const useAppStore = defineStore('app', () => {
       && message.call?.direction === 'outgoing') ?? null;
   }
 
+  function gobangStatusFromResponse(status: RoleplayGobangResponse['status']) {
+    return status === 'accepted' ? 'accepted' as const : 'rejected' as const;
+  }
+
+  function findPendingOutgoingGobangMessage(conversationId: string, preferredMessageId?: string) {
+    const isPendingOutgoingGobang = (message: ChatMessage) => message.conversationId === conversationId
+      && message.gobang?.direction === 'outgoing'
+      && (message.gobang.invitationStatus ?? 'accepted') === 'pending';
+    const normalizedMessageId = String(preferredMessageId ?? '').trim();
+    if (normalizedMessageId) {
+      return messages.value.find((message) => message.id === normalizedMessageId && isPendingOutgoingGobang(message)) ?? null;
+    }
+    return [...messages.value].reverse().find(isPendingOutgoingGobang) ?? null;
+  }
+
   function estimateJsonBytes(value: unknown) {
     try {
       return new Blob([JSON.stringify(value)]).size;
@@ -2169,6 +2228,50 @@ export const useAppStore = defineStore('app', () => {
     return transfer.responseToMessageId
       ? formatTransferReceiptContent(transfer)
       : formatTransferContent(transfer);
+  }
+
+  function normalizeCommerceAttachment(commerce: Extract<RoleplayReplySegment, { type: 'commerce' }>, character: CharacterProfile): ChatCommerceAttachment | null {
+    const totalAmount = String(commerce.totalAmount ?? '').replace(/[￥¥,\s]/g, '').trim();
+    const storeName = String(commerce.storeName ?? '').trim();
+    const items = (commerce.items ?? []).map((item) => ({
+      name: String(item.name ?? '').trim(),
+      quantity: Math.min(99, Math.max(1, Math.floor(Number(item.quantity) || 1))),
+      price: item.price && /^\d+(?:\.\d{1,2})?$/.test(String(item.price).trim()) ? String(item.price).trim() : undefined
+    })).filter((item) => item.name).slice(0, 8);
+    if (!storeName || !items.length || !/^\d+(?:\.\d{1,2})?$/.test(totalAmount) || Number(totalAmount) <= 0) return null;
+    return {
+      orderId: createId('order'),
+      kind: commerce.kind,
+      storeName,
+      items,
+      totalAmount,
+      currency: 'CNY',
+      status: commerce.kind === 'takeout' ? 'preparing' : 'paid',
+      eta: commerce.eta?.trim() || undefined,
+      note: commerce.note?.trim() || undefined,
+      cardMessage: commerce.cardMessage?.trim() || undefined,
+      purchaserCharacterId: character.id,
+      purchaserName: getCharacterAiName(character)
+    };
+  }
+
+  function formatCommerceContent(commerce: ChatCommerceAttachment) {
+    const kindText = commerce.kind === 'takeout' ? '外卖' : commerce.kind === 'gift' ? '礼物' : '购物';
+    return `[${kindText}订单] ${commerce.storeName} · ${commerce.items.map((item) => `${item.name}×${item.quantity}`).join('、')} · ¥${commerce.totalAmount}`;
+  }
+
+  function formatShopShareContent(share: ChatShopShareAttachment) {
+    const kindText = {
+      product: '商城商品',
+      'character-pick': '共同挑选',
+      wishlist: '共同愿望单',
+      storefront: '角色店铺',
+      moment: '商城晒单',
+      order: '商城订单'
+    }[share.kind];
+    const priceText = typeof share.priceCents === 'number' ? ` · ¥${(share.priceCents / 100).toFixed(2)}` : '';
+    const noteText = share.note?.trim() ? ` · ${share.note.trim()}` : '';
+    return `[${kindText}] ${share.title}${share.storeName ? ` · ${share.storeName}` : ''}${priceText}${noteText}`;
   }
 
   function musicTrackArtists(track?: MusicTrack | null) {
@@ -2488,6 +2591,35 @@ export const useAppStore = defineStore('app', () => {
     return `[线下邀请] ${statusText}`;
   }
 
+  function formatGobangContent(game: ChatGobangAttachment) {
+    const invitationStatus = game.invitationStatus ?? 'accepted';
+    const inviter = game.direction === 'incoming' ? '角色' : '用户';
+    if (invitationStatus === 'pending') return `[五子棋邀请] ${inviter}发起，等待${game.direction === 'incoming' ? '用户' : '角色'}回应。`;
+    if (invitationStatus === 'rejected') return `[五子棋邀请] ${inviter}发起，对方已拒绝。`;
+    if (invitationStatus === 'cancelled') return `[五子棋邀请] ${inviter}发起，邀请已取消。`;
+    const userStone = game.userStone === 'black' ? '黑棋' : '白棋';
+    const status = {
+      active: `对局进行中，当前轮到${game.turn === 'user' ? '用户' : '角色'}落子`,
+      'user-won': '用户五子连珠并获胜',
+      'char-won': '角色五子连珠并获胜',
+      draw: '棋盘落满，双方平局',
+      resigned: '用户认输，角色获胜'
+    }[game.status];
+    const latestDialogues = game.moves
+      .filter((move) => move.player === 'char' && move.dialogue?.trim())
+      .slice(-6)
+      .map((move) => formatContentWithChineseTranslation(move.dialogue?.trim() ?? '', move.dialogueTranslation))
+      .filter(Boolean);
+    const apiNotice = game.apiState?.status === 'failed' || game.apiState?.status === 'interrupted'
+      ? '角色本手 API 落子失败，等待用户决定是否重试。'
+      : '';
+    return [
+      `[五子棋] 用户执${userStone}；${status}；已落 ${game.moves.length} 手。`,
+      latestDialogues.length ? `角色最近的真实桌边对白：${latestDialogues.join(' / ')}` : '',
+      apiNotice
+    ].filter(Boolean).join(' ');
+  }
+
   function normalizeOfflineInvitationAttachment(prompt: string): ChatOfflineInvitationAttachment | null {
     const normalizedPrompt = prompt.trim();
     if (!normalizedPrompt) return null;
@@ -2586,10 +2718,14 @@ export const useAppStore = defineStore('app', () => {
     const callKeys = new Set(messages.value
       .filter((message) => idSet.has(message.id) && message.call?.callId)
       .map((message) => `${message.conversationId}:${message.call?.callId}`));
+    const gobangKeys = new Set(messages.value
+      .filter((message) => idSet.has(message.id) && message.gobang?.gameId)
+      .map((message) => `${message.conversationId}:${message.gobang?.gameId}`));
 
-    if (!callKeys.size) return ids;
+    if (!callKeys.size && !gobangKeys.size) return ids;
     for (const message of messages.value) {
       if (message.callId && callKeys.has(`${message.conversationId}:${message.callId}`)) idSet.add(message.id);
+      if (message.gobangId && gobangKeys.has(`${message.conversationId}:${message.gobangId}`)) idSet.add(message.id);
     }
     return [...idSet];
   }
@@ -2616,6 +2752,8 @@ export const useAppStore = defineStore('app', () => {
       voice: quote.voice ? { ...quote.voice } : undefined,
       location: quote.location ? { ...quote.location } : undefined,
       transfer: quote.transfer ? { ...quote.transfer } : undefined,
+      commerce: quote.commerce ? { ...quote.commerce, items: quote.commerce.items.map((item) => ({ ...item })) } : undefined,
+      shopShare: quote.shopShare ? { ...quote.shopShare } : undefined,
       musicListenInvite: quote.musicListenInvite ? { ...quote.musicListenInvite } : undefined,
       theaterLink: quote.theaterLink ? { ...quote.theaterLink } : undefined,
       offlineInvitation: quote.offlineInvitation ? { ...quote.offlineInvitation } : undefined,
@@ -2629,10 +2767,13 @@ export const useAppStore = defineStore('app', () => {
     if (message.voice) return `[语音] ${message.voice.transcript}`.trim();
     if (message.location) return formatLocationContent(message.location).trim();
     if (message.transfer) return formatTransferMessageContent(message.transfer).trim();
+    if (message.commerce) return formatCommerceContent(message.commerce).trim();
+    if (message.shopShare) return formatShopShareContent(message.shopShare).trim();
     if (message.musicListenInvite) return formatMusicListenInviteContent(message.musicListenInvite).trim();
     if (message.theaterLink) return formatSmallTheaterLinkContent(message.theaterLink).trim();
     if (message.offlineInvitation) return formatOfflineInvitationContent(message.offlineInvitation).trim();
     if (message.call) return formatCallContent(message.call, callParticipantNames(message.conversationId)).trim();
+    if (message.gobang) return formatGobangContent(message.gobang).trim();
     return message.content.trim();
   }
 
@@ -2642,6 +2783,8 @@ export const useAppStore = defineStore('app', () => {
     if (message.voice) return 'voice';
     if (message.location) return 'location';
     if (message.transfer) return 'transfer';
+    if (message.commerce) return 'commerce';
+    if (message.shopShare) return 'shopShare';
     if (message.musicListenInvite) return 'musicListenInvite';
     if (message.theaterLink) return 'theaterLink';
     if (message.offlineInvitation) return 'offlineInvitation';
@@ -2653,7 +2796,7 @@ export const useAppStore = defineStore('app', () => {
   function canFavoriteMessage(message: ChatMessage) {
     if (message.voice) return true;
     if (message.image) return Boolean(message.image.url);
-    if (message.sticker || message.location || message.transfer || message.musicListenInvite || message.theaterLink || message.offlineInvitation || message.call) return false;
+    if (message.sticker || message.location || message.transfer || message.commerce || message.shopShare || message.musicListenInvite || message.theaterLink || message.offlineInvitation || message.call || message.gobang) return false;
     return Boolean(message.content.trim() || message.displayStyle === 'narration');
   }
 
@@ -2733,6 +2876,8 @@ export const useAppStore = defineStore('app', () => {
       voice: message.voice ? { ...message.voice } : undefined,
       location: message.location ? { ...message.location } : undefined,
       transfer: message.transfer ? { ...message.transfer } : undefined,
+      commerce: message.commerce ? { ...message.commerce, items: message.commerce.items.map((item) => ({ ...item })) } : undefined,
+      shopShare: message.shopShare ? { ...message.shopShare } : undefined,
       musicListenInvite: message.musicListenInvite ? { ...message.musicListenInvite } : undefined,
       theaterLink: message.theaterLink ? { ...message.theaterLink } : undefined,
       offlineInvitation: message.offlineInvitation ? { ...message.offlineInvitation } : undefined,
@@ -5877,6 +6022,227 @@ export const useAppStore = defineStore('app', () => {
     return userMessage;
   }
 
+  async function appendShopShareMessage(input: {
+    characterId: string;
+    userId?: string;
+    sender: 'user' | 'char';
+    share: ChatShopShareAttachment;
+  }) {
+    const targetUserId = input.userId?.trim() || user.value?.id || '';
+    const conversation = conversations.value.find((entry) => entry.kind !== 'group' && entry.userId === targetUserId && entry.charId === input.characterId);
+    if (!conversation) throw new Error('没有找到这个角色的线上单聊，请先在 Chats 中创建会话。');
+    const sentAt = Date.now();
+    const share = { ...input.share };
+    const message: ChatMessage = {
+      id: createId('msg'),
+      conversationId: conversation.id,
+      sender: input.sender,
+      mode: 'online',
+      content: formatShopShareContent(share),
+      shopShare: share,
+      createdAt: sentAt,
+      status: 'sent',
+      readAt: input.sender === 'user' ? null : undefined
+    };
+    messages.value.push(message);
+    await putEntity('messages', message);
+    const nextConversation: Conversation = {
+      ...conversation,
+      activeMode: 'online',
+      updatedAt: sentAt,
+      summary: formatShopShareContent(share),
+      unreadCount: input.sender === 'char' ? unreadCountAfterIncomingMessage(conversation, 1) : 0
+    };
+    const conversationIndex = conversations.value.findIndex((entry) => entry.id === conversation.id);
+    if (conversationIndex >= 0) conversations.value[conversationIndex] = nextConversation;
+    await putEntity('conversations', nextConversation);
+    void maybeAutoSummarizeConversation(conversation.id);
+    return { message, conversation: nextConversation };
+  }
+
+  async function appendUserGobangMessage(conversationId: string, gobang: ChatGobangAttachment) {
+    const conversation = conversationById(conversationId);
+    if (!conversation || conversation.kind === 'group') return;
+    const sentAt = Date.now();
+    const userMessage: ChatMessage = {
+      id: createId('msg'),
+      conversationId,
+      sender: gobang.direction === 'incoming' ? 'char' : 'user',
+      mode: 'online',
+      content: formatGobangContent(gobang),
+      gobang: {
+        ...gobang,
+        moves: gobang.moves.map((move) => ({ ...move })),
+        apiState: gobang.apiState ? { ...gobang.apiState } : undefined
+      },
+      createdAt: sentAt,
+      status: 'sent',
+      readAt: null
+    };
+    messages.value.push(userMessage);
+    await putEntity('messages', userMessage);
+    const nextConversation = { ...conversation, activeMode: 'online' as const, updatedAt: sentAt, unreadCount: 0 };
+    const conversationIndex = conversations.value.findIndex((item) => item.id === conversationId);
+    if (conversationIndex >= 0) conversations.value[conversationIndex] = nextConversation;
+    await putEntity('conversations', nextConversation);
+    void maybeAutoSummarizeConversation(conversationId);
+    return userMessage;
+  }
+
+  async function updateGobangInvitationStatus(messageId: string, status: 'accepted' | 'rejected' | 'cancelled') {
+    const message = messages.value.find((item) => item.id === messageId);
+    if (!message?.gobang) return null;
+    const nextGame = respondGobangInvitation(message.gobang, status);
+    if (nextGame === message.gobang) return message;
+    return updateGobangMessage(messageId, nextGame);
+  }
+
+  async function appendGobangSessionMessage(conversationId: string, gameId: string, sender: 'user' | 'char' | 'system', content: string, options: { translation?: string; narration?: boolean; createdAt?: number; replyBatchId?: string } = {}) {
+    const conversation = conversationById(conversationId);
+    const normalizedGameId = gameId.trim();
+    const normalizedContent = content.trim();
+    if (!conversation || !normalizedGameId || !normalizedContent) return null;
+    const message: ChatMessage = {
+      id: createId('msg'),
+      conversationId,
+      sender,
+      mode: 'online',
+      content: normalizedContent,
+      translation: normalizeTranslationText(options.translation),
+      gobangId: normalizedGameId,
+      createdAt: options.createdAt ?? Date.now(),
+      displayStyle: options.narration ? 'narration' : undefined,
+      replyBatchId: options.replyBatchId,
+      status: 'sent',
+      readAt: sender === 'user' && conversation.kind !== 'group' ? null : undefined
+    };
+    messages.value.push(message);
+    await putEntity('messages', message);
+    const nextConversation = { ...conversation, activeMode: 'online' as const, updatedAt: message.createdAt, unreadCount: sender === 'user' ? 0 : conversation.unreadCount };
+    const conversationIndex = conversations.value.findIndex((item) => item.id === conversationId);
+    if (conversationIndex >= 0) conversations.value[conversationIndex] = nextConversation;
+    await putEntity('conversations', nextConversation);
+    void maybeAutoSummarizeConversation(conversationId);
+    return message;
+  }
+
+  async function updateGobangMessage(messageId: string, gobang: ChatGobangAttachment) {
+    const messageIndex = messages.value.findIndex((message) => message.id === messageId);
+    if (messageIndex < 0) return null;
+    const existingMessage = messages.value[messageIndex];
+    if (!existingMessage.gobang || existingMessage.gobang.gameId !== gobang.gameId) return null;
+    const nextMessage: ChatMessage = {
+      ...existingMessage,
+      content: formatGobangContent(gobang),
+      gobang: {
+        ...gobang,
+        moves: gobang.moves.map((move) => ({ ...move })),
+        apiState: gobang.apiState ? { ...gobang.apiState } : undefined
+      },
+      editedAt: gobang.updatedAt
+    };
+    messages.value[messageIndex] = nextMessage;
+    await putEntity('messages', nextMessage);
+    await touchConversationAfterMessageChange(nextMessage.conversationId, gobang.updatedAt);
+    return nextMessage;
+  }
+
+  async function requestGobangMove(conversationId: string, messageId: string, options: { signal?: AbortSignal } = {}) {
+    const sourceMessage = messages.value.find((message) => message.id === messageId && message.conversationId === conversationId);
+    const sourceGame = sourceMessage?.gobang;
+    if (!sourceGame || (sourceGame.invitationStatus ?? 'accepted') !== 'accepted' || sourceGame.status !== 'active' || sourceGame.turn !== 'char') return null;
+    if (activeGobangRequestIds.has(sourceGame.gameId)) return null;
+
+    const replyInputBundle = await buildRoleplayReplyInputForConversation(conversationId, {
+      mode: 'online',
+      timeAwarenessNow: Date.now()
+    });
+    if (!replyInputBundle) throw new GobangApiError('unknown', '无法读取当前角色和会话上下文。');
+
+    const modelOverride = replyInputBundle.modelOverride;
+    const modelSnapshot = modelOverride || settings.value?.model || '';
+    if (!hasConfiguredTextModel(modelOverride)) {
+      const failedGame = updateGobangApiState(sourceGame, {
+        status: 'failed',
+        model: modelSnapshot,
+        errorCode: 'not-configured',
+        error: '请先配置可用的线上聊天 API 模型，再让角色继续落子。'
+      });
+      await updateGobangMessage(messageId, failedGame);
+      throw new GobangApiError('not-configured', failedGame.apiState?.error ?? '未配置线上聊天 API 模型。');
+    }
+
+    const requestId = createId('gobang-request');
+    const requestRevision = sourceGame.revision ?? sourceGame.moves.length;
+    activeGobangRequestIds.set(sourceGame.gameId, requestId);
+    const requestingGame = updateGobangApiState(sourceGame, {
+      status: 'requesting',
+      requestId,
+      requestRevision,
+      requestedAt: Date.now(),
+      model: modelSnapshot
+    });
+    await updateGobangMessage(messageId, requestingGame);
+
+    try {
+      const generatedMove = await generateGobangMove(replyInputBundle.input, requestingGame, options.signal);
+      const currentMessage = messages.value.find((message) => message.id === messageId && message.conversationId === conversationId);
+      const currentGame = currentMessage?.gobang;
+      if (!currentGame
+        || currentGame.status !== 'active'
+        || currentGame.turn !== 'char'
+        || currentGame.apiState?.requestId !== requestId
+        || (currentGame.revision ?? currentGame.moves.length) !== requestRevision) return null;
+
+      const nextGame = applyGobangMove(currentGame, generatedMove, 'char', {
+        apiModel: modelSnapshot,
+        requestId
+      });
+      if (nextGame === currentGame) throw new GobangApiError('illegal-move', '角色模型返回的落子不合法，本手没有生效。');
+      await updateGobangMessage(messageId, nextGame);
+      const characterMove = nextGame.moves[nextGame.moves.length - 1];
+      await requestRoleplayReply(conversationId, {
+        gobangSession: { gameId: nextGame.gameId },
+        replyInstruction: `当前${getCharacterAiName(replyInputBundle.character)}与${getUserAiName(replyInputBundle.boundUser)}正在 LINK 的独立五子棋页面对局。${getCharacterAiName(replyInputBundle.character)}刚刚已经实际落子：第 ${characterMove.row + 1} 行、第 ${characterMove.column + 1} 列，当前是第 ${nextGame.moves.length} 手。请使用完整线上聊天回复格式，自然回应这次落子、当前棋桌氛围和最近会话；不要把回复限制为一句固定短台词或 120 字以内，可以按角色习惯生成一组正常线上消息，旁白模式开启时遵守原规则，并正常生成本轮角色主页主题与心声。不要再次决定或执行落子，不要伪造用户动作，不要发起新的五子棋邀请。`
+      });
+      return nextGame;
+    } catch (error) {
+      const currentMessage = messages.value.find((message) => message.id === messageId && message.conversationId === conversationId);
+      const currentGame = currentMessage?.gobang;
+      const failure = classifyGobangApiError(error);
+      if (currentGame?.apiState?.requestId === requestId) {
+        await updateGobangMessage(messageId, updateGobangApiState(currentGame, {
+          status: failure.code === 'interrupted' ? 'interrupted' : 'failed',
+          requestId,
+          requestRevision,
+          requestedAt: currentGame.apiState.requestedAt,
+          model: modelSnapshot,
+          errorCode: failure.code,
+          error: failure.message.slice(0, 800)
+        }));
+      }
+      throw error;
+    } finally {
+      if (activeGobangRequestIds.get(sourceGame.gameId) === requestId) activeGobangRequestIds.delete(sourceGame.gameId);
+    }
+  }
+
+  async function recoverInterruptedGobangMessage(messageId: string) {
+    const message = messages.value.find((entry) => entry.id === messageId);
+    const game = message?.gobang;
+    if (!game || (game.invitationStatus ?? 'accepted') !== 'accepted' || game.status !== 'active' || game.turn !== 'char' || game.apiState?.status !== 'requesting') return game ?? null;
+    const activeRequestId = activeGobangRequestIds.get(game.gameId);
+    if (activeRequestId && activeRequestId === game.apiState?.requestId) return game;
+    const interruptedGame = updateGobangApiState(game, {
+      ...game.apiState,
+      status: 'interrupted',
+      errorCode: 'interrupted',
+      error: '上一次角色落子请求已中断，请重试这一手。'
+    });
+    await updateGobangMessage(messageId, interruptedGame);
+    return interruptedGame;
+  }
+
   async function updateTransferStatus(messageId: string, status: ChatTransferStatus, actor: 'user' | 'char' = 'user') {
     if (status === 'pending') return null;
     const message = messages.value.find((item) => item.id === messageId);
@@ -6724,6 +7090,9 @@ export const useAppStore = defineStore('app', () => {
           callMode: options.callSession.mode
         }
         : {};
+      const gobangFields = options?.gobangSession
+        ? { gobangId: options.gobangSession.gameId }
+        : {};
       const forceCallVoice = Boolean(options?.callSession?.forceVoice);
       const replyTexts = Array.isArray(parsedReply.replies) ? parsedReply.replies : [parsedReply.reply];
       const replyTranslations = Array.isArray(parsedReply.replyTranslations) ? parsedReply.replyTranslations : [];
@@ -6777,6 +7146,10 @@ export const useAppStore = defineStore('app', () => {
               const transfer = normalizeTransferAttachment({ amount: segment.amount, note: segment.note });
               return transfer ? [{ type: 'transfer', amount: transfer.amount, ...(transfer.note ? { note: transfer.note } : {}) }] : [];
             }
+            if (segment.type === 'commerce') {
+              const commerce = normalizeCommerceAttachment(segment, character);
+              return commerce ? [{ type: 'commerce', kind: commerce.kind, storeName: commerce.storeName, items: commerce.items, totalAmount: commerce.totalAmount, ...(commerce.eta ? { eta: commerce.eta } : {}), ...(commerce.note ? { note: commerce.note } : {}), ...(commerce.cardMessage ? { cardMessage: commerce.cardMessage } : {}) }] : [];
+            }
             if (segment.type === 'music_action') {
               const actionIndex = Number(segment.actionIndex);
               return [{ type: 'music_action', ...(Number.isFinite(actionIndex) && actionIndex >= 0 ? { actionIndex: Math.floor(actionIndex) } : {}) }];
@@ -6819,6 +7192,7 @@ export const useAppStore = defineStore('app', () => {
       const hasOrderedVoice = orderedSegments.some((segment) => segment.type === 'voice' && segment.content.trim());
       const hasOrderedLocation = orderedSegments.some((segment) => segment.type === 'location' && segment.name.trim() && segment.distance.trim());
       const hasOrderedTransfer = orderedSegments.some((segment) => segment.type === 'transfer' && normalizeTransferAttachment({ amount: segment.amount, note: segment.note }));
+      const hasOrderedCommerce = orderedSegments.some((segment) => segment.type === 'commerce' && normalizeCommerceAttachment(segment, character));
       const hasOrderedMusicAction = orderedSegments.some((segment) => segment.type === 'music_action');
       const recallMessageIds = parsedReply.messageActions?.recallMessageIds ?? [];
       const validRecallMessageIds = recallMessageIds.filter((messageId) => messages.value.some((message) => message.id === messageId && message.conversationId === conversationId && message.sender === 'char'));
@@ -6846,6 +7220,14 @@ export const useAppStore = defineStore('app', () => {
         : null;
       const callInvite = conversation.activeMode === 'online' ? parsedReply.messageActions?.callInvite ?? null : null;
       const callResponse = conversation.activeMode === 'online' ? parsedReply.messageActions?.callResponse ?? null : null;
+      const hasOpenGobang = messages.value.some((message) => {
+        const game = message.conversationId === conversationId ? message.gobang : null;
+        if (!game) return false;
+        const invitationStatus = game.invitationStatus ?? 'accepted';
+        return invitationStatus === 'pending' || (invitationStatus === 'accepted' && game.status === 'active');
+      });
+      const gobangInvite = conversation.activeMode === 'online' && !options?.gobangSession && !hasOpenGobang ? parsedReply.messageActions?.gobangInvite ?? null : null;
+      const gobangResponse = conversation.activeMode === 'online' ? parsedReply.messageActions?.gobangResponse ?? null : null;
       const relationshipAction = conversation.activeMode === 'online' ? parsedReply.messageActions?.relationshipAction ?? null : null;
       const directCallResponseTargetMessage = findOutgoingCallResponseTarget(conversationId, options?.callResponseTargetMessageId);
       if (options?.callResponseTargetMessageId && directCallResponseTargetMessage?.call?.status !== 'ringing') {
@@ -6854,13 +7236,17 @@ export const useAppStore = defineStore('app', () => {
       const callResponseTargetMessage = callResponse
         ? directCallResponseTargetMessage ?? findPendingOutgoingCallMessage(conversationId, options?.callResponseTargetMessageId)
         : null;
+      const gobangResponseTargetMessage = gobangResponse
+        ? findPendingOutgoingGobangMessage(conversationId, options?.gobangResponseTargetMessageId)
+        : null;
+      if (options?.gobangResponseTargetMessageId && !gobangResponseTargetMessage) return [];
       const quoteByReplyIndex = new Map<number, ChatMessageQuote>();
       for (const quoteAction of parsedReply.messageActions?.quotes ?? []) {
         const targetMessage = messages.value.find((message) => message.id === quoteAction.messageId && message.conversationId === conversationId && message.sender !== 'system');
         const quote = targetMessage ? createMessageQuoteSnapshot(targetMessage) : null;
         if (quote) quoteByReplyIndex.set(Math.max(0, Math.floor(quoteAction.replyIndex)), quote);
       }
-      if (!effectiveReplyMessages.length && !replyStickers.length && !replyImages.length && !narrationMessages.length && !hasOrderedSticker && !hasOrderedNarration && !hasOrderedImage && !hasOrderedVoice && !hasOrderedLocation && !hasOrderedTransfer && !hasOrderedMusicAction && !validRecallMessageIds.length && !validTransferDecisions.length && !validMusicListenInviteDecisions.length && !canSendMusicListenInvite && !(parsedReply.messageActions?.musicActions ?? []).length && !offlineInvitation && !callInvite && !callResponseTargetMessage && !relationshipAction) {
+      if (!effectiveReplyMessages.length && !replyStickers.length && !replyImages.length && !narrationMessages.length && !hasOrderedSticker && !hasOrderedNarration && !hasOrderedImage && !hasOrderedVoice && !hasOrderedLocation && !hasOrderedTransfer && !hasOrderedCommerce && !hasOrderedMusicAction && !validRecallMessageIds.length && !validTransferDecisions.length && !validMusicListenInviteDecisions.length && !canSendMusicListenInvite && !(parsedReply.messageActions?.musicActions ?? []).length && !offlineInvitation && !callInvite && !callResponseTargetMessage && !gobangInvite && !gobangResponseTargetMessage && !relationshipAction) {
         showConfigAlert('AI 返回内容中没有可显示的聊天文本，请重试或检查模型输出格式。', '回复异常');
         return;
       }
@@ -6904,6 +7290,9 @@ export const useAppStore = defineStore('app', () => {
           endedAt: status === 'accepted' ? undefined : respondedAt
         });
       }
+      if (gobangResponse && gobangResponseTargetMessage) {
+        await updateGobangInvitationStatus(gobangResponseTargetMessage.id, gobangStatusFromResponse(gobangResponse.status));
+      }
       const musicActionNotices = await applyCharacterMusicActions(conversationId, parsedReply.messageActions?.musicActions ?? []);
       const createdAt = Date.now();
       const charNarrationMessages = narrationMessages.map((content, index) => ({
@@ -6917,6 +7306,7 @@ export const useAppStore = defineStore('app', () => {
         replyBatchId,
         ...replyVariantFields,
         ...callFields,
+        ...gobangFields,
         status: 'sent' as const
       } satisfies ChatMessage));
       const charMessagesAfterNarration: ChatMessage[] = [];
@@ -6938,6 +7328,7 @@ export const useAppStore = defineStore('app', () => {
         replyBatchId,
         ...replyVariantFields,
         ...callFields,
+        ...gobangFields,
         createdAt: createdAt + charMessageOffset++,
         status: 'sent' as const
       } satisfies ChatMessage));
@@ -6960,6 +7351,7 @@ export const useAppStore = defineStore('app', () => {
           replyBatchId,
           ...replyVariantFields,
           ...callFields,
+          ...gobangFields,
           createdAt: createdAt + charMessageOffset++,
           status: 'sent' as const
         } satisfies ChatMessage;
@@ -6980,6 +7372,7 @@ export const useAppStore = defineStore('app', () => {
         replyBatchId,
         ...replyVariantFields,
         ...callFields,
+        ...gobangFields,
         createdAt: createdAt + charMessageOffset++,
         status: 'sent' as const
       } satisfies ChatMessage);
@@ -6996,6 +7389,7 @@ export const useAppStore = defineStore('app', () => {
           replyBatchId,
           ...replyVariantFields,
           ...callFields,
+          ...gobangFields,
           createdAt: createdAt + charMessageOffset++,
           status: 'sent' as const
         } satisfies ChatMessage;
@@ -7010,6 +7404,7 @@ export const useAppStore = defineStore('app', () => {
         replyBatchId,
         ...replyVariantFields,
         ...callFields,
+        ...gobangFields,
         createdAt: createdAt + charMessageOffset++,
         status: 'sent' as const
       } satisfies ChatMessage);
@@ -7026,6 +7421,25 @@ export const useAppStore = defineStore('app', () => {
           replyBatchId,
           ...replyVariantFields,
           ...callFields,
+          ...gobangFields,
+          createdAt: createdAt + charMessageOffset++,
+          status: 'sent' as const
+        } satisfies ChatMessage;
+      };
+      const createCommerceMessage = (segment: Extract<RoleplayReplySegment, { type: 'commerce' }>) => {
+        const commerce = normalizeCommerceAttachment(segment, character);
+        if (!commerce) return null;
+        return {
+          id: createId('msg'),
+          conversationId,
+          sender: 'char' as const,
+          mode: conversation.activeMode,
+          content: formatCommerceContent(commerce),
+          commerce,
+          replyBatchId,
+          ...replyVariantFields,
+          ...callFields,
+          ...gobangFields,
           createdAt: createdAt + charMessageOffset++,
           status: 'sent' as const
         } satisfies ChatMessage;
@@ -7042,6 +7456,7 @@ export const useAppStore = defineStore('app', () => {
         replyBatchId,
         ...replyVariantFields,
         ...callFields,
+        ...gobangFields,
         status: 'sent' as const
       } satisfies ChatMessage);
       const takeMusicActionNotice = (preferredIndex?: number) => {
@@ -7089,6 +7504,7 @@ export const useAppStore = defineStore('app', () => {
                 replyBatchId,
                 ...replyVariantFields,
                 ...callFields,
+                ...gobangFields,
                 status: 'sent' as const
               } satisfies ChatMessage);
               break;
@@ -7113,6 +7529,11 @@ export const useAppStore = defineStore('app', () => {
             case 'transfer': {
               const transferMessage = createTransferMessage(segment);
               if (transferMessage) orderedCharMessages.push(transferMessage);
+              break;
+            }
+            case 'commerce': {
+              const commerceMessage = createCommerceMessage(segment);
+              if (commerceMessage) orderedCharMessages.push(commerceMessage);
               break;
             }
             case 'music_action': {
@@ -7203,8 +7624,27 @@ export const useAppStore = defineStore('app', () => {
           status: 'sent' as const
         } satisfies ChatMessage);
       }
+      if (gobangInvite && !hasOpenGobang) {
+        const game = createGobangGame({
+          gameId: createId('gobang'),
+          starter: 'char',
+          direction: 'incoming',
+          invitationStatus: 'pending',
+          createdAt: createdAt + charMessageOffset++
+        });
+        charMessages.push({
+          id: createId('msg'),
+          conversationId,
+          sender: 'char' as const,
+          mode: 'online' as const,
+          content: formatGobangContent(game),
+          gobang: game,
+          createdAt: game.startedAt,
+          status: 'sent' as const
+        } satisfies ChatMessage);
+      }
       if (plotChoices.length) {
-        const plotChoiceMessage = charMessages.find((message) => message.sender === 'char' && !message.sticker && !message.image && !message.voice && !message.location && !message.transfer && !message.musicListenInvite);
+        const plotChoiceMessage = charMessages.find((message) => message.sender === 'char' && !message.sticker && !message.image && !message.voice && !message.location && !message.transfer && !message.commerce && !message.musicListenInvite);
         if (plotChoiceMessage) plotChoiceMessage.plotChoices = plotChoices;
       }
       if (charMessages.length) {
@@ -7216,6 +7656,19 @@ export const useAppStore = defineStore('app', () => {
         }
         messages.value.push(...charMessages);
         await Promise.all(charMessages.map((message) => putEntity('messages', message)));
+        const commerceMessages = charMessages.filter((message): message is ChatMessage & { commerce: ChatCommerceAttachment } => Boolean(message.commerce));
+        if (commerceMessages.length) {
+          const commerceStore = useCommerceStore();
+          await commerceStore.ensureReady(users.value, characters.value);
+          await Promise.all(commerceMessages.map((message) => commerceStore.recordChatPurchase({
+            attachment: message.commerce,
+            userId: conversation.userId,
+            characterId: character.id,
+            characterName: getCharacterAiName(character),
+            conversationId,
+            sourceMessageId: message.id
+          })));
+        }
         const incomingCharMessages = charMessages.filter((message) => message.sender === 'char');
         if (incomingCharMessages.length) notifyCharacterMessages(conversation, incomingCharMessages);
         const latestCharMessage = charMessages[charMessages.length - 1];
@@ -9171,6 +9624,7 @@ export const useAppStore = defineStore('app', () => {
     addFavoriteMessage,
     deleteFavorite,
     showConfigAlert,
+    hasConfiguredTextModel,
     isReplyingVoomComments,
     consumeSuppressedVoomNoticeKey,
     isConversationReplying,
@@ -9258,6 +9712,12 @@ export const useAppStore = defineStore('app', () => {
     appendUserTransferMessage,
     appendUserMusicListenInviteMessage,
     appendUserSmallTheaterLinkMessage,
+    appendShopShareMessage,
+    appendUserGobangMessage,
+    appendGobangSessionMessage,
+    updateGobangInvitationStatus,
+    requestGobangMove,
+    recoverInterruptedGobangMessage,
     updateTransferStatus,
     updateMusicListenInviteStatus,
     acceptMusicListenInvite,
@@ -9270,6 +9730,7 @@ export const useAppStore = defineStore('app', () => {
     updateMessageContent,
     updateMessageLocation,
     updateMessageTransfer,
+    updateGobangMessage,
     generateMessageVoiceAudio,
     recallMessage,
     summarizeConversationWindow,

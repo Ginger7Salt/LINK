@@ -225,6 +225,39 @@ const FanficTabIcon = defineComponent({
   }
 });
 
+const WalletTabIcon = defineComponent({
+  name: 'WalletTabIcon',
+  props: iconProps,
+  setup(props) {
+    return () => h('svg', svgAttrs, [
+      h('rect', {
+        x: 3.8,
+        y: 6.1,
+        width: 16.4,
+        height: 12.1,
+        rx: 3,
+        fill: props.active ? 'currentColor' : 'none',
+        stroke: 'currentColor',
+        strokeWidth: 2
+      }),
+      h('path', {
+        d: 'M5.7 7.2V6.35A2.55 2.55 0 0 1 8.25 3.8h8.1',
+        stroke: 'currentColor',
+        strokeWidth: 2,
+        strokeLinecap: 'round'
+      }),
+      h('path', {
+        d: 'M15.2 11.1h5v3.35h-5a1.68 1.68 0 1 1 0-3.35Z',
+        fill: props.active ? '#ffffff' : 'none',
+        stroke: 'currentColor',
+        strokeWidth: 1.7,
+        strokeLinejoin: 'round'
+      }),
+      h('circle', { cx: 15.6, cy: 12.78, r: .62, fill: props.active ? 'currentColor' : 'currentColor' })
+    ]);
+  }
+});
+
 const voomTabHasUnread = computed(() => {
   const activeUserId = store.user?.id ?? '';
   if (!activeUserId) return false;
@@ -243,7 +276,8 @@ const tabs = computed(() => [
   { name: 'home', label: 'Home', to: '/home', icon: HomeTabIcon, hasUnread: store.unreadConversationCount > 0 },
   { name: 'voom', label: 'VOOM', to: '/voom', icon: VoomTabIcon, hasUnread: voomTabHasUnread.value },
   { name: 'music', label: 'Music', to: '/music', icon: MusicTabIcon, hasUnread: false },
-  { name: 'fanfic', label: 'Fanfic', to: '/fanfic', icon: FanficTabIcon, hasUnread: false }
+  { name: 'fanfic', label: 'Fanfic', to: '/fanfic', icon: FanficTabIcon, hasUnread: false },
+  { name: 'wallet', label: 'Wallet', to: '/wallet', icon: WalletTabIcon, hasUnread: false }
 ]);
 </script>
 
@@ -255,7 +289,7 @@ const tabs = computed(() => [
   left: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   height: calc(var(--tab-height) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
   border-top: 1px solid transparent;

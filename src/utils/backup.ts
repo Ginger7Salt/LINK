@@ -35,6 +35,11 @@ export const linkBackupSnapshotArrayKeys: Array<keyof Omit<AppSnapshot, 'setting
   'profileHomepages',
   'smallTheaterTopics',
   'smallTheaters',
+  'fanficBooks',
+  'fanficChapters',
+  'fanficComments',
+  'fanficTopics',
+  'fanficGenerationJobs',
   'musicFavoriteTracks',
   'musicCommentThreads',
   'worldBooks',
@@ -43,7 +48,15 @@ export const linkBackupSnapshotArrayKeys: Array<keyof Omit<AppSnapshot, 'setting
   'conversationSettings',
   'conversationMemories',
   'generatedImages',
-  'favorites'
+  'favorites',
+  'walletAccounts',
+  'walletTransactions',
+  'shopStorefronts',
+  'shopProducts',
+  'shopCartItems',
+  'shopWishlistItems',
+  'shopOrders',
+  'shopMoments'
 ];
 const largeInlineAssetLength = 1024 * 1024;
 export const stickerBackupPlaceholder = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%221%22 height=%221%22/%3E';

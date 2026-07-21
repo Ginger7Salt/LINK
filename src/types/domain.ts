@@ -1,6 +1,8 @@
 export type ChatMode = 'online' | 'offline';
 
-export type AppTab = 'home' | 'voom' | 'music' | 'fanfic';
+import type { ChatCommerceAttachment, ChatShopShareAttachment, ShopCartItem, ShopMoment, ShopOrder, ShopProduct, ShopStorefront, ShopWishlistItem, WalletAccount, WalletTransaction } from './commerce';
+
+export type AppTab = 'home' | 'voom' | 'music' | 'fanfic' | 'wallet';
 
 export interface VisualProfileStats {
   posts: number;
@@ -762,6 +764,61 @@ export interface ChatCallAttachment {
   duration?: number;
 }
 
+export type ChatGobangPlayer = 'user' | 'char';
+
+export type ChatGobangStone = 'black' | 'white';
+
+export type ChatGobangDirection = 'incoming' | 'outgoing';
+
+export type ChatGobangInvitationStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled';
+
+export type ChatGobangStatus = 'active' | 'user-won' | 'char-won' | 'draw' | 'resigned';
+
+export type ChatGobangApiStatus = 'idle' | 'requesting' | 'failed' | 'interrupted';
+
+export type ChatGobangApiErrorCode = 'not-configured' | 'network' | 'invalid-response' | 'illegal-move' | 'interrupted' | 'unknown';
+
+export interface ChatGobangApiState {
+  status: ChatGobangApiStatus;
+  requestId?: string;
+  requestRevision?: number;
+  requestedAt?: number;
+  model?: string;
+  errorCode?: ChatGobangApiErrorCode;
+  error?: string;
+}
+
+export interface ChatGobangMove {
+  row: number;
+  column: number;
+  player: ChatGobangPlayer;
+  createdAt: number;
+  dialogue?: string;
+  dialogueTranslation?: string;
+  apiModel?: string;
+  requestId?: string;
+}
+
+export interface ChatGobangAttachment {
+  gameId: string;
+  direction?: ChatGobangDirection;
+  invitationStatus?: ChatGobangInvitationStatus;
+  size: 15;
+  status: ChatGobangStatus;
+  turn: ChatGobangPlayer;
+  starter: ChatGobangPlayer;
+  userStone: ChatGobangStone;
+  moves: ChatGobangMove[];
+  undoCount: number;
+  startedAt: number;
+  respondedAt?: number;
+  acceptedAt?: number;
+  updatedAt: number;
+  endedAt?: number;
+  revision?: number;
+  apiState?: ChatGobangApiState;
+}
+
 export interface ChatMessageQuote {
   messageId: string;
   sender: 'user' | 'char' | 'system';
@@ -774,6 +831,8 @@ export interface ChatMessageQuote {
   voice?: ChatVoiceAttachment;
   location?: ChatLocationAttachment;
   transfer?: ChatTransferAttachment;
+  commerce?: ChatCommerceAttachment;
+  shopShare?: ChatShopShareAttachment;
   musicListenInvite?: ChatMusicListenInviteAttachment;
   theaterLink?: ChatSmallTheaterLinkAttachment;
   offlineInvitation?: ChatOfflineInvitationAttachment;
@@ -802,10 +861,14 @@ export interface ChatMessage {
   voice?: ChatVoiceAttachment;
   location?: ChatLocationAttachment;
   transfer?: ChatTransferAttachment;
+  commerce?: ChatCommerceAttachment;
+  shopShare?: ChatShopShareAttachment;
   musicListenInvite?: ChatMusicListenInviteAttachment;
   theaterLink?: ChatSmallTheaterLinkAttachment;
   offlineInvitation?: ChatOfflineInvitationAttachment;
   call?: ChatCallAttachment;
+  gobang?: ChatGobangAttachment;
+  gobangId?: string;
   callId?: string;
   callMode?: ChatCallMode;
   contextOnly?: boolean;
@@ -820,7 +883,7 @@ export interface ChatMessage {
   editedAt?: number;
 }
 
-export type FavoriteMessageKind = 'text' | 'image' | 'sticker' | 'voice' | 'location' | 'transfer' | 'musicListenInvite' | 'theaterLink' | 'offlineInvitation' | 'call' | 'narration';
+export type FavoriteMessageKind = 'text' | 'image' | 'sticker' | 'voice' | 'location' | 'transfer' | 'commerce' | 'shopShare' | 'musicListenInvite' | 'theaterLink' | 'offlineInvitation' | 'call' | 'narration';
 
 export interface FavoriteMessageRecord {
   id: string;
@@ -925,6 +988,162 @@ export interface SmallTheater {
   model?: string;
   createdAt: number;
   updatedAt?: number;
+}
+
+export type FanficTopicSource = 'built-in' | 'trend' | 'ai' | 'custom';
+
+export interface FanficCreativeDna {
+  userTraits: string[];
+  characterTraits: string[];
+  chemistry: string[];
+  narrativeBoundaries: string[];
+  forbiddenCarryovers: string[];
+}
+
+export interface FanficSupportingCharacter {
+  name: string;
+  role: string;
+  goal: string;
+  secret: string;
+}
+
+export interface FanficStoryBible {
+  premise: string;
+  era: string;
+  locations: string[];
+  worldRules: string[];
+  supportingCharacters: FanficSupportingCharacter[];
+  relationshipArc: string;
+  coreMystery: string;
+  motifs: string[];
+}
+
+export interface FanficTopic {
+  id: string;
+  source: FanficTopicSource;
+  title: string;
+  hook: string;
+  setting: string;
+  conflict: string;
+  relationship: string;
+  tags: string[];
+  trendKeywords: string[];
+  categoryId?: string;
+  categoryLabel?: string;
+  subcategory?: string;
+  builtIn?: boolean;
+  createdAt: number;
+  expiresAt?: number;
+}
+
+export interface FanficOutlineChapter {
+  order: number;
+  title: string;
+  premise: string;
+  emotionalBeat: string;
+  cliffhanger: string;
+}
+
+export type FanficBookStatus = 'serializing' | 'completed' | 'paused';
+
+export interface FanficBook {
+  id: string;
+  userId: string;
+  characterId: string;
+  userName: string;
+  characterName: string;
+  title: string;
+  authorName: string;
+  summary: string;
+  genre: string;
+  tags: string[];
+  topicId?: string;
+  topicTitle: string;
+  topicPitch: string;
+  sourceLabel: string;
+  tone: string;
+  pov: string;
+  endingPreference: string;
+  contentBoundaries: string[];
+  chapterTarget: number;
+  coverImage: string;
+  coverPrompt: string;
+  coverPalette: string[];
+  status: FanficBookStatus;
+  creativeDna: FanficCreativeDna;
+  storyBible: FanficStoryBible;
+  outline: FanficOutlineChapter[];
+  continuity: string[];
+  profileFingerprint: string;
+  lastReadChapterId?: string;
+  lastReadParagraphId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface FanficParagraph {
+  id: string;
+  text: string;
+}
+
+export interface FanficChapterHotspot {
+  id: string;
+  paragraphId: string;
+  label: string;
+  excerpt: string;
+  reason: string;
+  commentCount: number;
+}
+
+export type FanficChapterStatus = 'draft' | 'published' | 'failed';
+
+export interface FanficChapter {
+  id: string;
+  bookId: string;
+  order: number;
+  title: string;
+  content: string;
+  paragraphs: FanficParagraph[];
+  summary: string;
+  continuity: string[];
+  hotspots: FanficChapterHotspot[];
+  nextDirections: string[];
+  wordCount: number;
+  status: FanficChapterStatus;
+  model?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type FanficCommentScope = 'book' | 'chapter';
+
+export interface FanficComment {
+  id: string;
+  bookId: string;
+  chapterId?: string;
+  hotspotId?: string;
+  scope: FanficCommentScope;
+  authorType: 'generated' | 'user';
+  authorName: string;
+  avatarSeed: string;
+  content: string;
+  parentId?: string;
+  likes: number;
+  createdAt: number;
+}
+
+export type FanficGenerationStage = 'planning' | 'writing' | 'commenting' | 'cover' | 'completed' | 'failed';
+
+export interface FanficGenerationJob {
+  id: string;
+  bookId: string;
+  chapterOrder?: number;
+  stage: FanficGenerationStage;
+  label: string;
+  progress: number;
+  error: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export type MusicSource = 'netease' | 'kuwo' | 'joox' | 'tencent' | 'tidal' | 'qobuz' | 'bilibili' | 'apple' | 'ytmusic' | 'spotify';
@@ -1381,6 +1600,11 @@ export interface AppSnapshot {
   profileHomepages: ProfileHomepageRecord[];
   smallTheaterTopics: SmallTheaterTopic[];
   smallTheaters: SmallTheater[];
+  fanficBooks: FanficBook[];
+  fanficChapters: FanficChapter[];
+  fanficComments: FanficComment[];
+  fanficTopics: FanficTopic[];
+  fanficGenerationJobs: FanficGenerationJob[];
   musicFavoriteTracks: MusicTrack[];
   musicCommentThreads: MusicCommentThread[];
   worldBooks: WorldBookEntry[];
@@ -1390,6 +1614,14 @@ export interface AppSnapshot {
   conversationMemories: ConversationMemoryRecord[];
   generatedImages: GeneratedImageRecord[];
   favorites: FavoriteMessageRecord[];
+  walletAccounts?: WalletAccount[];
+  walletTransactions?: WalletTransaction[];
+  shopStorefronts?: ShopStorefront[];
+  shopProducts?: ShopProduct[];
+  shopCartItems?: ShopCartItem[];
+  shopWishlistItems?: ShopWishlistItem[];
+  shopOrders?: ShopOrder[];
+  shopMoments?: ShopMoment[];
   settings: AppSettings;
 }
 

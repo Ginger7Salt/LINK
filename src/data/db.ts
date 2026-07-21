@@ -1,6 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { toRaw } from 'vue';
-import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, ChatMessage, Conversation, ConversationMemoryRecord, ConversationSettings, FavoriteMessageRecord, GeneratedImageRecord, MusicCommentThread, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomPost, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, ChatMessage, Conversation, ConversationMemoryRecord, ConversationSettings, FanficBook, FanficChapter, FanficComment, FanficGenerationJob, FanficTopic, FavoriteMessageRecord, GeneratedImageRecord, MusicCommentThread, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomPost, WorldBookEntry } from '@/types/domain';
+import type { CommerceSnapshot, ShopCartItem, ShopMoment, ShopOrder, ShopProduct, ShopStorefront, ShopWishlistItem, WalletAccount, WalletTransaction } from '@/types/commerce';
 import { compressInlineImageDataUrl } from '@/utils/imageFile';
 import { collectStoredMediaLocators, externalizeLargeMediaRefs, pruneStoredMediaCache } from '@/utils/mediaStorage';
 import { normalizeUserProfile, removeVisualProfileAvatar } from '@/utils/profile';
@@ -19,6 +20,11 @@ interface LinkDb extends DBSchema {
   profileHomepages: { key: string; value: ProfileHomepageRecord; indexes: { byChar: string; byConversation: string } };
   smallTheaterTopics: { key: string; value: SmallTheaterTopic; indexes: { byChar: string } };
   smallTheaters: { key: string; value: SmallTheater; indexes: { byChar: string; byConversation: string } };
+  fanficBooks: { key: string; value: FanficBook; indexes: { byUser: string; byCharacter: string; byUpdatedAt: number } };
+  fanficChapters: { key: string; value: FanficChapter; indexes: { byBook: string; byOrder: number } };
+  fanficComments: { key: string; value: FanficComment; indexes: { byBook: string; byChapter: string } };
+  fanficTopics: { key: string; value: FanficTopic; indexes: { bySource: string } };
+  fanficGenerationJobs: { key: string; value: FanficGenerationJob; indexes: { byBook: string } };
   musicFavoriteTracks: { key: string; value: MusicTrack };
   musicCommentThreads: { key: string; value: MusicCommentThread };
   worldBooks: { key: string; value: WorldBookEntry; indexes: { byScope: string } };
@@ -28,6 +34,14 @@ interface LinkDb extends DBSchema {
   conversationMemories: { key: string; value: ConversationMemoryRecord; indexes: { byConversation: string } };
   generatedImages: { key: string; value: GeneratedImageRecord; indexes: { byProvider: string; byCreatedAt: number } };
   favorites: { key: string; value: FavoriteMessageRecord; indexes: { byConversation: string; byFavoritedAt: number } };
+  walletAccounts: { key: string; value: WalletAccount; indexes: { byOwner: string } };
+  walletTransactions: { key: string; value: WalletTransaction; indexes: { byWallet: string; byCreatedAt: number } };
+  shopStorefronts: { key: string; value: ShopStorefront; indexes: { byOwnerCharacter: string } };
+  shopProducts: { key: string; value: ShopProduct; indexes: { byStore: string; byCategory: string } };
+  shopCartItems: { key: string; value: ShopCartItem; indexes: { byUser: string } };
+  shopWishlistItems: { key: string; value: ShopWishlistItem; indexes: { byUser: string } };
+  shopOrders: { key: string; value: ShopOrder; indexes: { byUser: string; byPurchaser: string; byCreatedAt: number } };
+  shopMoments: { key: string; value: ShopMoment; indexes: { byCharacter: string; byCreatedAt: number } };
   settings: { key: string; value: AppSettings };
 }
 
@@ -36,7 +50,7 @@ let backupReadLockDepth = 0;
 let backupReadLockReleased: Promise<void> | null = null;
 let releaseBackupReadLock: (() => void) | null = null;
 
-const storeNames = ['user', 'characters', 'conversations', 'messages', 'voomPosts', 'profileThemes', 'profileHomepages', 'smallTheaterTopics', 'smallTheaters', 'musicFavoriteTracks', 'musicCommentThreads', 'worldBooks', 'stickerGroups', 'stickers', 'conversationSettings', 'conversationMemories', 'generatedImages', 'favorites', 'settings'] as const;
+const storeNames = ['user', 'characters', 'conversations', 'messages', 'voomPosts', 'profileThemes', 'profileHomepages', 'smallTheaterTopics', 'smallTheaters', 'fanficBooks', 'fanficChapters', 'fanficComments', 'fanficTopics', 'fanficGenerationJobs', 'musicFavoriteTracks', 'musicCommentThreads', 'worldBooks', 'stickerGroups', 'stickers', 'conversationSettings', 'conversationMemories', 'generatedImages', 'favorites', 'walletAccounts', 'walletTransactions', 'shopStorefronts', 'shopProducts', 'shopCartItems', 'shopWishlistItems', 'shopOrders', 'shopMoments', 'settings'] as const;
 const legacyDefaultUserIds = new Set(['1008600002']);
 const legacyDefaultCharacterIds = new Set(['2000100001', '2000100002', '2000100003']);
 const legacyDefaultConversationIds = new Set(['conv_2000100001', 'conv_2000100002', 'conv_2000100003']);
@@ -242,6 +256,11 @@ async function compactVoomPostInlineImages(post: VoomPost): Promise<VoomPost> {
   return changed ? { ...post, authorAvatar: nextAuthorAvatar ?? post.authorAvatar, image: nextImage, imageCandidates: nextCandidates } : post;
 }
 
+async function compactFanficBookInlineImages(book: FanficBook): Promise<FanficBook> {
+  const nextCoverImage = await compactInlineImageValue(book.coverImage, inlineProfileImageCompressionOptions) ?? book.coverImage;
+  return nextCoverImage === book.coverImage ? book : { ...book, coverImage: nextCoverImage, updatedAt: Date.now() };
+}
+
 async function compactStickerInlineImages(sticker: Sticker): Promise<Sticker> {
   const nextCachedImageUrl = await compactInlineImageValue(sticker.cachedImageUrl, inlineProfileImageCompressionOptions) ?? sticker.cachedImageUrl;
   return nextCachedImageUrl === sticker.cachedImageUrl ? sticker : { ...sticker, cachedImageUrl: nextCachedImageUrl };
@@ -312,6 +331,7 @@ async function compactValueForStore<TStore extends StoreName>(storeName: TStore,
   if (storeName === 'characters') return await compactCharacterProfileInlineImages(value as CharacterProfile) as LinkDb[TStore]['value'];
   if (storeName === 'messages') return await compactMessageInlineImages(value as ChatMessage) as LinkDb[TStore]['value'];
   if (storeName === 'voomPosts') return await compactVoomPostInlineImages(value as VoomPost) as LinkDb[TStore]['value'];
+  if (storeName === 'fanficBooks') return await compactFanficBookInlineImages(value as FanficBook) as LinkDb[TStore]['value'];
   if (storeName === 'stickers') return await compactStickerInlineImages(value as Sticker) as LinkDb[TStore]['value'];
   if (storeName === 'generatedImages') return await compactGeneratedImageRecord(value as GeneratedImageRecord) as LinkDb[TStore]['value'];
   if (storeName === 'worldBooks') return await compactWorldBookInlineImages(value as WorldBookEntry) as LinkDb[TStore]['value'];
@@ -338,6 +358,9 @@ async function compactSnapshotInlineImages(snapshot: AppSnapshot): Promise<AppSn
   const smallTheaters = snapshot.smallTheaters ?? [];
   const profileThemes = snapshot.profileThemes ?? [];
 
+  const fanficBooks: FanficBook[] = [];
+  for (const book of snapshot.fanficBooks ?? []) fanficBooks.push(await compactFanficBookInlineImages(book));
+
   const generatedImages: GeneratedImageRecord[] = [];
   for (const record of snapshot.generatedImages ?? []) generatedImages.push(await compactGeneratedImageRecord(record));
 
@@ -360,6 +383,7 @@ async function compactSnapshotInlineImages(snapshot: AppSnapshot): Promise<AppSn
     profileHomepages,
     smallTheaterTopics,
     smallTheaters,
+    fanficBooks,
     stickers,
     worldBooks,
     generatedImages,
@@ -395,6 +419,7 @@ export async function compactStoredInlineImages() {
   changed += await compactStoredInlineImagesForStore('characters');
   changed += await compactStoredInlineImagesForStore('messages');
   changed += await compactStoredInlineImagesForStore('voomPosts');
+  changed += await compactStoredInlineImagesForStore('fanficBooks');
   changed += await compactStoredInlineImagesForStore('generatedImages');
   changed += await compactStoredInlineImagesForStore('stickers');
   changed += await compactStoredInlineImagesForStore('worldBooks');
@@ -438,7 +463,7 @@ export function scheduleStartupStorageMaintenance() {
 }
 
 export function getDb() {
-  dbPromise ??= openDB<LinkDb>('link-local-db', 12, {
+  dbPromise ??= openDB<LinkDb>('link-local-db', 14, {
     upgrade(db, oldVersion, _newVersion, transaction) {
       if (!db.objectStoreNames.contains('user')) db.createObjectStore('user', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('characters')) db.createObjectStore('characters', { keyPath: 'id' });
@@ -473,6 +498,30 @@ export function getDb() {
         theaterStore.createIndex('byChar', 'charId');
         theaterStore.createIndex('byConversation', 'conversationId');
       }
+      if (!db.objectStoreNames.contains('fanficBooks')) {
+        const fanficBookStore = db.createObjectStore('fanficBooks', { keyPath: 'id' });
+        fanficBookStore.createIndex('byUser', 'userId');
+        fanficBookStore.createIndex('byCharacter', 'characterId');
+        fanficBookStore.createIndex('byUpdatedAt', 'updatedAt');
+      }
+      if (!db.objectStoreNames.contains('fanficChapters')) {
+        const fanficChapterStore = db.createObjectStore('fanficChapters', { keyPath: 'id' });
+        fanficChapterStore.createIndex('byBook', 'bookId');
+        fanficChapterStore.createIndex('byOrder', 'order');
+      }
+      if (!db.objectStoreNames.contains('fanficComments')) {
+        const fanficCommentStore = db.createObjectStore('fanficComments', { keyPath: 'id' });
+        fanficCommentStore.createIndex('byBook', 'bookId');
+        fanficCommentStore.createIndex('byChapter', 'chapterId');
+      }
+      if (!db.objectStoreNames.contains('fanficTopics')) {
+        const fanficTopicStore = db.createObjectStore('fanficTopics', { keyPath: 'id' });
+        fanficTopicStore.createIndex('bySource', 'source');
+      }
+      if (!db.objectStoreNames.contains('fanficGenerationJobs')) {
+        const fanficJobStore = db.createObjectStore('fanficGenerationJobs', { keyPath: 'id' });
+        fanficJobStore.createIndex('byBook', 'bookId');
+      }
       if (!db.objectStoreNames.contains('musicFavoriteTracks')) db.createObjectStore('musicFavoriteTracks', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('musicCommentThreads')) db.createObjectStore('musicCommentThreads', { keyPath: 'trackKey' });
       if (!db.objectStoreNames.contains('worldBooks')) {
@@ -497,6 +546,43 @@ export function getDb() {
         const favoriteStore = db.createObjectStore('favorites', { keyPath: 'id' });
         favoriteStore.createIndex('byConversation', 'conversationId');
         favoriteStore.createIndex('byFavoritedAt', 'favoritedAt');
+      }
+      if (!db.objectStoreNames.contains('walletAccounts')) {
+        const store = db.createObjectStore('walletAccounts', { keyPath: 'id' });
+        store.createIndex('byOwner', 'ownerId');
+      }
+      if (!db.objectStoreNames.contains('walletTransactions')) {
+        const store = db.createObjectStore('walletTransactions', { keyPath: 'id' });
+        store.createIndex('byWallet', 'walletId');
+        store.createIndex('byCreatedAt', 'createdAt');
+      }
+      if (!db.objectStoreNames.contains('shopStorefronts')) {
+        const store = db.createObjectStore('shopStorefronts', { keyPath: 'id' });
+        store.createIndex('byOwnerCharacter', 'ownerCharacterId');
+      }
+      if (!db.objectStoreNames.contains('shopProducts')) {
+        const store = db.createObjectStore('shopProducts', { keyPath: 'id' });
+        store.createIndex('byStore', 'storeId');
+        store.createIndex('byCategory', 'category');
+      }
+      if (!db.objectStoreNames.contains('shopCartItems')) {
+        const store = db.createObjectStore('shopCartItems', { keyPath: 'id' });
+        store.createIndex('byUser', 'userId');
+      }
+      if (!db.objectStoreNames.contains('shopWishlistItems')) {
+        const store = db.createObjectStore('shopWishlistItems', { keyPath: 'id' });
+        store.createIndex('byUser', 'userId');
+      }
+      if (!db.objectStoreNames.contains('shopOrders')) {
+        const store = db.createObjectStore('shopOrders', { keyPath: 'id' });
+        store.createIndex('byUser', 'userId');
+        store.createIndex('byPurchaser', 'purchaserId');
+        store.createIndex('byCreatedAt', 'createdAt');
+      }
+      if (!db.objectStoreNames.contains('shopMoments')) {
+        const store = db.createObjectStore('shopMoments', { keyPath: 'id' });
+        store.createIndex('byCharacter', 'characterId');
+        store.createIndex('byCreatedAt', 'createdAt');
       }
       if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings');
 
@@ -615,7 +701,7 @@ export async function loadSnapshot() {
   await seedDatabase();
   await pruneLegacyDefaultData();
   const db = await getDb();
-  const [users, characters, conversations, messages, voomPosts, profileThemes, profileHomepages, smallTheaterTopics, smallTheaters, musicFavoriteTracks, musicCommentThreads, worldBooks, stickerGroups, stickers, conversationSettings, conversationMemories, generatedImages, favorites, settings] = await Promise.all([
+  const [users, characters, conversations, messages, voomPosts, profileThemes, profileHomepages, smallTheaterTopics, smallTheaters, fanficBooks, fanficChapters, fanficComments, fanficTopics, fanficGenerationJobs, musicFavoriteTracks, musicCommentThreads, worldBooks, stickerGroups, stickers, conversationSettings, conversationMemories, generatedImages, favorites, walletAccounts, walletTransactions, shopStorefronts, shopProducts, shopCartItems, shopWishlistItems, shopOrders, shopMoments, settings] = await Promise.all([
     db.getAll('user'),
     db.getAll('characters'),
     db.getAll('conversations'),
@@ -625,6 +711,11 @@ export async function loadSnapshot() {
     db.getAll('profileHomepages'),
     db.getAll('smallTheaterTopics'),
     db.getAll('smallTheaters'),
+    db.getAll('fanficBooks'),
+    db.getAll('fanficChapters'),
+    db.getAll('fanficComments'),
+    db.getAll('fanficTopics'),
+    db.getAll('fanficGenerationJobs'),
     db.getAll('musicFavoriteTracks'),
     db.getAll('musicCommentThreads'),
     db.getAll('worldBooks'),
@@ -634,6 +725,14 @@ export async function loadSnapshot() {
     db.getAll('conversationMemories'),
     db.getAll('generatedImages'),
     db.getAll('favorites'),
+    db.getAll('walletAccounts'),
+    db.getAll('walletTransactions'),
+    db.getAll('shopStorefronts'),
+    db.getAll('shopProducts'),
+    db.getAll('shopCartItems'),
+    db.getAll('shopWishlistItems'),
+    db.getAll('shopOrders'),
+    db.getAll('shopMoments'),
     db.get('settings', 'main')
   ]);
 
@@ -647,6 +746,11 @@ export async function loadSnapshot() {
     profileHomepages,
     smallTheaterTopics,
     smallTheaters,
+    fanficBooks,
+    fanficChapters,
+    fanficComments,
+    fanficTopics,
+    fanficGenerationJobs,
     musicFavoriteTracks,
     musicCommentThreads,
     worldBooks: normalizeWorldBooks(worldBooks),
@@ -656,8 +760,31 @@ export async function loadSnapshot() {
     conversationMemories,
     generatedImages,
     favorites,
+    walletAccounts,
+    walletTransactions,
+    shopStorefronts,
+    shopProducts,
+    shopCartItems,
+    shopWishlistItems,
+    shopOrders,
+    shopMoments,
     settings: normalizeAppSettings(settings ?? defaultSettings)
   };
+}
+
+export async function loadCommerceSnapshot(): Promise<CommerceSnapshot> {
+  const db = await getDb();
+  const [walletAccounts, walletTransactions, shopStorefronts, shopProducts, shopCartItems, shopWishlistItems, shopOrders, shopMoments] = await Promise.all([
+    db.getAll('walletAccounts'),
+    db.getAll('walletTransactions'),
+    db.getAll('shopStorefronts'),
+    db.getAll('shopProducts'),
+    db.getAll('shopCartItems'),
+    db.getAll('shopWishlistItems'),
+    db.getAll('shopOrders'),
+    db.getAll('shopMoments')
+  ]);
+  return { walletAccounts, walletTransactions, shopStorefronts, shopProducts, shopCartItems, shopWishlistItems, shopOrders, shopMoments };
 }
 
 export async function replaceSnapshot(snapshot: AppSnapshot) {
@@ -702,6 +829,26 @@ export async function replaceSnapshot(snapshot: AppSnapshot) {
   void smallTheaterStore.clear();
   (snapshot.smallTheaters ?? []).forEach((entry) => void smallTheaterStore.put(toPersistableValue(entry)));
 
+  const fanficBookStore = tx.objectStore('fanficBooks');
+  void fanficBookStore.clear();
+  (snapshot.fanficBooks ?? []).forEach((entry) => void fanficBookStore.put(toPersistableValue(entry)));
+
+  const fanficChapterStore = tx.objectStore('fanficChapters');
+  void fanficChapterStore.clear();
+  (snapshot.fanficChapters ?? []).forEach((entry) => void fanficChapterStore.put(toPersistableValue(entry)));
+
+  const fanficCommentStore = tx.objectStore('fanficComments');
+  void fanficCommentStore.clear();
+  (snapshot.fanficComments ?? []).forEach((entry) => void fanficCommentStore.put(toPersistableValue(entry)));
+
+  const fanficTopicStore = tx.objectStore('fanficTopics');
+  void fanficTopicStore.clear();
+  (snapshot.fanficTopics ?? []).forEach((entry) => void fanficTopicStore.put(toPersistableValue(entry)));
+
+  const fanficGenerationJobStore = tx.objectStore('fanficGenerationJobs');
+  void fanficGenerationJobStore.clear();
+  (snapshot.fanficGenerationJobs ?? []).forEach((entry) => void fanficGenerationJobStore.put(toPersistableValue(entry)));
+
   const musicFavoriteTrackStore = tx.objectStore('musicFavoriteTracks');
   void musicFavoriteTrackStore.clear();
   (snapshot.musicFavoriteTracks ?? []).forEach((entry) => void musicFavoriteTrackStore.put(toPersistableValue(entry)));
@@ -737,6 +884,38 @@ export async function replaceSnapshot(snapshot: AppSnapshot) {
   const favoriteStore = tx.objectStore('favorites');
   void favoriteStore.clear();
   (snapshot.favorites ?? []).forEach((entry) => void favoriteStore.put(toPersistableValue(entry)));
+
+  const walletAccountStore = tx.objectStore('walletAccounts');
+  void walletAccountStore.clear();
+  (snapshot.walletAccounts ?? []).forEach((entry) => void walletAccountStore.put(toPersistableValue(entry)));
+
+  const walletTransactionStore = tx.objectStore('walletTransactions');
+  void walletTransactionStore.clear();
+  (snapshot.walletTransactions ?? []).forEach((entry) => void walletTransactionStore.put(toPersistableValue(entry)));
+
+  const shopStorefrontStore = tx.objectStore('shopStorefronts');
+  void shopStorefrontStore.clear();
+  (snapshot.shopStorefronts ?? []).forEach((entry) => void shopStorefrontStore.put(toPersistableValue(entry)));
+
+  const shopProductStore = tx.objectStore('shopProducts');
+  void shopProductStore.clear();
+  (snapshot.shopProducts ?? []).forEach((entry) => void shopProductStore.put(toPersistableValue(entry)));
+
+  const shopCartItemStore = tx.objectStore('shopCartItems');
+  void shopCartItemStore.clear();
+  (snapshot.shopCartItems ?? []).forEach((entry) => void shopCartItemStore.put(toPersistableValue(entry)));
+
+  const shopWishlistItemStore = tx.objectStore('shopWishlistItems');
+  void shopWishlistItemStore.clear();
+  (snapshot.shopWishlistItems ?? []).forEach((entry) => void shopWishlistItemStore.put(toPersistableValue(entry)));
+
+  const shopOrderStore = tx.objectStore('shopOrders');
+  void shopOrderStore.clear();
+  (snapshot.shopOrders ?? []).forEach((entry) => void shopOrderStore.put(toPersistableValue(entry)));
+
+  const shopMomentStore = tx.objectStore('shopMoments');
+  void shopMomentStore.clear();
+  (snapshot.shopMoments ?? []).forEach((entry) => void shopMomentStore.put(toPersistableValue(entry)));
 
   const settingsStore = tx.objectStore('settings');
   void settingsStore.clear();
@@ -808,6 +987,18 @@ export async function putEntity<TStore extends StoreName>(storeName: TStore, val
     return;
   }
   await db.put(storeName, persistableValue as never);
+}
+
+export async function putFanficChapterBundle(book: FanficBook, chapter: FanficChapter, comments: FanficComment[]) {
+  await waitForBackupReadLock();
+  const db = await getDb();
+  const compactedBook = await compactFanficBookInlineImages(book);
+  const externalizedBook = await externalizeLargeMediaRefs(compactedBook);
+  const tx = db.transaction(['fanficBooks', 'fanficChapters', 'fanficComments'], 'readwrite');
+  await tx.objectStore('fanficBooks').put(toPersistableValue(externalizedBook));
+  await tx.objectStore('fanficChapters').put(toPersistableValue(chapter));
+  for (const comment of comments) await tx.objectStore('fanficComments').put(toPersistableValue(comment));
+  await tx.done;
 }
 
 export async function pruneUnusedStoredMediaCache() {

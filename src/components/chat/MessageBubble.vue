@@ -40,7 +40,7 @@
         @selectstart.prevent.stop="suppressNativeSelection"
       >
         <span v-if="authorLabel" class="message-author-label">{{ authorLabel }}</span>
-        <div class="bubble" :class="{ narration: message.displayStyle === 'narration', sticker: message.sticker, image: message.image, voice: message.voice, location: message.location, transfer: message.transfer, musicListenInvite: message.musicListenInvite, theaterLink: message.theaterLink, offlineInvitation: message.offlineInvitation, call: message.call }" :style="bubbleStyle">
+        <div class="bubble" :class="{ narration: message.displayStyle === 'narration', sticker: message.sticker, image: message.image, voice: message.voice, location: message.location, transfer: message.transfer, commerce: message.commerce, shopShare: message.shopShare, musicListenInvite: message.musicListenInvite, theaterLink: message.theaterLink, offlineInvitation: message.offlineInvitation, call: message.call, gobang: message.gobang }" :style="bubbleStyle">
           <template v-if="message.call">
             <section class="call-message-card" :class="[`call-message-card--${message.call.status}`, `call-message-card--${message.call.mode}`, `call-message-card--${message.call.direction}`]" aria-label="通话消息">
               <div class="call-message-head">
@@ -83,6 +83,30 @@
                 <Play v-else :size="13" fill="currentColor" />
               </button>
             </div>
+          </template>
+          <template v-else-if="message.gobang">
+            <section class="gobang-message-card" :class="[`gobang-message-card--${message.gobang.status}`, { 'gobang-message-card--api-failed': gobangApiFailed }]" aria-label="五子棋对局">
+              <span class="gobang-message-head">
+                <span>
+                  <small>LINK PLAY</small>
+                  <strong>五子棋</strong>
+                </span>
+                <em>{{ gobangCardChip }}</em>
+              </span>
+              <span class="gobang-message-board" aria-hidden="true">
+                <i v-for="point in gobangPreviewCells" :key="point.key" class="gobang-message-point">
+                  <span v-if="point.stone" :class="[`gobang-message-stone--${point.stone}`, { latest: point.latest }]"></span>
+                </i>
+              </span>
+              <div v-if="canRespondGobangCard" class="call-message-actions gobang-message-actions" @pointerdown.stop @pointerup.stop>
+                <button class="call-message-action call-message-action--reject" type="button" @click.stop="emit('reject-gobang')">拒绝</button>
+                <button class="call-message-action call-message-action--accept" type="button" @click.stop="emit('accept-gobang')">接受</button>
+              </div>
+              <span class="gobang-message-footer">
+                <span><strong>{{ gobangCardTitle }}</strong><small>{{ gobangCardDetail }}</small></span>
+                <ChevronRight :size="15" />
+              </span>
+            </section>
           </template>
           <template v-else-if="message.location">
             <section class="line-location-card" aria-label="定位消息">
@@ -131,6 +155,39 @@
                 <button class="transfer-request-action transfer-request-action--reject" type="button" @click.stop="emit('reject-transfer')">拒绝</button>
                 <button class="transfer-request-action transfer-request-action--accept" type="button" @click.stop="emit('accept-transfer')">接收</button>
               </span>
+            </section>
+          </template>
+          <template v-else-if="message.commerce">
+            <section class="commerce-order-card" :class="`commerce-order-card--${message.commerce.kind}`" aria-label="角色订单消息">
+              <span class="commerce-order-head">
+                <span class="commerce-order-brand"><i>{{ commerceOrderMark }}</i><span>LINK {{ commerceKindEnglish }}</span></span>
+                <span class="commerce-order-chip">{{ commerceStatusLabel }}</span>
+              </span>
+              <span class="commerce-order-main">
+                <span class="commerce-order-visual">{{ commerceOrderMark }}</span>
+                <span class="commerce-order-copy">
+                  <small>{{ commerceKindLabel }}</small>
+                  <strong>{{ message.commerce.storeName }}</strong>
+                  <em>{{ commerceItemsText }}</em>
+                </span>
+              </span>
+              <span class="commerce-order-payment">
+                <span><small>{{ message.commerce.purchaserName || characterDisplayName }} 已付款</small><strong>¥{{ message.commerce.totalAmount }}</strong></span>
+                <span>{{ message.commerce.eta || '订单已提交' }} <ChevronRight :size="13" /></span>
+              </span>
+              <span v-if="commerceCardMessage" class="commerce-order-note">“{{ commerceCardMessage }}”</span>
+            </section>
+          </template>
+          <template v-else-if="message.shopShare">
+            <section class="shop-share-card" :class="`shop-share-card--${message.shopShare.kind}`" aria-label="商城分享消息">
+              <span class="shop-share-head"><span><i>{{ message.shopShare.mark }}</i> LINK SHOP</span><em>{{ shopShareChip }}</em></span>
+              <span class="shop-share-main">
+                <img v-if="message.shopShare.imageUrl" :src="message.shopShare.imageUrl" :alt="message.shopShare.title" />
+                <i v-else>{{ message.shopShare.mark }}</i>
+                <span><small>{{ shopShareKindLabel }}</small><strong>{{ message.shopShare.title }}</strong><em>{{ message.shopShare.subtitle }}</em></span>
+              </span>
+              <span class="shop-share-footer"><span><small>{{ message.shopShare.storeName }}</small><strong v-if="shopSharePrice">{{ shopSharePrice }}</strong></span><span>打开 Shop <ChevronRight :size="13" /></span></span>
+              <span v-if="message.shopShare.note" class="shop-share-note">“{{ message.shopShare.note }}”</span>
             </section>
           </template>
           <template v-else-if="message.musicListenInvite">
@@ -269,7 +326,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { DoorOpen, Globe2, LoaderCircle, Music2, Pause, Play, Quote, X } from 'lucide-vue-next';
+import { ChevronRight, DoorOpen, Globe2, LoaderCircle, Music2, Pause, Play, Quote, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import type { CharacterProfile, ChatAppearanceSettings, ChatImageCandidate, ChatMessage, UserProfile } from '@/types/domain';
 import { useAppStore } from '@/stores/appStore';
@@ -282,6 +339,7 @@ import { defaultProfileAvatar } from '@/utils/profile';
 import { downloadImageUrl } from '@/utils/download';
 import { getStickerDisplayImageUrl } from '@/utils/stickers';
 import { normalizeTranslationText, shouldShowChineseTranslation } from '@/utils/translation';
+import { gobangStoneForPlayer } from '@/utils/gobang';
 
 const props = withDefaults(defineProps<{
   message: ChatMessage;
@@ -333,6 +391,9 @@ const emit = defineEmits<{
   'reject-music-listen-invite': [];
   'accept-call': [];
   'reject-call': [];
+  'accept-gobang': [];
+  'reject-gobang': [];
+  'open-gobang': [message: ChatMessage];
 }>();
 
 const store = useAppStore();
@@ -432,7 +493,10 @@ const showInlineTranslation = computed(() => props.message.sender === 'char'
   && !props.message.sticker
   && !props.message.voice
   && !props.message.location
+  && !props.message.commerce
+  && !props.message.shopShare
   && !props.message.theaterLink
+  && !props.message.gobang
   && shouldShowChineseTranslation(displayContent.value, displayTranslation.value));
 const showVoiceTranslation = computed(() => props.message.sender === 'char'
   && props.message.mode === 'online'
@@ -467,18 +531,22 @@ const quoteText = computed(() => props.message.quote?.sticker
         ? props.message.quote.location.name
         : props.message.quote?.transfer
           ? `${props.message.quote.transfer.responseToMessageId ? '转账回执 ' : ''}¥${props.message.quote.transfer.amount}`
-            : props.message.quote?.musicListenInvite
+          : props.message.quote?.commerce
+            ? `${props.message.quote.commerce.kind === 'takeout' ? '外卖' : props.message.quote.commerce.kind === 'gift' ? '礼物' : '购物'} ${props.message.quote.commerce.storeName}`
+            : props.message.quote?.shopShare
+              ? `${props.message.quote.shopShare.title} · ${props.message.quote.shopShare.storeName}`
+              : props.message.quote?.musicListenInvite
               ? `一起听 ${props.message.quote.musicListenInvite.track?.name || props.message.quote.musicListenInvite.status}`
               : props.message.quote?.theaterLink
             ? props.message.quote.theaterLink.title
             : props.message.quote?.call
               ? `${props.message.quote.call.mode === 'video' ? '视频通话' : '语音通话'} ${props.message.quote.call.status}`
   : props.message.quote?.content ?? '');
-const quoteThumbnail = computed(() => props.message.quote?.sticker?.imageUrl ?? props.message.quote?.image?.url ?? '');
+const quoteThumbnail = computed(() => props.message.quote?.sticker?.imageUrl ?? props.message.quote?.image?.url ?? props.message.quote?.shopShare?.imageUrl ?? '');
 const quoteAuthorLabel = computed(() => (props.message.quote?.authorName ? `${props.message.quote.authorName}：` : ''));
 
 const bubbleStyle = computed(() => {
-  if (props.message.sticker || props.message.image || props.message.location || props.message.transfer || props.message.musicListenInvite || props.message.theaterLink || props.message.offlineInvitation || props.message.call) return {};
+  if (props.message.sticker || props.message.image || props.message.location || props.message.transfer || props.message.commerce || props.message.shopShare || props.message.musicListenInvite || props.message.theaterLink || props.message.offlineInvitation || props.message.call || props.message.gobang) return {};
   if (props.message.displayStyle === 'narration') {
     return {
       background: props.appearance.narrationBubbleColor,
@@ -588,6 +656,15 @@ const linePayCardSubtext = computed(() => {
 });
 const linePayRequestNoteText = computed(() => linePayNote.value || blankTransferRequestLine);
 const canRespondTransferCard = computed(() => props.message.sender === 'char' && !linePayIsReceipt.value && linePayStatus.value === 'pending');
+const commerceKindLabel = computed(() => ({ takeout: '给你点的外卖', gift: '送给你的礼物', shopping: '刚买到的东西' })[props.message.commerce?.kind ?? 'shopping']);
+const commerceKindEnglish = computed(() => ({ takeout: 'DELIVERY', gift: 'GIFT', shopping: 'ORDER' })[props.message.commerce?.kind ?? 'shopping']);
+const commerceOrderMark = computed(() => ({ takeout: '🥡', gift: '🎁', shopping: '🛍️' })[props.message.commerce?.kind ?? 'shopping']);
+const commerceItemsText = computed(() => props.message.commerce?.items.map((item) => `${item.name} ×${item.quantity}`).join(' · ') || '订单商品');
+const commerceStatusLabel = computed(() => ({ paid: '已付款', preparing: '准备中', delivering: '配送中', delivered: '已送达', cancelled: '已取消' })[props.message.commerce?.status ?? 'paid']);
+const commerceCardMessage = computed(() => props.message.commerce?.cardMessage?.trim() || props.message.commerce?.note?.trim() || '');
+const shopShareKindLabel = computed(() => ({ product: '分享给你的商品', 'character-pick': 'TA 放进共同购物车', wishlist: '共同愿望单', storefront: '想和你逛的店', moment: '商城里的新动态', order: '共同购物订单' })[props.message.shopShare?.kind ?? 'product']);
+const shopShareChip = computed(() => props.message.shopShare?.kind === 'character-pick' ? 'TA PICKED' : props.message.sender === 'user' ? 'SHARED' : 'FOR YOU');
+const shopSharePrice = computed(() => typeof props.message.shopShare?.priceCents === 'number' ? `¥${(props.message.shopShare.priceCents / 100).toFixed(2)}` : '');
 const musicInviteStatus = computed(() => props.message.musicListenInvite?.status ?? 'pending');
 const musicInviteTrack = computed(() => props.message.musicListenInvite?.track ?? null);
 const musicInviteTitle = computed(() => musicInviteTrack.value?.name || '邀请一起听');
@@ -645,6 +722,62 @@ const callCardDetail = computed(() => {
   return callStatusText.value;
 });
 const canRespondCallCard = computed(() => props.message.call?.direction === 'incoming' && props.message.call.status === 'ringing');
+const gobangPreviewCells = computed(() => {
+  const game = props.message.gobang;
+  if (!game) return [];
+  const latestMove = game.moves.at(-1);
+  const startRow = Math.max(0, Math.min(6, (latestMove?.row ?? 7) - 4));
+  const startColumn = Math.max(0, Math.min(6, (latestMove?.column ?? 7) - 4));
+  const moveMap = new Map(game.moves.map((move) => [`${move.row}:${move.column}`, move]));
+  return Array.from({ length: 81 }, (_, index) => {
+    const row = startRow + Math.floor(index / 9);
+    const column = startColumn + index % 9;
+    const move = moveMap.get(`${row}:${column}`);
+    return {
+      key: `${row}:${column}`,
+      stone: move ? gobangStoneForPlayer(game, move.player) : '',
+      latest: latestMove?.row === row && latestMove.column === column
+    };
+  });
+});
+const gobangCardTitle = computed(() => {
+  const game = props.message.gobang;
+  if (!game) return '';
+  const invitationStatus = game.invitationStatus ?? 'accepted';
+  if (invitationStatus === 'pending') return game.direction === 'incoming' ? `${characterDisplayName.value} 邀请你对弈` : `等待 ${characterDisplayName.value} 回应`;
+  if (invitationStatus === 'rejected') return '五子棋邀请已拒绝';
+  if (invitationStatus === 'cancelled') return '五子棋邀请已取消';
+  if (game.status === 'user-won') return '你赢了这一局';
+  if (game.status === 'char-won') return `${characterDisplayName.value} 赢了`;
+  if (game.status === 'draw') return '这一局是平局';
+  if (game.status === 'resigned') return '对局已结束';
+  if (['failed', 'interrupted'].includes(game.apiState?.status ?? '')) return `${characterDisplayName.value} 落子失败`;
+  return game.turn === 'user' ? '轮到你落子' : `${characterDisplayName.value} 正在想`;
+});
+const gobangCardDetail = computed(() => {
+  const game = props.message.gobang;
+  if (!game) return '';
+  const invitationStatus = game.invitationStatus ?? 'accepted';
+  if (invitationStatus === 'pending') return game.direction === 'incoming' ? '接受后进入独立棋局页面' : '角色会根据当前会话决定是否接受';
+  if (invitationStatus === 'rejected') return '本局没有开始';
+  if (invitationStatus === 'cancelled') return '邀请没有生效';
+  return `${game.moves.length} 手 · 线上聊天模型 · 点此${game.status === 'active' ? '继续' : '查看'}`;
+});
+const canRespondGobangCard = computed(() => props.message.gobang?.direction === 'incoming' && props.message.gobang.invitationStatus === 'pending');
+const gobangApiFailed = computed(() => ['failed', 'interrupted'].includes(props.message.gobang?.apiState?.status ?? ''));
+const gobangCardChip = computed(() => {
+  const invitationStatus = props.message.gobang?.invitationStatus ?? 'accepted';
+  if (invitationStatus === 'pending') return props.message.gobang?.direction === 'incoming' ? '邀请你' : '等待中';
+  if (invitationStatus === 'rejected') return '已拒绝';
+  if (invitationStatus === 'cancelled') return '已取消';
+  const status = props.message.gobang?.status;
+  if (gobangApiFailed.value) return '需重试';
+  if (status === 'active') return '进行中';
+  if (status === 'user-won') return '胜';
+  if (status === 'char-won') return '负';
+  if (status === 'draw') return '和';
+  return '结束';
+});
 const voiceDuration = computed(() => {
   const duration = props.message.voice?.duration ?? 0;
   if (Number.isFinite(duration) && duration > 0) return Math.max(1, Math.round(duration));
@@ -884,7 +1017,8 @@ function handleBubbleClick(event: MouseEvent) {
     return;
   }
   if (props.selectionMode) emit('toggle-select');
-  else if (props.message.theaterLink) emit('open-card-detail', props.message);
+  else if (props.message.theaterLink || props.message.commerce || props.message.shopShare) emit('open-card-detail', props.message);
+  else if (props.message.gobang) emit('open-gobang', props.message);
 }
 
 function stopVoicePlayback() {
@@ -1318,8 +1452,10 @@ onBeforeUnmount(() => {
 
 .bubble.location,
 .bubble.transfer,
+.bubble.commerce,
 .bubble.musicListenInvite,
-.bubble.theaterLink {
+.bubble.theaterLink,
+.bubble.gobang {
   padding: 0;
   overflow: hidden;
   border-radius: 10px;
@@ -1364,6 +1500,14 @@ onBeforeUnmount(() => {
   box-shadow: 0 9px 22px rgba(22, 27, 33, 0.08);
 }
 
+.bubble.commerce {
+  width: min(218px, 64vw);
+  min-width: min(194px, 56vw);
+  background: #ffffff;
+  border: 0;
+  box-shadow: 0 10px 25px rgba(53, 43, 46, 0.1);
+}
+
 .bubble.musicListenInvite {
   width: min(196px, 58vw);
   min-width: min(172px, 50vw);
@@ -1403,14 +1547,26 @@ onBeforeUnmount(() => {
   box-shadow: none;
 }
 
+.bubble.gobang {
+  width: min(222px, 64vw);
+  min-width: min(202px, 58vw);
+  background: transparent;
+  border: 0;
+  box-shadow: 0 10px 24px rgba(72, 45, 27, 0.13);
+}
+
 .message-row.user .bubble.location,
 .message-row.char .bubble.location,
 .message-row.user .bubble.transfer,
 .message-row.char .bubble.transfer,
+.message-row.user .bubble.commerce,
+.message-row.char .bubble.commerce,
 .message-row.user .bubble.musicListenInvite,
 .message-row.char .bubble.musicListenInvite,
 .message-row.user .bubble.theaterLink,
 .message-row.char .bubble.theaterLink,
+.message-row.user .bubble.gobang,
+.message-row.char .bubble.gobang,
 .message-row.char .bubble.offlineInvitation,
 .message-row.system .bubble.offlineInvitation {
   color: #111111;
@@ -1423,12 +1579,130 @@ onBeforeUnmount(() => {
 
 .message-row.user .bubble.transfer,
 .message-row.char .bubble.transfer,
+.message-row.user .bubble.commerce,
+.message-row.char .bubble.commerce,
 .message-row.user .bubble.musicListenInvite,
 .message-row.char .bubble.musicListenInvite,
 .message-row.user .bubble.theaterLink,
-.message-row.char .bubble.theaterLink {
+.message-row.char .bubble.theaterLink,
+.message-row.user .bubble.gobang,
+.message-row.char .bubble.gobang {
   background: #ffffff;
 }
+
+.gobang-message-card {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 9px;
+  border: 1px solid rgba(95, 58, 31, 0.14);
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 85% 8%, rgba(255, 255, 255, 0.72), transparent 24%),
+    linear-gradient(145deg, #fffdf9, #f7ead8);
+  color: #2d241e;
+  cursor: pointer;
+}
+
+.gobang-message-head,
+.gobang-message-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gobang-message-head > span,
+.gobang-message-footer > span {
+  display: grid;
+  min-width: 0;
+}
+
+.gobang-message-head small {
+  color: #a36e45;
+  font-size: 7px;
+  font-weight: 950;
+  letter-spacing: 0.11em;
+}
+
+.gobang-message-head strong {
+  font-size: 13px;
+  font-weight: 950;
+  letter-spacing: -0.03em;
+}
+
+.gobang-message-head em {
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(160, 101, 57, 0.11);
+  color: #8c5b36;
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 950;
+}
+
+.gobang-message-card--user-won .gobang-message-head em { background: #e5f6eb; color: #14843f; }
+.gobang-message-card--char-won .gobang-message-head em,
+.gobang-message-card--resigned .gobang-message-head em { background: #f0ebed; color: #79636b; }
+.gobang-message-card--api-failed .gobang-message-head em { background: #ffe8eb; color: #b73347; }
+
+.gobang-message-board {
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  width: 100%;
+  padding: 6px;
+  border: 1px solid rgba(95, 58, 31, 0.22);
+  border-radius: 9px;
+  background: linear-gradient(145deg, #e9c18d, #d49c58);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+.gobang-message-point {
+  position: relative;
+  aspect-ratio: 1;
+}
+
+.gobang-message-point::before,
+.gobang-message-point::after {
+  position: absolute;
+  z-index: 0;
+  background: rgba(83, 50, 27, 0.56);
+  content: '';
+}
+
+.gobang-message-point::before { inset: calc(50% - 0.5px) 0 auto; height: 1px; }
+.gobang-message-point::after { inset: 0 auto 0 calc(50% - 0.5px); width: 1px; }
+
+.gobang-message-point > span {
+  position: absolute;
+  z-index: 1;
+  inset: 8%;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(43, 27, 17, 0.3);
+}
+
+.gobang-message-stone--black { background: radial-gradient(circle at 34% 27%, #5c5b61, #202025 58%, #08080a); }
+.gobang-message-stone--white { border: 1px solid rgba(90, 69, 50, 0.16); background: radial-gradient(circle at 34% 27%, #fff, #eee9e2 64%, #d0c8be); }
+.gobang-message-point > span.latest::after {
+  position: absolute;
+  inset: 38%;
+  border-radius: 50%;
+  background: #ed586b;
+  content: '';
+}
+
+.gobang-message-footer strong,
+.gobang-message-footer small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gobang-message-footer strong { color: #332a24; font-size: 10px; font-weight: 930; }
+.gobang-message-footer small { color: #8b7c70; font-size: 8px; font-weight: 720; }
+.gobang-message-footer svg { flex: 0 0 auto; color: #9e7557; }
 
 .call-message-card {
   --call-accent: #ff8fb0;
@@ -2289,6 +2563,156 @@ onBeforeUnmount(() => {
   box-shadow: 0 8px 16px rgba(4, 199, 85, 0.2);
 }
 
+.commerce-order-card {
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(89, 66, 74, 0.09);
+  border-radius: inherit;
+  background: #fffdfc;
+  color: #4f4548;
+}
+
+.commerce-order-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 9px 7px;
+}
+
+.commerce-order-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: #766368;
+  font-size: 8px;
+  font-weight: 930;
+  letter-spacing: 0.08em;
+}
+
+.commerce-order-brand i {
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border-radius: 7px;
+  background: #efe1e4;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.commerce-order-card--takeout .commerce-order-brand i { background: #efe1d6; }
+.commerce-order-card--shopping .commerce-order-brand i { background: #e3e8e4; }
+
+.commerce-order-chip {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: #eef5f0;
+  color: #66806e;
+  font-size: 7px;
+  font-weight: 900;
+}
+
+.commerce-order-main {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 10px 9px;
+  background: linear-gradient(145deg, #f0dfe3, #f4ebe4);
+}
+
+.commerce-order-card--takeout .commerce-order-main { background: linear-gradient(145deg, #ead7c8, #f4e7da); }
+.commerce-order-card--shopping .commerce-order-main { background: linear-gradient(145deg, #e3ded6, #dfe8e3); }
+
+.commerce-order-visual {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.5);
+  font-size: 26px;
+}
+
+.commerce-order-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.commerce-order-copy small {
+  color: #8c737a;
+  font-size: 7px;
+  font-weight: 900;
+}
+
+.commerce-order-copy strong {
+  overflow: hidden;
+  color: #53464a;
+  font-family: Georgia, serif;
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commerce-order-copy em {
+  display: -webkit-box;
+  color: #88797d;
+  font-size: 7px;
+  font-style: normal;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.commerce-order-payment {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 9px;
+}
+
+.commerce-order-payment > span:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.commerce-order-payment small {
+  color: #9a8d90;
+  font-size: 7px;
+}
+
+.commerce-order-payment strong {
+  color: #57494d;
+  font-family: Georgia, serif;
+  font-size: 15px;
+}
+
+.commerce-order-payment > span:last-child {
+  display: inline-flex;
+  align-items: center;
+  color: #728279;
+  font-size: 7px;
+  font-weight: 850;
+}
+
+.commerce-order-note {
+  margin: 0 9px 9px;
+  padding: 7px 8px;
+  border-radius: 11px;
+  background: #f6f0ee;
+  color: #8b777d;
+  font-family: Georgia, serif;
+  font-size: 8px;
+  line-height: 1.45;
+}
+
 .voice-message {
   display: grid;
   grid-template-columns: minmax(28px, 1fr) 28px 22px;
@@ -2788,4 +3212,11 @@ time,
   line-height: inherit;
   white-space: nowrap;
 }
+.bubble.shopShare { width:min(276px,76vw);max-width:min(276px,76vw);padding:0!important;overflow:hidden;background:transparent!important;border-radius:23px!important;box-shadow:0 13px 31px rgba(55,42,47,.14)!important; }
+.shop-share-card { display:grid;overflow:hidden;border:1px solid rgba(111,83,92,.12);border-radius:23px;background:linear-gradient(155deg,#fffaf8,#f4efed 62%,#edf2ee);color:#554a4e; }
+.shop-share-head { display:flex;align-items:center;justify-content:space-between;padding:11px 12px 8px;color:#8f7780;font-size:7px;font-weight:900;letter-spacing:.1em; }.shop-share-head > span { display:inline-flex;align-items:center;gap:5px; }.shop-share-head i { font-size:14px;font-style:normal; }.shop-share-head em { padding:4px 7px;border-radius:999px;background:rgba(114,88,97,.08);font-size:6px;font-style:normal; }
+.shop-share-main { display:grid;grid-template-columns:67px minmax(0,1fr);align-items:center;gap:11px;padding:2px 12px 11px; }.shop-share-main > img,.shop-share-main > i { display:grid;place-items:center;width:67px;height:67px;border-radius:18px;background:linear-gradient(145deg,#eadde1,#e1e8e2);object-fit:cover;font-size:31px;font-style:normal; }.shop-share-main > span { display:grid;gap:4px;min-width:0; }.shop-share-main small { color:#a08d92;font-size:7px;font-weight:800; }.shop-share-main strong { overflow:hidden;color:#4e4347;font-size:12px;text-overflow:ellipsis;white-space:nowrap; }.shop-share-main em { display:-webkit-box;color:#8f8286;font-size:8px;font-style:normal;line-height:1.4;-webkit-box-orient:vertical;-webkit-line-clamp:2; }
+.shop-share-footer { display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-top:1px solid rgba(111,83,92,.09);background:rgba(255,255,255,.48); }.shop-share-footer > span:first-child { display:grid;gap:2px; }.shop-share-footer small { color:#9b8c90;font-size:7px; }.shop-share-footer strong { color:#594b50;font-family:Georgia,serif;font-size:11px; }.shop-share-footer > span:last-child { display:inline-flex;align-items:center;gap:2px;color:#826d75;font-size:7px;font-weight:900; }
+.shop-share-note { margin:0 11px 11px;padding:8px 9px;border-radius:12px;background:rgba(255,255,255,.58);color:#836f76;font-family:Georgia,serif;font-size:8px;line-height:1.45; }
+.message-row.user .bubble.shopShare,.message-row.char .bubble.shopShare { color:inherit!important; }
 </style>

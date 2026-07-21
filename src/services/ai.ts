@@ -37,6 +37,8 @@ export interface RoleplayMessageActions {
   offlineInvitation?: { prompt: string } | null;
   callInvite?: RoleplayCallInvite | null;
   callResponse?: RoleplayCallResponse | null;
+  gobangInvite?: RoleplayGobangInvite | null;
+  gobangResponse?: RoleplayGobangResponse | null;
   relationshipAction?: RoleplayRelationshipAction | null;
 }
 
@@ -64,6 +66,14 @@ export interface RoleplayCallResponse {
   status: RoleplayCallResponseStatus;
 }
 
+export interface RoleplayGobangInvite {
+  starter: 'char';
+}
+
+export interface RoleplayGobangResponse {
+  status: 'accepted' | 'rejected';
+}
+
 export type RoleplayStickerPosition = 'before' | 'after';
 
 export interface RoleplayStickerPlacement {
@@ -80,6 +90,7 @@ export type RoleplayReplySegment =
   | { type: 'voice'; content: string; translation?: string; duration?: number }
   | { type: 'location'; name: string; address?: string; distance: string }
   | { type: 'transfer'; amount: string; note?: string }
+  | { type: 'commerce'; kind: 'shopping' | 'takeout' | 'gift'; storeName: string; items: Array<{ name: string; quantity: number; price?: string }>; totalAmount: string; eta?: string; note?: string; cardMessage?: string }
   | { type: 'music_action'; actionIndex?: number };
 
 export interface RoleplayReplyResult {
@@ -741,6 +752,7 @@ async function fetchTextEndpointWithFallback(
       const response = await fetch(requestEndpoint, init);
       return { response, requestEndpoint };
     } catch (error) {
+      if (init.signal?.aborted) throw init.signal.reason instanceof Error ? init.signal.reason : error;
       lastError = error;
     }
   }
@@ -1281,6 +1293,40 @@ function normalizeTransferSegment(record: Record<string, unknown>): RoleplayRepl
   }];
 }
 
+function normalizeCommerceKind(value: unknown): 'shopping' | 'takeout' | 'gift' {
+  const kind = String(value ?? '').trim().toLocaleLowerCase();
+  if (['takeout', 'food', 'delivery', 'meal', '外卖', '点餐', '餐饮'].includes(kind)) return 'takeout';
+  if (['gift', 'present', 'surprise', '礼物', '送礼'].includes(kind)) return 'gift';
+  return 'shopping';
+}
+
+function normalizeCommerceItems(value: unknown): Array<{ name: string; quantity: number; price?: string }> {
+  if (Array.isArray(value)) return value.flatMap((item) => normalizeCommerceItems(item)).slice(0, 8);
+  if (typeof value === 'string') {
+    return value.split(/[、,，]/).map((name) => name.trim()).filter(Boolean).map((name) => ({ name, quantity: 1 }));
+  }
+  if (!value || typeof value !== 'object') return [];
+  const record = value as Record<string, unknown>;
+  const name = normalizeLocationText(record.name ?? record.title ?? record.productName ?? record.dishName ?? record.item);
+  if (!name) return [];
+  const rawQuantity = Number(record.quantity ?? record.count ?? record.qty ?? 1);
+  const quantity = Number.isFinite(rawQuantity) ? Math.min(99, Math.max(1, Math.floor(rawQuantity))) : 1;
+  const price = normalizeTransferAmount(record.price ?? record.unitPrice ?? record.amount);
+  return [{ name, quantity, ...(price && /^\d+(?:\.\d{1,2})?$/.test(price) ? { price } : {}) }];
+}
+
+function normalizeCommerceSegment(record: Record<string, unknown>): RoleplayReplySegment[] {
+  const kind = normalizeCommerceKind(record.kind ?? record.orderType ?? record.purchaseType ?? record.type);
+  const storeName = normalizeLocationText(record.storeName ?? record.store ?? record.shopName ?? record.restaurantName ?? record.merchant);
+  const items = normalizeCommerceItems(record.items ?? record.products ?? record.dishes ?? record.goods ?? record.orderItems);
+  const totalAmount = normalizeTransferAmount(record.totalAmount ?? record.total ?? record.amount ?? record.price);
+  if (!storeName || !items.length || !/^\d+(?:\.\d{1,2})?$/.test(totalAmount) || Number(totalAmount) <= 0) return [];
+  const eta = normalizeLocationText(record.eta ?? record.deliveryTime ?? record.arrivalTime);
+  const note = normalizeLocationText(record.note ?? record.remark ?? record.description);
+  const cardMessage = normalizeLocationText(record.cardMessage ?? record.giftMessage ?? record.messageToUser ?? record.card);
+  return [{ type: 'commerce', kind, storeName, items, totalAmount, ...(eta ? { eta } : {}), ...(note ? { note } : {}), ...(cardMessage ? { cardMessage } : {}) }];
+}
+
 function normalizeSegmentType(value: unknown): RoleplayReplySegment['type'] | '' {
   const type = String(value ?? '').trim().toLocaleLowerCase();
   if (['reply', 'message', 'bubble', 'text'].includes(type)) return 'reply';
@@ -1290,6 +1336,7 @@ function normalizeSegmentType(value: unknown): RoleplayReplySegment['type'] | ''
   if (['voice', 'audio', 'voice_message', 'voice-message', 'speech'].includes(type)) return 'voice';
   if (['location', 'map', 'position', 'geo', 'geolocation', '定位', '位置'].includes(type)) return 'location';
   if (['transfer', 'money', 'payment', 'redpacket', 'red_packet', '转账', '付款'].includes(type)) return 'transfer';
+  if (['commerce', 'order', 'shopping', 'purchase', 'takeout', 'food_order', 'delivery_order', 'gift', 'gift_order', '购物', '订单', '外卖', '点餐', '礼物', '送礼'].includes(type)) return 'commerce';
   if (['music_action', 'music-action', 'music', 'music_notice', 'music-notice', 'song_action', 'song-action', '音乐动作', '切歌', '收藏音乐'].includes(type)) return 'music_action';
   return '';
 }
@@ -1348,6 +1395,8 @@ function normalizeRoleplaySegment(value: unknown, narrationEnabled: boolean): Ro
   if (type === 'location') return normalizeLocationSegment(record);
 
   if (type === 'transfer') return normalizeTransferSegment(record);
+
+  if (type === 'commerce') return normalizeCommerceSegment(record);
 
   if (type === 'music_action') {
     const rawIndex = Number(record.actionIndex ?? record.musicActionIndex ?? record.index);
@@ -1612,6 +1661,47 @@ function normalizeCallResponseAction(record: Record<string, unknown>, actionReco
   return null;
 }
 
+function normalizeGobangInviteAction(record: Record<string, unknown>, actionRecord: Record<string, unknown>): RoleplayMessageActions['gobangInvite'] {
+  const candidates = [
+    actionRecord.gobangInvite,
+    actionRecord.startGobang,
+    actionRecord.fiveInARowInvite,
+    record.gobangInvite,
+    record.startGobang,
+    record.fiveInARowInvite
+  ];
+  for (const candidate of candidates) {
+    if (candidate === true || candidate === 'true' || candidate === 'gobang' || candidate === '五子棋') return { starter: 'char' };
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+    const inviteRecord = candidate as Record<string, unknown>;
+    if (inviteRecord.enabled === false || inviteRecord.enabled === 'false' || inviteRecord.status === 'none') continue;
+    return { starter: 'char' };
+  }
+  return null;
+}
+
+function normalizeGobangResponseAction(record: Record<string, unknown>, actionRecord: Record<string, unknown>): RoleplayMessageActions['gobangResponse'] {
+  const candidates = [
+    actionRecord.gobangResponse,
+    actionRecord.gobangDecision,
+    actionRecord.answerGobang,
+    record.gobangResponse,
+    record.gobangDecision,
+    record.answerGobang
+  ];
+  for (const candidate of candidates) {
+    const rawStatus = typeof candidate === 'string'
+      ? candidate
+      : candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+        ? String((candidate as Record<string, unknown>).status ?? (candidate as Record<string, unknown>).decision ?? (candidate as Record<string, unknown>).action ?? '')
+        : '';
+    const status = rawStatus.trim().toLocaleLowerCase();
+    if (['accepted', 'accept', 'yes', '同意', '接受', '应战'].includes(status)) return { status: 'accepted' };
+    if (['rejected', 'reject', 'decline', 'no', '拒绝', '不玩'].includes(status)) return { status: 'rejected' };
+  }
+  return null;
+}
+
 function normalizeRoleplayMessageActions(record: Record<string, unknown>): RoleplayMessageActions {
   const actionRecord = record.messageActions && typeof record.messageActions === 'object'
     ? record.messageActions as Record<string, unknown>
@@ -1676,6 +1766,8 @@ function normalizeRoleplayMessageActions(record: Record<string, unknown>): Rolep
     offlineInvitation: normalizeOfflineInvitationAction(record, actionRecord),
     callInvite: normalizeCallInviteAction(record, actionRecord),
     callResponse: normalizeCallResponseAction(record, actionRecord),
+    gobangInvite: normalizeGobangInviteAction(record, actionRecord),
+    gobangResponse: normalizeGobangResponseAction(record, actionRecord),
     relationshipAction: normalizeRelationshipAction(record, actionRecord)
   };
 }
@@ -2098,7 +2190,19 @@ function requireTextGenerationConfig(settings: AppSettings | undefined, modelOve
   throw new Error(`请先配置可用的 API 模型后再使用${target}。`);
 }
 
-async function callTextApi(settings: AppSettings | undefined, prompt: string, modelOverride = '', imageParts: TextApiContentPart[] = []) {
+export interface TextGenerationOptions {
+  temperature?: number;
+  maxTokens?: number;
+  signal?: AbortSignal;
+  jsonMode?: boolean;
+}
+
+export async function requestTextGeneration(settings: AppSettings | undefined, prompt: string, modelOverride = '', options: TextGenerationOptions = {}) {
+  requireTextGenerationConfig(settings, modelOverride, '文本生成');
+  return callTextApi(settings, prompt, modelOverride, [], options);
+}
+
+async function callTextApi(settings: AppSettings | undefined, prompt: string, modelOverride = '', imageParts: TextApiContentPart[] = [], options: TextGenerationOptions = {}) {
   const resolved = getResolvedTextApiConfig(settings, modelOverride);
   if (!resolved.endpoint.trim()) return '';
 
@@ -2106,20 +2210,31 @@ async function callTextApi(settings: AppSettings | undefined, prompt: string, mo
     ? [{ type: 'text' as const, text: prompt }, ...imageParts]
     : prompt;
 
-  const requestInit: RequestInit = {
+  const createRequestInit = (jsonMode: boolean): RequestInit => ({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...(resolved.apiKey ? { Authorization: `Bearer ${resolved.apiKey}` } : {})
     },
+    signal: options.signal,
     body: JSON.stringify({
       model: resolved.model,
       messages: [{ role: 'user', content }],
-      temperature: 0.9
+      temperature: options.temperature ?? 0.9,
+      ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
+      ...(jsonMode ? { response_format: { type: 'json_object' } } : {})
     })
-  };
+  });
+
+  let requestInit = createRequestInit(Boolean(options.jsonMode));
 
   let { response, requestEndpoint } = await fetchTextEndpoint(resolved.endpoint, requestInit);
+  if (!response.ok && options.jsonMode && [400, 415, 422].includes(response.status)) {
+    requestInit = createRequestInit(false);
+    const compatibilityResult = await fetchTextEndpoint(resolved.endpoint, requestInit);
+    response = compatibilityResult.response;
+    requestEndpoint = compatibilityResult.requestEndpoint;
+  }
   if (!response.ok && shouldRetryTextApiResponse(response)) {
     await waitForTextApiRetry();
     const retryResult = await fetchTextEndpoint(resolved.endpoint, requestInit);

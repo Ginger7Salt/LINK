@@ -1,5 +1,7 @@
 <template>
-  <section v-if="hasCustomProfileTheme" class="custom-profile-theme-root" :data-profile-theme-scope="profileThemeScopeId" v-html="customProfileThemeHtml"></section>
+  <section class="profile-homepage-viewer">
+    <div :class="['profile-homepage-stage', { custom: activeHomepageIsCustom }]">
+  <section v-if="activeHomepageIsCustom" class="custom-profile-theme-root" :data-profile-theme-scope="profileThemeScopeId" v-html="activeHomepageHtml"></section>
 
   <section v-else class="character-sheet">
     <header class="profile-topbar">
@@ -177,13 +179,24 @@
 
     <AvatarCropperModal v-model="showAvatarEditor" :src="avatarEditorSource" @confirm="applyEditedAvatar" />
   </section>
+    </div>
+
+    <nav class="profile-homepage-switcher" aria-label="角色主页历史切换">
+      <button type="button" :disabled="!canViewOlderHomepage" aria-label="查看上一个主页" @click="viewOlderHomepage">
+        <ChevronLeft :size="20" stroke-width="2.4" />
+      </button>
+      <button type="button" :disabled="!canViewNewerHomepage" aria-label="查看下一个主页" @click="viewNewerHomepage">
+        <ChevronRight :size="20" stroke-width="2.4" />
+      </button>
+    </nav>
+  </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onUnmounted, reactive, ref, watch } from 'vue';
-import { CheckCircle2, ChevronDown, MoreHorizontal, Pencil, UserPlus, X } from 'lucide-vue-next';
+import { CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, UserPlus, X } from 'lucide-vue-next';
 import AvatarCropperModal from '@/components/image/AvatarCropperModal.vue';
-import type { CharacterProfile, CharacterProfileHistoryEntry, VisualProfileHighlight, VoomPost } from '@/types/domain';
+import type { CharacterProfile, CharacterProfileHistoryEntry, ProfileHomepageRecord, VisualProfileHighlight, VoomPost } from '@/types/domain';
 import { normalizeCharacterMindStateLines } from '@/utils/character';
 import { readImageFileFromInput } from '@/utils/imageFile';
 import { createProfileHighlightItems, createProfileHighlightSlots } from '@/utils/profileHighlights';
@@ -206,6 +219,7 @@ const profileHistoryFieldLabels: Record<CharacterProfileHistoryEntry['field'], s
 
 const props = defineProps<{
   character: CharacterProfile;
+  homepages: ProfileHomepageRecord[];
   posts: VoomPost[];
 }>();
 
@@ -220,6 +234,7 @@ const showHistory = ref(false);
 const showAvatarEditor = ref(false);
 const avatarEditorSource = ref('');
 const confirmClearHistory = ref(false);
+const activeHomepageIndex = ref(0);
 
 const editorForm = reactive<{
   nickname: string;
@@ -248,7 +263,6 @@ const moodLines = computed(() => {
   return lines.length ? lines : [signatureText.value];
 });
 
-const profileThemeScopeId = computed(() => `profile-theme-${props.character.id}`);
 const profileThemeLines = computed(() => moodLines.value);
 const hasCustomProfileTheme = computed(() => Boolean(
   props.character.mindState?.profileThemeId
@@ -257,7 +271,53 @@ const hasCustomProfileTheme = computed(() => Boolean(
 ));
 const customProfileThemeHtml = computed(() => props.character.mindState?.profileThemeHtml
   || renderProfileThemeHtml(props.character.mindState?.profileThemeContent ?? '', ''));
-const profileThemeScopedCss = computed(() => scopeProfileThemeCss(props.character.mindState?.profileThemeCss ?? '', profileThemeScopeId.value));
+const homepageTimeline = computed(() => {
+  const currentMindState = props.character.mindState;
+  const records = props.homepages
+    .filter((homepage) => homepage.charId === props.character.id)
+    .slice()
+    .sort((first, second) => (second.updatedAt || second.createdAt) - (first.updatedAt || first.createdAt));
+  const currentRecordIndex = hasCustomProfileTheme.value
+    ? records.findIndex((homepage) => Boolean(
+      (currentMindState?.sourceReplyBatchId && homepage.replyBatchId === currentMindState.sourceReplyBatchId)
+      || (homepage.themeId === currentMindState?.profileThemeId
+        && homepage.html === customProfileThemeHtml.value
+        && homepage.content === currentMindState?.profileThemeContent)
+    ))
+    : -1;
+  if (currentRecordIndex >= 0) records.splice(currentRecordIndex, 1);
+
+  return [
+    {
+      id: 'current',
+      kind: hasCustomProfileTheme.value ? 'custom' as const : 'base' as const,
+      label: hasCustomProfileTheme.value ? `当前 · ${currentMindState?.profileThemeName || '自定义主页'}` : '当前主页',
+      html: customProfileThemeHtml.value,
+      css: currentMindState?.profileThemeCss ?? ''
+    },
+    ...records.map((homepage) => ({
+      id: homepage.id,
+      kind: 'custom' as const,
+      label: `${homepage.themeName} · ${formatProfileHistoryTime(homepage.updatedAt || homepage.createdAt)}`,
+      html: homepage.html || renderProfileThemeHtml(homepage.content, ''),
+      css: homepage.css
+    })),
+    ...(hasCustomProfileTheme.value ? [{
+      id: 'base',
+      kind: 'base' as const,
+      label: '基础主页',
+      html: '',
+      css: ''
+    }] : [])
+  ];
+});
+const activeHomepage = computed(() => homepageTimeline.value[activeHomepageIndex.value] ?? homepageTimeline.value[0]);
+const activeHomepageIsCustom = computed(() => activeHomepage.value?.kind === 'custom');
+const activeHomepageHtml = computed(() => activeHomepage.value?.html ?? '');
+const canViewOlderHomepage = computed(() => activeHomepageIndex.value < homepageTimeline.value.length - 1);
+const canViewNewerHomepage = computed(() => activeHomepageIndex.value > 0);
+const profileThemeScopeId = computed(() => `profile-theme-${props.character.id}-${activeHomepage.value?.id ?? 'current'}`.replace(/[^a-zA-Z0-9_-]/g, '-'));
+const profileThemeScopedCss = computed(() => scopeProfileThemeCss(activeHomepage.value?.css ?? '', profileThemeScopeId.value));
 let profileThemeStyleElement: HTMLStyleElement | null = null;
 
 watch(profileThemeScopedCss, (css) => {
@@ -274,6 +334,14 @@ watch(profileThemeScopedCss, (css) => {
   }
   profileThemeStyleElement.textContent = css;
 }, { immediate: true });
+
+watch(() => props.character.id, () => {
+  activeHomepageIndex.value = 0;
+});
+
+watch(() => homepageTimeline.value.length, (length) => {
+  activeHomepageIndex.value = Math.min(activeHomepageIndex.value, Math.max(0, length - 1));
+});
 
 onUnmounted(() => {
   profileThemeStyleElement?.remove();
@@ -312,6 +380,16 @@ function normalizeStatLabel(value: string | undefined, fallback: string) {
 function formatProfileHistoryTime(timestamp: number) {
   if (!Number.isFinite(timestamp) || timestamp <= 0) return '未知时间';
   return profileHistoryTimeFormatter.format(timestamp);
+}
+
+function viewOlderHomepage() {
+  if (!canViewOlderHomepage.value) return;
+  activeHomepageIndex.value += 1;
+}
+
+function viewNewerHomepage() {
+  if (!canViewNewerHomepage.value) return;
+  activeHomepageIndex.value -= 1;
 }
 
 function openEditor() {
@@ -401,6 +479,74 @@ function saveEditor() {
 </script>
 
 <style scoped>
+.profile-homepage-viewer {
+  position: relative;
+  width: 100%;
+  min-height: 0;
+  overflow: visible;
+}
+
+.profile-homepage-stage {
+  width: 100%;
+  max-height: min(640px, calc(var(--app-height) - var(--safe-top) - var(--safe-bottom) - 142px));
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+  border-radius: 26px;
+  background: #ffffff;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.profile-homepage-stage.custom {
+  padding: 0;
+}
+
+.profile-homepage-switcher {
+  position: absolute;
+  right: 4px;
+  bottom: -54px;
+  left: 4px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.profile-homepage-switcher button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: #171717;
+  pointer-events: auto;
+}
+
+.profile-homepage-switcher button:disabled {
+  color: #c7c9ca;
+  background: transparent;
+}
+
+:global(.modal-panel-profile-ins .modal-body:has(.profile-homepage-viewer)) {
+  overflow: visible;
+  padding: 0 !important;
+}
+
+:global(.modal-panel-profile-ins:has(.profile-homepage-viewer)) {
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
+}
+
+:global(.modal-backdrop-profile-ins:has(.profile-homepage-viewer)) {
+  padding-bottom: max(74px, calc(62px + var(--safe-bottom)));
+}
+
 .character-sheet {
   --profile-accent: #ff9db7;
   position: relative;
